@@ -37,18 +37,22 @@ export function createPlayer(input: { pseudo: string; publicKey: string }) {
   });
 }
 
-export function getMerkleWitness(gameIdField: string) {
+export function getMerkleWitness(network: NetworkId, gameIdField: string) {
   return request<{
     root: string;
     value: string;
     witness: { isLefts: boolean[]; siblings: string[] };
-  }>(`/merkle/witness/${encodeURIComponent(gameIdField)}`);
+  }>(`/merkle/witness/${network}/${encodeURIComponent(gameIdField)}`);
 }
 
 export function getTransactionStatus(network: NetworkId, hash: string) {
   return request<{ hash: string; network: NetworkId; status: "INCLUDED" | "PENDING" | "UNKNOWN" }>(
     `/transactions/${network}/${encodeURIComponent(hash)}/status`
   );
+}
+
+export function getCurrentSlot(network: NetworkId) {
+  return request<{ network: NetworkId; currentSlot: string }>(`/networks/${network}/current-slot`);
 }
 
 export function createGame(input: {
@@ -61,6 +65,8 @@ export function createGame(input: {
   creatorPseudoHash?: string;
   stakeNanoMina: string;
   creatorCommitment: string;
+  refundTimeoutSlots: number;
+  refundDeadlineSlot?: string;
   creationTxHash?: string;
 }) {
   return request<Game>("/games", {
@@ -76,6 +82,13 @@ export function reconcileCreationTx(id: string, creationTxHash: string) {
   });
 }
 
+export function markCreationFailed(id: string, reason?: string) {
+  return request<Game>(`/games/${id}/creation-failed`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason })
+  });
+}
+
 export function joinGame(
   id: string,
   input: {
@@ -83,6 +96,7 @@ export function joinGame(
     joinerPublicKey: string;
     joinerPseudoHash?: string;
     joinerCommitment: string;
+    refundDeadlineSlot?: string;
     joinTxHash: string;
   }
 ) {
@@ -109,6 +123,13 @@ export function settleGame(
   }
 ) {
   return request<Game>(`/games/${id}/settle`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function refundGame(id: string, input: { refundTxHash: string }) {
+  return request<Game>(`/games/${id}/refund`, {
     method: "POST",
     body: JSON.stringify(input)
   });

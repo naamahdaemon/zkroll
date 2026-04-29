@@ -34,9 +34,13 @@ db.exec(`
     joiner_die integer,
     winner_public_key text,
     status text not null,
+    refund_timeout_slots integer not null default 120,
+    refund_deadline_slot text,
+    failure_reason text,
     creation_tx_hash text not null unique,
     join_tx_hash text,
     settlement_tx_hash text,
+    refund_tx_hash text,
     created_at text not null,
     updated_at text not null,
     foreign key (creator_pseudo) references players(pseudo),
@@ -48,7 +52,11 @@ for (const statement of [
   "alter table games add column zkapp_address text",
   "alter table games add column game_id_field text",
   "alter table games add column creator_pseudo_hash text",
-  "alter table games add column joiner_pseudo_hash text"
+  "alter table games add column joiner_pseudo_hash text",
+  "alter table games add column refund_timeout_slots integer not null default 120",
+  "alter table games add column refund_deadline_slot text",
+  "alter table games add column failure_reason text",
+  "alter table games add column refund_tx_hash text"
 ]) {
   try {
     db.exec(statement);
@@ -85,9 +93,13 @@ type GameRow = {
   joiner_die: number | null;
   winner_public_key: string | null;
   status: GameStatus;
+  refund_timeout_slots: number;
+  refund_deadline_slot: string | null;
+  failure_reason: string | null;
   creation_tx_hash: string;
   join_tx_hash: string | null;
   settlement_tx_hash: string | null;
+  refund_tx_hash: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -121,9 +133,13 @@ function gameFromRow(row: GameRow): Game {
     joinerDie: row.joiner_die,
     winnerPublicKey: row.winner_public_key,
     status: row.status,
+    refundTimeoutSlots: row.refund_timeout_slots,
+    refundDeadlineSlot: row.refund_deadline_slot,
+    failureReason: row.failure_reason,
     creationTxHash: row.creation_tx_hash,
     joinTxHash: row.join_tx_hash,
     settlementTxHash: row.settlement_tx_hash,
+    refundTxHash: row.refund_tx_hash,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -162,6 +178,8 @@ export function createGame(input: {
   creatorPseudoHash?: string;
   stakeNanoMina: string;
   creatorCommitment: string;
+  refundTimeoutSlots: number;
+  refundDeadlineSlot?: string;
   creationTxHash?: string;
 }): Game {
   const now = new Date().toISOString();
@@ -171,8 +189,8 @@ export function createGame(input: {
     `
     insert into games (
       id, network, zkapp_address, game_id_field, creator_pseudo, creator_public_key, creator_pseudo_hash, stake_nano_mina,
-      creator_commitment, status, creation_tx_hash, created_at, updated_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      creator_commitment, refund_timeout_slots, refund_deadline_slot, status, creation_tx_hash, created_at, updated_at
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
   ).run(
     input.id,
@@ -184,6 +202,8 @@ export function createGame(input: {
     input.creatorPseudoHash ?? null,
     input.stakeNanoMina,
     input.creatorCommitment,
+    input.refundTimeoutSlots,
+    input.refundDeadlineSlot ?? null,
     status,
     creationTxHash,
     now,
@@ -214,6 +234,29 @@ export function reconcileCreationTx(id: string, creationTxHash: string): Game {
   return getGame(id)!;
 }
 
+export function markCreationFailed(id: string, reason?: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set status = 'failed',
+          failure_reason = ?,
+          updated_at = ?
+      where id = ?
+        and status in ('pending_signature', 'created')
+        and join_tx_hash is null
+    `
+    )
+    .run(reason ?? null, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Game creation cannot be marked as failed");
+  }
+
+  return getGame(id)!;
+}
+
 export function listGames(status?: GameStatus): Game[] {
   const rows = status
     ? (db.prepare("select * from games where status = ? order by created_at desc").all(status) as GameRow[])
@@ -234,6 +277,7 @@ export function joinGame(
     joinerPublicKey: string;
     joinerPseudoHash?: string;
     joinerCommitment: string;
+    refundDeadlineSlot?: string;
     joinTxHash: string;
   }
 ): Game {
@@ -246,6 +290,7 @@ export function joinGame(
           joiner_public_key = ?,
           joiner_pseudo_hash = ?,
           joiner_commitment = ?,
+          refund_deadline_slot = coalesce(?, refund_deadline_slot),
           join_tx_hash = ?,
           status = 'joined',
           updated_at = ?
@@ -257,6 +302,7 @@ export function joinGame(
       input.joinerPublicKey,
       input.joinerPseudoHash ?? null,
       input.joinerCommitment,
+      input.refundDeadlineSlot ?? null,
       input.joinTxHash,
       now,
       id
@@ -264,6 +310,28 @@ export function joinGame(
 
   if (result.changes !== 1) {
     throw new Error("Game is not open");
+  }
+
+  return getGame(id)!;
+}
+
+export function refundGame(id: string, input: { refundTxHash: string }): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set refund_tx_hash = ?,
+          status = 'refunded',
+          updated_at = ?
+      where id = ?
+        and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed')
+    `
+    )
+    .run(input.refundTxHash, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Game cannot be refunded");
   }
 
   return getGame(id)!;

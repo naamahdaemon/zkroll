@@ -38,6 +38,15 @@ export function requiredPositiveIntegerString(body: RecordBody, key: string): st
   return value;
 }
 
+export function requiredPositiveIntegerNumber(body: RecordBody, key: string): number {
+  const value = body[key];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new Error(`${key} must be a positive integer`);
+  }
+
+  return value;
+}
+
 export function requiredDie(body: RecordBody, key: string): number {
   const value = body[key];
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 6) {
@@ -55,6 +64,8 @@ export function optionalStatus(value: unknown): GameStatus | undefined {
     value === "player_one_revealed" ||
     value === "player_two_revealed" ||
     value === "settled" ||
+    value === "refunded" ||
+    value === "failed" ||
     value === "cancelled"
   ) {
     return value;

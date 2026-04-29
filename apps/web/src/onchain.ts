@@ -1,9 +1,10 @@
-import type { NetworkId } from "@zkroll/shared";
+import { networks, type GameStatus, type NetworkId } from "@zkroll/shared";
 import type { MinaProvider } from "./types";
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_ZKROLL_CONTRACT_ADDRESS as string | undefined;
 const FEE_NANOMINA = Number(import.meta.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const WALLET_RESPONSE_TIMEOUT_MS = Number(import.meta.env.VITE_WALLET_RESPONSE_TIMEOUT_MS ?? 120_000);
+const O1JS_BROWSER_CACHE_ENABLED = import.meta.env.VITE_O1JS_BROWSER_CACHE_ENABLED !== "false";
 
 type WitnessJson = {
   isLefts: boolean[];
@@ -119,9 +120,9 @@ function browserCache() {
 }
 
 async function load() {
-  const [{ Bool, Encoding, Field, MerkleMapWitness, Mina, Poseidon, PublicKey, UInt64 }, contracts] =
+  const [{ Bool, Encoding, fetchLastBlock, Field, MerkleMapWitness, Mina, Poseidon, PublicKey, UInt32, UInt64 }, contracts] =
     await Promise.all([import("o1js"), import("@zkroll/contracts")]);
-  return { Bool, Encoding, Field, MerkleMapWitness, Mina, Poseidon, PublicKey, UInt64, ...contracts };
+  return { Bool, Encoding, fetchLastBlock, Field, MerkleMapWitness, Mina, Poseidon, PublicKey, UInt32, UInt64, ...contracts };
 }
 
 async function setup(network: NetworkId, onProgress?: ProgressCallback) {
@@ -134,7 +135,7 @@ async function setup(network: NetworkId, onProgress?: ProgressCallback) {
   if (!compiled) {
     report(onProgress, "Compilation du circuit ZK", 12);
   }
-  compilePromise ??= toolkit.ZkRoll.compile({ cache: browserCache() });
+  compilePromise ??= O1JS_BROWSER_CACHE_ENABLED ? toolkit.ZkRoll.compile({ cache: browserCache() }) : toolkit.ZkRoll.compile();
   await compilePromise;
   compiled = true;
   report(onProgress, "Circuit ZK pret", 38);
@@ -211,6 +212,13 @@ export async function commitment(secret: string, publicKey: string, gameIdField:
   return Poseidon.hash([Field(secret), ...player.toFields(), Field(gameIdField)]).toString();
 }
 
+export async function nextRefundDeadlineSlot(network: NetworkId, timeoutSlots: number) {
+  const { fetchLastBlock } = await load();
+  const latest = await fetchLastBlock(networks[network].minaEndpoint);
+  const currentSlot = BigInt(latest.globalSlotSinceGenesis.toString());
+  return (currentSlot + BigInt(timeoutSlots)).toString();
+}
+
 function witnessFromJson(toolkit: Awaited<ReturnType<typeof load>>, witness: WitnessJson) {
   return new toolkit.MerkleMapWitness(
     witness.isLefts.map((item) => toolkit.Bool(item)),
@@ -226,6 +234,7 @@ export async function createGameOnchain(input: {
   secret: string;
   gameIdField: string;
   stakeNanoMina: string;
+  refundDeadlineSlot: string;
   witness: WitnessJson;
   onProgress?: ProgressCallback;
 }) {
@@ -243,7 +252,8 @@ export async function createGameOnchain(input: {
       sender,
       toolkit.Poseidon.hash(toolkit.Encoding.stringToFields(input.pseudo)),
       toolkit.UInt64.from(input.stakeNanoMina),
-      toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField))
+      toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField)),
+      toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
   report(input.onProgress, "Generation de la preuve", 54);
@@ -264,6 +274,8 @@ export async function joinGameOnchain(input: {
   creatorPseudoHash: string;
   stakeNanoMina: string;
   creatorCommitment: string;
+  currentRefundDeadlineSlot: string;
+  nextRefundDeadlineSlot: string;
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
@@ -283,7 +295,9 @@ export async function joinGameOnchain(input: {
       toolkit.Field(input.creatorCommitment),
       sender,
       toolkit.Poseidon.hash(toolkit.Encoding.stringToFields(input.pseudo)),
-      toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField))
+      toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField)),
+      toolkit.UInt32.from(input.currentRefundDeadlineSlot),
+      toolkit.UInt32.from(input.nextRefundDeadlineSlot)
     );
   });
   report(input.onProgress, "Generation de la preuve", 54);
@@ -308,6 +322,7 @@ export async function settleGameOnchain(input: {
   creatorSecret: string;
   joinerSecret: string;
   winnerPublicKey: string | null;
+  refundDeadlineSlot: string;
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
@@ -333,13 +348,75 @@ export async function settleGameOnchain(input: {
       toolkit.Field(input.joinerCommitment),
       toolkit.Field(input.creatorSecret),
       toolkit.Field(input.joinerSecret),
-      winner
+      winner,
+      toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
   report(input.onProgress, "Generation de la preuve", 54);
   await tx.prove();
   report(input.onProgress, "Preuve generee", 82);
   return sendWithWallet(provider, tx.toJSON(), "zkroll settle", input.onProgress);
+}
+
+export async function refundGameOnchain(input: {
+  provider: MinaProvider | undefined;
+  network: NetworkId;
+  senderPublicKey: string;
+  status: GameStatus;
+  gameIdField: string;
+  witness: WitnessJson;
+  creatorPublicKey: string;
+  creatorPseudoHash: string;
+  joinerPublicKey: string | null;
+  joinerPseudoHash: string | null;
+  stakeNanoMina: string;
+  creatorCommitment: string;
+  joinerCommitment: string | null;
+  refundDeadlineSlot: string;
+  onProgress?: ProgressCallback;
+}) {
+  const provider = assertProvider(input.provider);
+  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  const toolkit = await setup(input.network, input.onProgress);
+  const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
+  const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
+  const witness = witnessFromJson(toolkit, input.witness);
+
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA }, async () => {
+    if (input.status === "created") {
+      await contract.refundCreatedGame(
+        toolkit.Field(input.gameIdField),
+        witness,
+        toolkit.PublicKey.fromBase58(input.creatorPublicKey),
+        toolkit.Field(input.creatorPseudoHash),
+        toolkit.UInt64.from(input.stakeNanoMina),
+        toolkit.Field(input.creatorCommitment),
+        toolkit.UInt32.from(input.refundDeadlineSlot)
+      );
+      return;
+    }
+
+    if (!input.joinerPublicKey || !input.joinerPseudoHash || !input.joinerCommitment) {
+      throw new Error("Partie incomplete pour refund on-chain.");
+    }
+
+    await contract.refundJoinedGame(
+      toolkit.Field(input.gameIdField),
+      witness,
+      toolkit.PublicKey.fromBase58(input.creatorPublicKey),
+      toolkit.Field(input.creatorPseudoHash),
+      toolkit.PublicKey.fromBase58(input.joinerPublicKey),
+      toolkit.Field(input.joinerPseudoHash),
+      toolkit.UInt64.from(input.stakeNanoMina),
+      toolkit.Field(input.creatorCommitment),
+      toolkit.Field(input.joinerCommitment),
+      toolkit.UInt32.from(input.refundDeadlineSlot)
+    );
+  });
+  report(input.onProgress, "Generation de la preuve", 54);
+  await tx.prove();
+  report(input.onProgress, "Preuve generee", 82);
+  return sendWithWallet(provider, tx.toJSON(), "zkroll refund", input.onProgress);
 }
 
 export async function diceOutcomeOnchain(creatorSecret: string, joinerSecret: string, gameIdField: string) {

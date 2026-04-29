@@ -162,12 +162,18 @@ select {
 
 .key,
 .notice,
-.empty {
+.empty,
+.timer {
   color: #52635a;
   font-size: 13px;
   line-height: 1.45;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.timer {
+  color: #17201b;
+  font-weight: 800;
 }
 
 .games {
@@ -234,6 +240,14 @@ select {
   background: #1f6f5b;
 }
 
+.status.refunded {
+  background: #6f4aa0;
+}
+
+.status.failed {
+  background: #b23b3b;
+}
+
 dl {
   display: grid;
   gap: 12px;
@@ -282,6 +296,11 @@ dd {
 .txBadge.unknown {
   background: #eef1f4;
   color: #52635a;
+}
+
+.txBadge.failed {
+  background: #fdeaea;
+  color: #b23b3b;
 }
 
 .actions {
@@ -407,6 +426,12 @@ dd {
 
 .winner strong {
   overflow-wrap: anywhere;
+}
+
+.failedBox {
+  background: #fdeaea;
+  border-color: #e5b5b5;
+  color: #5c1f1f;
 }
 
 @media (max-width: 1060px) {

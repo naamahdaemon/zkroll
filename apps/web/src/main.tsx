@@ -5,12 +5,15 @@ import { networks, type Game, type NetworkId } from "@zkroll/shared";
 import {
   createGame,
   createPlayer,
+  getCurrentSlot,
   getMerkleWitness,
   getPlayerByPublicKey,
   getTransactionStatus,
   joinGame,
   listGames,
+  markCreationFailed,
   reconcileCreationTx,
+  refundGame,
   revealGame,
   settleGame
 } from "./api";
@@ -21,7 +24,9 @@ import {
   diceOutcomeOnchain,
   ensureWalletNetwork,
   joinGameOnchain,
+  nextRefundDeadlineSlot,
   pseudoHash,
+  refundGameOnchain,
   settleGameOnchain,
   type OnchainProgress
 } from "./onchain";
@@ -31,7 +36,8 @@ import "./types";
 const nanoMina = 1_000_000_000;
 const onchainEnabled = import.meta.env.VITE_ONCHAIN_ENABLED === "true";
 const globalContractAddress = import.meta.env.VITE_ZKROLL_CONTRACT_ADDRESS as string | undefined;
-type TxStatus = "INCLUDED" | "PENDING" | "UNKNOWN";
+const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
+type TxStatus = "INCLUDED" | "PENDING" | "FAILED" | "UNKNOWN";
 
 function DiceFace({ value }: { value: number | "?" }) {
   const pips: Record<number, number[]> = {
@@ -69,6 +75,7 @@ function App() {
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
   const [network, setNetwork] = useState<NetworkId>("devnet");
   const [stake, setStake] = useState("1");
+  const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
@@ -77,7 +84,14 @@ function App() {
   const [rollFrames, setRollFrames] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
   const [busy, setBusy] = useState(false);
   const [onchainProgress, setOnchainProgress] = useState<OnchainProgress | null>(null);
+  const [onchainStartedAt, setOnchainStartedAt] = useState<number | null>(null);
+  const [onchainElapsedSeconds, setOnchainElapsedSeconds] = useState(0);
   const [txStatuses, setTxStatuses] = useState<Record<string, TxStatus>>({});
+  const [currentSlots, setCurrentSlots] = useState<Record<NetworkId, string | null>>({
+    mainnet: null,
+    devnet: null,
+    zeko: null
+  });
   const [message, setMessage] = useState("Connecte ton wallet pour commencer.");
 
   const visibleGames = useMemo(
@@ -112,8 +126,12 @@ function App() {
     return txStatuses[hash] ?? "PENDING";
   }
 
+  function creationStatusFor(game: Game): TxStatus {
+    return game.status === "failed" ? "FAILED" : statusFor(game.creationTxHash);
+  }
+
   function canJoin(game: Game): boolean {
-    return game.status === "created" && statusFor(game.creationTxHash) === "INCLUDED";
+    return game.status === "created" && creationStatusFor(game) === "INCLUDED";
   }
 
   function canReveal(game: Game): boolean {
@@ -126,6 +144,30 @@ function App() {
 
   function canSettle(game: Game): boolean {
     return Boolean(game.creatorReveal && game.joinerReveal && canReveal(game));
+  }
+
+  function canRefund(game: Game): boolean {
+    const currentSlot = currentSlots[game.network];
+    const deadlineReached =
+      !onchainEnabled ||
+      (Boolean(currentSlot) && Boolean(game.refundDeadlineSlot) && BigInt(currentSlot!) >= BigInt(game.refundDeadlineSlot!));
+    const joinedLike =
+      game.status === "joined" || game.status === "player_one_revealed" || game.status === "player_two_revealed";
+      if (game.status === "created") {
+      return deadlineReached && creationStatusFor(game) === "INCLUDED";
+    }
+    return (
+      deadlineReached &&
+      joinedLike &&
+      creationStatusFor(game) === "INCLUDED" &&
+      statusFor(game.joinTxHash) === "INCLUDED"
+    );
+  }
+
+  function normalizedRefundTimeout() {
+    const value = Number(refundTimeoutSlots);
+    if (!Number.isInteger(value) || value < 1) throw new Error("Le timeout de refund doit etre un nombre entier positif.");
+    return value;
   }
 
   useEffect(() => {
@@ -145,7 +187,8 @@ function App() {
         [
           { network: game.network, hash: game.creationTxHash },
           { network: game.network, hash: game.joinTxHash },
-          { network: game.network, hash: game.settlementTxHash }
+          { network: game.network, hash: game.settlementTxHash },
+          { network: game.network, hash: game.refundTxHash }
         ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash))
       );
       const unique = Array.from(new Map(txs.map((item) => [item.hash, item])).values());
@@ -174,6 +217,50 @@ function App() {
       window.clearInterval(interval);
     };
   }, [games]);
+
+  useEffect(() => {
+    if (!onchainEnabled) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      const networksToPoll = Array.from(new Set([network, ...games.map((game) => game.network)]));
+      const nextSlots = await Promise.all(
+        networksToPoll.map(async (item) => {
+          try {
+            const result = await getCurrentSlot(item);
+            return [item, result.currentSlot] as const;
+          } catch {
+            return [item, null] as const;
+          }
+        })
+      );
+
+      if (!cancelled) {
+        setCurrentSlots((current) => ({ ...current, ...Object.fromEntries(nextSlots) }));
+      }
+    };
+
+    void poll();
+    const interval = window.setInterval(() => void poll(), 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [games, network]);
+
+  useEffect(() => {
+    if (!onchainProgress || !onchainStartedAt) {
+      setOnchainElapsedSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      setOnchainElapsedSeconds(Math.max(0, Math.floor((Date.now() - onchainStartedAt) / 1000)));
+    };
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, [onchainProgress, onchainStartedAt]);
 
   function rememberSecret(gameId: string, secret: string) {
     if (!publicKey) return;
@@ -269,6 +356,7 @@ function App() {
   async function runAction(action: () => Promise<void>) {
     setBusy(true);
     setOnchainProgress(null);
+    setOnchainStartedAt(null);
     try {
       await action();
       await refreshGames();
@@ -277,7 +365,13 @@ function App() {
     } finally {
       setBusy(false);
       setOnchainProgress(null);
+      setOnchainStartedAt(null);
     }
+  }
+
+  function updateOnchainProgress(progress: OnchainProgress) {
+    setOnchainStartedAt((startedAt) => startedAt ?? Date.now());
+    setOnchainProgress(progress);
   }
 
   async function handleReconcileCreation(game: Game) {
@@ -293,6 +387,23 @@ function App() {
     });
   }
 
+  async function handleMarkCreationFailed(game: Game) {
+    await runAction(async () => {
+      if (game.creatorPublicKey !== publicKey) {
+        throw new Error("Seul le createur peut marquer cette creation comme echouee.");
+      }
+      const confirmed = window.confirm(
+        "Marquer cette creation comme echouee ? A utiliser uniquement si la transaction create est failed sur l'explorateur."
+      );
+      if (!confirmed) return;
+      const reason =
+        window.prompt("Raison optionnelle", "Create transaction failed on-chain") ?? "Create transaction failed on-chain";
+      const failed = await markCreationFailed(game.id, reason.trim() || undefined);
+      setSelectedGameId(failed.id);
+      setMessage("Creation marquee comme echouee. La partie est exclue de la racine Merkle locale.");
+    });
+  }
+
   async function handleCreateGame() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error("Pseudo et wallet requis.");
@@ -303,6 +414,8 @@ function App() {
         ? await onchainCommitment(secret, publicKey, gameIdField)
         : await temporaryCommitment(secret, publicKey, `${pseudo}:${Date.now()}`);
       const stakeNanoMina = String(Math.round(Number(stake) * nanoMina));
+      const refundTimeout = normalizedRefundTimeout();
+      const refundDeadlineSlot = onchainEnabled ? await nextRefundDeadlineSlot(network, refundTimeout) : "0";
       let txHash = fakeTxHash("create");
       const created = await createGame({
         id: gameIdField.slice(0, 12),
@@ -314,13 +427,15 @@ function App() {
         creatorPseudoHash,
         stakeNanoMina,
         creatorCommitment,
+        refundTimeoutSlots: refundTimeout,
+        refundDeadlineSlot,
         creationTxHash: onchainEnabled ? undefined : txHash
       });
       rememberSecret(created.id, secret);
       setSelectedGameId(created.id);
 
       if (onchainEnabled) {
-        const witness = await getMerkleWitness(gameIdField);
+        const witness = await getMerkleWitness(network, gameIdField);
         txHash = await createGameOnchain({
           provider: window.mina,
           network,
@@ -329,8 +444,9 @@ function App() {
           secret,
           gameIdField,
           stakeNanoMina,
+          refundDeadlineSlot,
           witness: witness.witness,
-          onProgress: setOnchainProgress
+          onProgress: updateOnchainProgress
         });
         const reconciled = await reconcileCreationTx(created.id, txHash);
         setSelectedGameId(reconciled.id);
@@ -350,11 +466,12 @@ function App() {
       const joinerCommitment = onchainEnabled
         ? await onchainCommitment(secret, publicKey, gameIdField)
         : await temporaryCommitment(secret, publicKey, game.id);
+      const refundDeadlineSlot = onchainEnabled ? await nextRefundDeadlineSlot(game.network, game.refundTimeoutSlots) : "0";
       let txHash = fakeTxHash("join");
 
       if (onchainEnabled) {
-        if (!game.gameIdField || !game.creatorPseudoHash) throw new Error("Partie non compatible on-chain.");
-        const witness = await getMerkleWitness(game.gameIdField);
+        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) throw new Error("Partie non compatible on-chain.");
+        const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await joinGameOnchain({
           provider: window.mina,
           network: game.network,
@@ -367,7 +484,9 @@ function App() {
           creatorPseudoHash: game.creatorPseudoHash,
           stakeNanoMina: game.stakeNanoMina,
           creatorCommitment: game.creatorCommitment,
-          onProgress: setOnchainProgress
+          currentRefundDeadlineSlot: game.refundDeadlineSlot,
+          nextRefundDeadlineSlot: refundDeadlineSlot,
+          onProgress: updateOnchainProgress
         });
       }
 
@@ -376,6 +495,7 @@ function App() {
         joinerPublicKey: publicKey,
         joinerPseudoHash,
         joinerCommitment,
+        refundDeadlineSlot,
         joinTxHash: txHash
       });
       rememberSecret(joined.id, secret);
@@ -414,10 +534,17 @@ function App() {
       let txHash = fakeTxHash("settle");
 
       if (onchainEnabled) {
-        if (!game.gameIdField || !game.creatorPseudoHash || !game.joinerPseudoHash || !game.joinerPublicKey || !game.joinerCommitment) {
+        if (
+          !game.gameIdField ||
+          !game.creatorPseudoHash ||
+          !game.joinerPseudoHash ||
+          !game.joinerPublicKey ||
+          !game.joinerCommitment ||
+          !game.refundDeadlineSlot
+        ) {
           throw new Error("Partie incomplete pour settlement on-chain.");
         }
-        const witness = await getMerkleWitness(game.gameIdField);
+        const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await settleGameOnchain({
           provider: window.mina,
           network: game.network,
@@ -434,7 +561,8 @@ function App() {
           creatorSecret: game.creatorReveal,
           joinerSecret: game.joinerReveal,
           winnerPublicKey,
-          onProgress: setOnchainProgress
+          refundDeadlineSlot: game.refundDeadlineSlot,
+          onProgress: updateOnchainProgress
         });
       }
 
@@ -445,6 +573,44 @@ function App() {
         settlementTxHash: txHash
       });
       setMessage(onchainEnabled ? "Partie reglee on-chain et indexee." : "Partie reglee en mode simulation.");
+    });
+  }
+
+  async function handleRefund(game: Game) {
+    await runAction(async () => {
+      if (!publicKey) throw new Error("Wallet requis.");
+      if (!canRefund(game)) throw new Error("Le timeout doit etre atteint et les transactions create/join doivent etre incluses avant un refund.");
+      if (game.creatorPublicKey !== publicKey && game.joinerPublicKey !== publicKey) {
+        throw new Error("Seul un joueur de cette partie peut demander le refund.");
+      }
+
+      let txHash = fakeTxHash("refund");
+      if (onchainEnabled) {
+        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
+          throw new Error("Partie incomplete pour refund on-chain.");
+        }
+        const witness = await getMerkleWitness(game.network, game.gameIdField);
+        txHash = await refundGameOnchain({
+          provider: window.mina,
+          network: game.network,
+          senderPublicKey: publicKey,
+          status: game.status,
+          gameIdField: game.gameIdField,
+          witness: witness.witness,
+          creatorPublicKey: game.creatorPublicKey,
+          creatorPseudoHash: game.creatorPseudoHash,
+          joinerPublicKey: game.joinerPublicKey,
+          joinerPseudoHash: game.joinerPseudoHash,
+          stakeNanoMina: game.stakeNanoMina,
+          creatorCommitment: game.creatorCommitment,
+          joinerCommitment: game.joinerCommitment,
+          refundDeadlineSlot: game.refundDeadlineSlot,
+          onProgress: updateOnchainProgress
+        });
+      }
+
+      await refundGame(game.id, { refundTxHash: txHash });
+      setMessage(onchainEnabled ? "Refund envoye on-chain et indexe." : "Partie remboursee en mode simulation.");
     });
   }
 
@@ -479,6 +645,7 @@ function App() {
               <span style={{ width: `${onchainProgress.progress}%` }} />
             </div>
             <p className="notice">La compilation et la generation de preuve peuvent prendre un moment dans le navigateur.</p>
+            <p className="timer">Temps ecoule : {onchainElapsedSeconds}s</p>
           </div>
         </div>
       )}
@@ -523,6 +690,16 @@ function App() {
           <label>
             Mise en MINA
             <input min="0.1" step="0.1" type="number" value={stake} onChange={(event) => setStake(event.target.value)} />
+          </label>
+          <label>
+            Timeout refund (slots)
+            <input
+              min="1"
+              step="1"
+              type="number"
+              value={refundTimeoutSlots}
+              onChange={(event) => setRefundTimeoutSlots(event.target.value)}
+            />
           </label>
           <button disabled={busy || !pseudo || !publicKey} onClick={() => void handleCreateGame()} className="primary">
             <Dices size={18} />
@@ -576,8 +753,8 @@ function App() {
                   <dt>Transaction</dt>
                   <dd>
                     {selectedGame.creationTxHash}
-                    <span className={`txBadge ${statusFor(selectedGame.creationTxHash).toLowerCase()}`}>
-                      {statusFor(selectedGame.creationTxHash)}
+                    <span className={`txBadge ${creationStatusFor(selectedGame).toLowerCase()}`}>
+                      {creationStatusFor(selectedGame)}
                     </span>
                   </dd>
                 </div>
@@ -603,12 +780,35 @@ function App() {
                     </dd>
                   </div>
                 )}
+                {selectedGame.refundTxHash && (
+                  <div>
+                    <dt>Refund tx</dt>
+                    <dd>
+                      {selectedGame.refundTxHash}
+                      <span className={`txBadge ${statusFor(selectedGame.refundTxHash).toLowerCase()}`}>
+                        {statusFor(selectedGame.refundTxHash)}
+                      </span>
+                    </dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Refund</dt>
+                  <dd>
+                    {selectedGame.refundDeadlineSlot
+                      ? `${selectedGame.refundTimeoutSlots} slots, actif apres le slot ${selectedGame.refundDeadlineSlot}. Slot courant: ${
+                          currentSlots[selectedGame.network] ?? "..."
+                        }`
+                      : "Non configure"}
+                  </dd>
+                </div>
                 <div>
                   <dt>Etat on-chain</dt>
                   <dd>
                     {selectedGame.status === "pending_signature"
                       ? "Signature envoyee ou en attente de hash"
-                      : selectedGame.status === "created" && statusFor(selectedGame.creationTxHash) !== "INCLUDED"
+                      : selectedGame.status === "failed"
+                        ? selectedGame.failureReason ?? "Creation echouee on-chain"
+                        : selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED"
                       ? "En attente de confirmation creation"
                       : selectedGame.status === "joined" && statusFor(selectedGame.joinTxHash) !== "INCLUDED"
                         ? "En attente de confirmation join"
@@ -624,15 +824,26 @@ function App() {
               </dl>
 
               {selectedGame.status === "pending_signature" && (
-                <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
-                  Renseigner le hash
-                </button>
+                <div className="actions">
+                  <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
+                    Renseigner le hash
+                  </button>
+                  <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
+                    Marquer echouee
+                  </button>
+                </div>
               )}
 
               {selectedGame.status === "created" && (
                 <button disabled={busy || !canJoin(selectedGame)} onClick={() => void handleJoinGame(selectedGame)} className="primary">
                   <Dices size={18} />
                   Rejoindre
+                </button>
+              )}
+
+              {selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED" && (
+                <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
+                  Marquer echouee
                 </button>
               )}
 
@@ -662,7 +873,16 @@ function App() {
                   <button disabled={busy || !canSettle(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
                     Regler
                   </button>
+                  <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
+                    Refund
+                  </button>
                 </div>
+              )}
+
+              {selectedGame.status === "created" && (
+                <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
+                  Refund
+                </button>
               )}
 
               {selectedGame.status === "settled" && (
@@ -672,6 +892,21 @@ function App() {
                     {selectedGame.creatorDie} - {selectedGame.joinerDie}
                   </span>
                   <strong>{selectedGame.winnerPublicKey ?? "Egalite"}</strong>
+                </div>
+              )}
+
+              {selectedGame.status === "refunded" && (
+                <div className="winner">
+                  <ShieldCheck size={22} />
+                  <strong>Partie remboursee</strong>
+                </div>
+              )}
+
+              {selectedGame.status === "failed" && (
+                <div className="winner failedBox">
+                  <ShieldCheck size={22} />
+                  <strong>Creation echouee</strong>
+                  <span>{selectedGame.failureReason ?? "Aucun fonds n'a ete verrouille par le contrat."}</span>
                 </div>
               )}
             </>

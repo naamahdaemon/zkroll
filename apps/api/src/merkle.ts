@@ -1,5 +1,5 @@
-import { fetchAccount, Field, MerkleMap, PublicKey, UInt64 } from "o1js";
-import { CREATED, EMPTY, gameLeaf, JOINED, SETTLED } from "@zkroll/contracts";
+import { fetchAccount, Field, MerkleMap, PublicKey, UInt32, UInt64 } from "o1js";
+import { CREATED, EMPTY, gameLeaf, JOINED, REFUNDED, SETTLED } from "@zkroll/contracts";
 import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
 import { listGames } from "./db.js";
 
@@ -7,6 +7,7 @@ function statusField(status: GameStatus) {
   if (status === "created") return CREATED;
   if (status === "joined" || status === "player_one_revealed" || status === "player_two_revealed") return JOINED;
   if (status === "settled") return SETTLED;
+  if (status === "refunded") return REFUNDED;
   return EMPTY;
 }
 
@@ -30,14 +31,16 @@ export function leafForGame(game: Game): Field {
     joinerCommitment: fieldOrEmpty(game.joinerCommitment),
     creatorDie: game.creatorDie ? Field(game.creatorDie) : EMPTY,
     joinerDie: game.joinerDie ? Field(game.joinerDie) : EMPTY,
-    winner: publicKeyOrEmpty(game.winnerPublicKey)
+    winner: publicKeyOrEmpty(game.winnerPublicKey),
+    refundDeadlineSlot: game.refundDeadlineSlot ? UInt32.from(game.refundDeadlineSlot) : UInt32.zero
   });
 }
 
-export function buildGamesMap() {
+export function buildGamesMap(network: NetworkId) {
   const map = new MerkleMap();
   for (const game of listGames()) {
-    if (!game.gameIdField || game.status === "cancelled" || game.status === "pending_signature") continue;
+    if (game.network !== network) continue;
+    if (!game.gameIdField || game.status === "cancelled" || game.status === "failed" || game.status === "pending_signature") continue;
     try {
       map.set(Field(game.gameIdField), leafForGame(game));
     } catch {
@@ -47,8 +50,8 @@ export function buildGamesMap() {
   return map;
 }
 
-export function backendGamesRoot() {
-  return buildGamesMap().getRoot().toString();
+export function backendGamesRoot(network: NetworkId) {
+  return buildGamesMap(network).getRoot().toString();
 }
 
 export async function onchainGamesRoot(network: NetworkId) {
@@ -81,8 +84,8 @@ export async function onchainGamesRoot(network: NetworkId) {
   };
 }
 
-export function witnessForGameId(gameIdField: string) {
-  const map = buildGamesMap();
+export function witnessForGameId(network: NetworkId, gameIdField: string) {
+  const map = buildGamesMap(network);
   const key = Field(gameIdField);
   const witness = map.getWitness(key);
 

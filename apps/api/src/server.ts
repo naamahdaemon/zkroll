@@ -1,7 +1,8 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { nanoid } from "nanoid";
-import { assertNetworkId } from "@zkroll/shared";
+import { fetchLastBlock } from "o1js";
+import { assertNetworkId, networks } from "@zkroll/shared";
 import {
   createGame,
   getGame,
@@ -9,7 +10,9 @@ import {
   getPlayerByPseudo,
   joinGame,
   listGames,
+  markCreationFailed,
   reconcileCreationTx,
+  refundGame,
   revealSecret,
   settleGame,
   upsertPlayer
@@ -20,6 +23,7 @@ import {
   optionalString,
   requiredDie,
   requiredNetwork,
+  requiredPositiveIntegerNumber,
   requiredPositiveIntegerString,
   requiredString
 } from "./validation.js";
@@ -67,10 +71,10 @@ app.get("/games", async (request, reply) => {
   }
 });
 
-app.get("/merkle/witness/:gameIdField", async (request, reply) => {
+app.get("/merkle/witness/:network/:gameIdField", async (request, reply) => {
   try {
-    const { gameIdField } = request.params as { gameIdField: string };
-    return witnessForGameId(gameIdField);
+    const { network, gameIdField } = request.params as { network: string; gameIdField: string };
+    return witnessForGameId(assertNetworkId(network), gameIdField);
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -80,7 +84,7 @@ app.get("/transactions/:network/:hash/status", async (request, reply) => {
   try {
     const { network, hash } = request.params as { network: string; hash: string };
     const networkId = assertNetworkId(network);
-    const backendRoot = backendGamesRoot();
+    const backendRoot = backendGamesRoot(networkId);
     const chain = await onchainGamesRoot(networkId);
     const status = chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN";
     return {
@@ -95,6 +99,20 @@ app.get("/transactions/:network/:hash/status", async (request, reply) => {
   } catch (error) {
     const { network, hash } = request.params as { network: string; hash: string };
     return { hash, network, status: "UNKNOWN", error: (error as Error).message };
+  }
+});
+
+app.get("/networks/:network/current-slot", async (request, reply) => {
+  try {
+    const { network } = request.params as { network: string };
+    const networkId = assertNetworkId(network);
+    const latest = await fetchLastBlock(networks[networkId].minaEndpoint);
+    return {
+      network: networkId,
+      currentSlot: latest.globalSlotSinceGenesis.toString()
+    };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
   }
 });
 
@@ -123,6 +141,8 @@ app.post("/games", async (request, reply) => {
         creatorPseudoHash: optionalString(body, "creatorPseudoHash"),
         stakeNanoMina: requiredPositiveIntegerString(body, "stakeNanoMina"),
         creatorCommitment: requiredString(body, "creatorCommitment"),
+        refundTimeoutSlots: requiredPositiveIntegerNumber(body, "refundTimeoutSlots"),
+        refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
         creationTxHash: optionalString(body, "creationTxHash")
       })
     );
@@ -141,6 +161,16 @@ app.patch("/games/:id/creation-tx", async (request, reply) => {
   }
 });
 
+app.patch("/games/:id/creation-failed", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return markCreationFailed(id, optionalString(body, "reason"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
 app.post("/games/:id/join", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
@@ -154,6 +184,7 @@ app.post("/games/:id/join", async (request, reply) => {
       joinerPublicKey,
       joinerPseudoHash: optionalString(body, "joinerPseudoHash"),
       joinerCommitment: requiredString(body, "joinerCommitment"),
+      refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
       joinTxHash: requiredString(body, "joinTxHash")
     });
   } catch (error) {
@@ -182,6 +213,18 @@ app.post("/games/:id/settle", async (request, reply) => {
       joinerDie: requiredDie(body, "joinerDie"),
       winnerPublicKey,
       settlementTxHash: requiredString(body, "settlementTxHash")
+    });
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/games/:id/refund", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return refundGame(id, {
+      refundTxHash: requiredString(body, "refundTxHash")
     });
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

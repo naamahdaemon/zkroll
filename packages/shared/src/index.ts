@@ -7,6 +7,8 @@ export type GameStatus =
   | "player_one_revealed"
   | "player_two_revealed"
   | "settled"
+  | "refunded"
+  | "failed"
   | "cancelled";
 
 export type Player = {
@@ -35,9 +37,13 @@ export type Game = {
   joinerDie: number | null;
   winnerPublicKey: string | null;
   status: GameStatus;
+  refundTimeoutSlots: number;
+  refundDeadlineSlot: string | null;
+  failureReason: string | null;
   creationTxHash: string;
   joinTxHash: string | null;
   settlementTxHash: string | null;
+  refundTxHash: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -57,6 +63,8 @@ export type CreateGameRequest = {
   creatorPseudoHash?: string;
   stakeNanoMina: string;
   creatorCommitment: string;
+  refundTimeoutSlots: number;
+  refundDeadlineSlot?: string;
   creationTxHash?: string;
 };
 
@@ -64,11 +72,16 @@ export type ReconcileCreationRequest = {
   creationTxHash: string;
 };
 
+export type MarkCreationFailedRequest = {
+  reason?: string;
+};
+
 export type JoinGameRequest = {
   joinerPseudo: string;
   joinerPublicKey: string;
   joinerPseudoHash?: string;
   joinerCommitment: string;
+  refundDeadlineSlot?: string;
   joinTxHash: string;
 };
 
@@ -82,6 +95,10 @@ export type SettleGameRequest = {
   joinerDie: number;
   winnerPublicKey: string | null;
   settlementTxHash: string;
+};
+
+export type RefundGameRequest = {
+  refundTxHash: string;
 };
 
 export type NetworkConfig = {
