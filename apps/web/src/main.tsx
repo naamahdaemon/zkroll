@@ -19,6 +19,7 @@ import {
   commitment as onchainCommitment,
   createGameOnchain,
   diceOutcomeOnchain,
+  ensureWalletNetwork,
   joinGameOnchain,
   pseudoHash,
   settleGameOnchain,
@@ -224,6 +225,13 @@ function App() {
     setPublicKey(account);
     if (!account) {
       setMessage("Aucun compte retourne par le wallet.");
+      return;
+    }
+
+    try {
+      await ensureWalletNetwork(window.mina, network);
+    } catch (error) {
+      setMessage((error as Error).message);
       return;
     }
 

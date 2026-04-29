@@ -24,6 +24,64 @@ function report(callback: ProgressCallback | undefined, label: string, progress:
   callback?.({ label, progress });
 }
 
+const auroNetworkIds: Record<NetworkId, string> = {
+  mainnet: "mina:mainnet",
+  devnet: "mina:devnet",
+  zeko: "zeko:testnet"
+};
+
+function walletNetworkId(result: unknown): string | null {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  if (typeof record.networkID === "string") return record.networkID;
+  if (typeof record.chainId === "string") return record.chainId;
+  if (typeof record.name === "string") return record.name;
+  return null;
+}
+
+function providerErrorMessage(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const record = result as Record<string, unknown>;
+  if (typeof record.code === "number" && typeof record.message === "string") {
+    return `${record.message} (${record.code})`;
+  }
+  return null;
+}
+
+export async function ensureWalletNetwork(
+  provider: MinaProvider | undefined,
+  network: NetworkId,
+  onProgress?: ProgressCallback
+) {
+  if (!provider) throw new Error("Wallet Mina introuvable.");
+  const expectedNetworkId = auroNetworkIds[network];
+
+  if (!provider.requestNetwork) {
+    throw new Error(`Impossible de verifier le reseau Auro. Selectionne ${expectedNetworkId} dans le wallet.`);
+  }
+
+  const current = await provider.requestNetwork();
+  if (walletNetworkId(current) === expectedNetworkId) return;
+
+  if (!provider.switchChain) {
+    throw new Error(`Auro n'est pas sur ${expectedNetworkId}. Change le reseau dans le wallet puis reessaie.`);
+  }
+
+  report(onProgress, "Changement de reseau wallet", 4);
+  const switched = await provider.switchChain({ networkID: expectedNetworkId });
+  const switchError = providerErrorMessage(switched);
+  if (switchError) {
+    throw new Error(`Auro n'a pas pu passer sur ${expectedNetworkId}: ${switchError}`);
+  }
+  if (walletNetworkId(switched) !== expectedNetworkId) {
+    const afterSwitch = provider.requestNetwork ? await provider.requestNetwork() : switched;
+    if (walletNetworkId(afterSwitch) !== expectedNetworkId) {
+      throw new Error(`Auro doit etre sur ${expectedNetworkId} avant de signer.`);
+    }
+  }
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -172,6 +230,7 @@ export async function createGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
+  await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
@@ -208,6 +267,7 @@ export async function joinGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
+  await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
@@ -251,6 +311,7 @@ export async function settleGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
+  await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
