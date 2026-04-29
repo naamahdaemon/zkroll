@@ -1,0 +1,32 @@
+{
+  "name": "@zkroll/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "keygen": "npm run build && node dist/scripts/keygen.js",
+    "deploy-roll": "npm run build && node dist/scripts/deploy-roll.js",
+    "deploy-game": "npm run build && node dist/scripts/deploy-game.js",
+    "join-game": "npm run build && node dist/scripts/join-game.js",
+    "settle-game": "npm run build && node dist/scripts/settle-game.js"
+  },
+  "dependencies": {
+    "@zkroll/shared": "0.1.0",
+    "o1js": "^1.8.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.16.2",
+    "typescript": "^5.4.5"
+  }
+}

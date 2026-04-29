@@ -1,0 +1,194 @@
+import cors from "@fastify/cors";
+import Fastify from "fastify";
+import { nanoid } from "nanoid";
+import { assertNetworkId } from "@zkroll/shared";
+import {
+  createGame,
+  getGame,
+  getPlayerByPublicKey,
+  getPlayerByPseudo,
+  joinGame,
+  listGames,
+  reconcileCreationTx,
+  revealSecret,
+  settleGame,
+  upsertPlayer
+} from "./db.js";
+import {
+  asBody,
+  optionalStatus,
+  optionalString,
+  requiredDie,
+  requiredNetwork,
+  requiredPositiveIntegerString,
+  requiredString
+} from "./validation.js";
+import { backendGamesRoot, onchainGamesRoot, witnessForGameId } from "./merkle.js";
+
+const app = Fastify({
+  logger: true
+});
+
+await app.register(cors, {
+  origin: process.env.ZKROLL_WEB_ORIGIN ?? true
+});
+
+app.get("/health", async () => ({ ok: true }));
+
+app.post("/players", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    return upsertPlayer(requiredString(body, "pseudo"), requiredString(body, "publicKey"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/players/:pseudo", async (request, reply) => {
+  const { pseudo } = request.params as { pseudo: string };
+  const player = getPlayerByPseudo(pseudo);
+  if (!player) return reply.code(404).send({ error: "Player not found" });
+  return player;
+});
+
+app.get("/players/by-public-key/:publicKey", async (request, reply) => {
+  const { publicKey } = request.params as { publicKey: string };
+  const player = getPlayerByPublicKey(publicKey);
+  if (!player) return reply.code(404).send({ error: "Player not found" });
+  return player;
+});
+
+app.get("/games", async (request, reply) => {
+  try {
+    const { status } = request.query as { status?: string };
+    return listGames(optionalStatus(status));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/merkle/witness/:gameIdField", async (request, reply) => {
+  try {
+    const { gameIdField } = request.params as { gameIdField: string };
+    return witnessForGameId(gameIdField);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/transactions/:network/:hash/status", async (request, reply) => {
+  try {
+    const { network, hash } = request.params as { network: string; hash: string };
+    const networkId = assertNetworkId(network);
+    const backendRoot = backendGamesRoot();
+    const chain = await onchainGamesRoot(networkId);
+    const status = chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN";
+    return {
+      hash,
+      network: networkId,
+      status,
+      backendRoot,
+      chainRoot: chain.root,
+      chainRootError: chain.error,
+      contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
+    };
+  } catch (error) {
+    const { network, hash } = request.params as { network: string; hash: string };
+    return { hash, network, status: "UNKNOWN", error: (error as Error).message };
+  }
+});
+
+app.get("/games/:id", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const game = getGame(id);
+  if (!game) return reply.code(404).send({ error: "Game not found" });
+  return game;
+});
+
+app.post("/games", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    const creatorPseudo = requiredString(body, "creatorPseudo");
+    const creatorPublicKey = requiredString(body, "creatorPublicKey");
+    upsertPlayer(creatorPseudo, creatorPublicKey);
+
+    return reply.code(201).send(
+      createGame({
+        id: optionalString(body, "id") ?? nanoid(12),
+        network: requiredNetwork(body),
+        zkappAddress: optionalString(body, "zkappAddress"),
+        gameIdField: optionalString(body, "gameIdField"),
+        creatorPseudo,
+        creatorPublicKey,
+        creatorPseudoHash: optionalString(body, "creatorPseudoHash"),
+        stakeNanoMina: requiredPositiveIntegerString(body, "stakeNanoMina"),
+        creatorCommitment: requiredString(body, "creatorCommitment"),
+        creationTxHash: optionalString(body, "creationTxHash")
+      })
+    );
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/creation-tx", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return reconcileCreationTx(id, requiredString(body, "creationTxHash"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/games/:id/join", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    const joinerPseudo = requiredString(body, "joinerPseudo");
+    const joinerPublicKey = requiredString(body, "joinerPublicKey");
+    upsertPlayer(joinerPseudo, joinerPublicKey);
+
+    return joinGame(id, {
+      joinerPseudo,
+      joinerPublicKey,
+      joinerPseudoHash: optionalString(body, "joinerPseudoHash"),
+      joinerCommitment: requiredString(body, "joinerCommitment"),
+      joinTxHash: requiredString(body, "joinTxHash")
+    });
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/games/:id/reveal", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return revealSecret(id, requiredString(body, "publicKey"), requiredString(body, "secret"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/games/:id/settle", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    const winnerPublicKey = body.winnerPublicKey === null ? null : requiredString(body, "winnerPublicKey");
+
+    return settleGame(id, {
+      creatorDie: requiredDie(body, "creatorDie"),
+      joinerDie: requiredDie(body, "joinerDie"),
+      winnerPublicKey,
+      settlementTxHash: requiredString(body, "settlementTxHash")
+    });
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+const port = Number(process.env.PORT ?? 4000);
+const host = process.env.HOST ?? "127.0.0.1";
+
+await app.listen({ port, host });

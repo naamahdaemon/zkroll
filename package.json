@@ -1,0 +1,29 @@
+{
+  "name": "zkroll",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @zkroll/api",
+    "dev:api": "npm run dev --workspace @zkroll/api",
+    "dev:web": "npm run dev --workspace @zkroll/web",
+    "contracts:keygen": "npm run keygen --workspace @zkroll/contracts",
+    "contracts:deploy-roll": "npm run deploy-roll --workspace @zkroll/contracts",
+    "contracts:deploy-game": "npm run deploy-game --workspace @zkroll/contracts",
+    "contracts:join-game": "npm run join-game --workspace @zkroll/contracts",
+    "contracts:settle-game": "npm run settle-game --workspace @zkroll/contracts",
+    "build": "npm run build --workspace @zkroll/shared && npm run build --workspace @zkroll/contracts && npm run build --workspace @zkroll/api && npm run build --workspace @zkroll/web",
+    "typecheck": "npm run build --workspace @zkroll/shared && npm run build --workspace @zkroll/contracts && npm run typecheck --workspace @zkroll/api && npm run typecheck --workspace @zkroll/web",
+    "lint": "npm run typecheck"
+  },
+  "engines": {
+    "node": ">=18.15"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
