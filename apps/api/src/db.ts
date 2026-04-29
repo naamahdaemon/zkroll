@@ -151,15 +151,20 @@ function gameFromRow(row: GameRow): Game {
 
 export function upsertPlayer(pseudo: string, publicKey: string): Player {
   const now = new Date().toISOString();
+  const existingPseudoOwner = getPlayerByPseudo(pseudo);
+  if (existingPseudoOwner && existingPseudoOwner.publicKey !== publicKey) {
+    throw new Error("Pseudo already used by another wallet");
+  }
+
   db.prepare(
     `
     insert into players (pseudo, public_key, created_at)
     values (?, ?, ?)
-    on conflict(pseudo) do update set public_key = excluded.public_key
+    on conflict(public_key) do update set pseudo = excluded.pseudo
   `
   ).run(pseudo, publicKey, now);
 
-  return getPlayerByPseudo(pseudo)!;
+  return getPlayerByPublicKey(publicKey)!;
 }
 
 export function getPlayerByPseudo(pseudo: string): Player | null {

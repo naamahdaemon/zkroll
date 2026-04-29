@@ -869,7 +869,7 @@ function App() {
                 autoFocus
                 value={pseudoDraft}
                 onChange={(event) => setPseudoDraft(event.target.value)}
-                placeholder="naamah"
+                placeholder={t("pseudo")}
               />
             </label>
             <button className="primary" disabled={!pseudoDraft.trim()} type="submit">
