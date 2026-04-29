@@ -50,7 +50,7 @@ export function gameLeaf(input: {
 }
 
 function rootAndKey(witness: MerkleMapWitness, value: Field): [Field, Field] {
-  return witness.computeRootAndKeyV2(value) as [Field, Field];
+  return witness.computeRootAndKey(value) as [Field, Field];
 }
 
 export class ZkRoll extends SmartContract {

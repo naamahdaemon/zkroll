@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@zkroll/shared": "0.1.0",
-    "o1js": "^1.8.0"
+    "o1js": "^2.1.0"
   },
   "devDependencies": {
     "tsx": "^4.16.2",
