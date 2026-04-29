@@ -1,6 +1,6 @@
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Dices, RefreshCw, ShieldCheck, Trophy, Wallet } from "lucide-react";
+import { Dices, Languages, Moon, Pencil, RefreshCw, ShieldCheck, Sun, Trophy, Wallet } from "lucide-react";
 import { networks, type Game, type NetworkId } from "@zkroll/shared";
 import {
   createGame,
@@ -40,6 +40,175 @@ const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLO
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 type TxStatus = "INCLUDED" | "PENDING" | "FAILED" | "UNKNOWN";
+type Locale = "en" | "fr";
+type Theme = "light" | "dark";
+
+const copy: Record<Locale, Record<string, string>> = {
+  en: {
+    walletPrompt: "Connect your wallet to start.",
+    noPseudo: "Not configured",
+    player: "Player",
+    pseudo: "Pseudo",
+    network: "Network",
+    connectWallet: "Connect wallet",
+    walletConnected: "Wallet connected",
+    newChallenge: "New challenge",
+    stake: "Stake in MINA",
+    refundTimeout: "Refund timeout (slots)",
+    create: "Create",
+    games: "Games",
+    indexed: "indexed",
+    challenge: "Challenge",
+    creator: "Creator",
+    opponent: "Opponent",
+    waiting: "Waiting",
+    transaction: "Transaction",
+    refund: "Refund",
+    currentSlot: "Current slot",
+    notConfigured: "Not configured",
+    onchainState: "On-chain state",
+    signaturePending: "Signature sent or waiting for hash",
+    creationFailed: "Creation failed on-chain",
+    waitingCreation: "Waiting for creation confirmation",
+    waitingJoin: "Waiting for join confirmation",
+    actionsAvailable: "Actions available for this game state",
+    enterHash: "Enter hash",
+    markFailed: "Mark failed",
+    join: "Join",
+    reveal: "Reveal",
+    settle: "Settle",
+    refundedGame: "Game refunded",
+    failedGame: "Creation failed",
+    noLockedFunds: "No funds were locked by the contract.",
+    emptyGames: "No games yet.",
+    choosePseudo: "Choose a pseudo",
+    editPseudo: "Edit pseudo",
+    pseudoNotice: "This pseudo will be associated with your wallet in the local database.",
+    save: "Save",
+    zkWorkNotice: "Compilation and proof generation can take a while in the browser.",
+    elapsed: "Elapsed",
+    refresh: "Refresh",
+    walletMissing: "Mina wallet not found. Install Auro or enable the extension.",
+    noWalletAccount: "No account returned by the wallet.",
+    walletFound: "Wallet connected. Pseudo found:",
+    choosePseudoMessage: "Wallet connected. Choose a pseudo to register this address.",
+    pseudoSaved: "Pseudo saved:",
+    pseudoUpdated: "Pseudo updated:",
+    creatorOnlyHash: "Only the creator can enter the creation hash.",
+    pasteCreationHash: "Paste the creation transaction hash visible in Auro or the explorer.",
+    hashSaved: "Creation hash saved. On-chain sync will be checked.",
+    creatorOnlyFailed: "Only the creator can mark this creation as failed.",
+    confirmFailed: "Mark this creation as failed? Use only if the create transaction failed on the explorer.",
+    optionalReason: "Optional reason",
+    failedReasonDefault: "Create transaction failed on-chain",
+    markedFailed: "Creation marked as failed. The game is excluded from the local Merkle root.",
+    walletAndPseudoRequired: "Pseudo and wallet required.",
+    createdOnchain: "Challenge created on-chain and indexed.",
+    createdMock: "Challenge created in simulation mode.",
+    cannotJoinOwn: "You cannot join your own challenge.",
+    incompatibleOnchain: "Game is not compatible with on-chain mode.",
+    joinedOnchain: "Challenge joined on-chain. Both players can reveal.",
+    joinedMock: "Challenge joined in simulation mode.",
+    walletSecretRequired: "Wallet and secret required.",
+    bothSecretsRequired: "Both secrets must be revealed.",
+    bothRevealed: "Both secrets are revealed. Result computed locally; settlement will verify and pay on-chain.",
+    waitingOtherReveal: "Secret revealed. Waiting for the other player.",
+    incompleteSettlement: "Game is incomplete for on-chain settlement.",
+    settledOnchain: "Game settled on-chain and indexed.",
+    settledMock: "Game settled in simulation mode.",
+    walletRequired: "Wallet required.",
+    refundNotReady: "The timeout must be reached and create/join transactions included before refund.",
+    playerOnlyRefund: "Only a player in this game can request refund.",
+    incompleteRefund: "Game is incomplete for on-chain refund.",
+    refundSent: "Refund sent on-chain and indexed.",
+    refundMock: "Game refunded in simulation mode.",
+    invalidRefundTimeout: "Refund timeout must be a positive integer.",
+    activeAfterSlot: "active after slot",
+    minaZkDice: "Mina / Zeko zk dice"
+  },
+  fr: {
+    walletPrompt: "Connecte ton wallet pour commencer.",
+    noPseudo: "Non configure",
+    player: "Joueur",
+    pseudo: "Pseudo",
+    network: "Reseau",
+    connectWallet: "Connecter wallet",
+    walletConnected: "Wallet connecte",
+    newChallenge: "Nouveau defi",
+    stake: "Mise en MINA",
+    refundTimeout: "Timeout refund (slots)",
+    create: "Creer",
+    games: "Parties",
+    indexed: "indexees",
+    challenge: "Defi",
+    creator: "Createur",
+    opponent: "Adversaire",
+    waiting: "En attente",
+    transaction: "Transaction",
+    refund: "Refund",
+    currentSlot: "Slot courant",
+    notConfigured: "Non configure",
+    onchainState: "Etat on-chain",
+    signaturePending: "Signature envoyee ou en attente de hash",
+    creationFailed: "Creation echouee on-chain",
+    waitingCreation: "En attente de confirmation creation",
+    waitingJoin: "En attente de confirmation join",
+    actionsAvailable: "Actions disponibles selon l'etat de partie",
+    enterHash: "Renseigner le hash",
+    markFailed: "Marquer echouee",
+    join: "Rejoindre",
+    reveal: "Reveler",
+    settle: "Regler",
+    refundedGame: "Partie remboursee",
+    failedGame: "Creation echouee",
+    noLockedFunds: "Aucun fonds n'a ete verrouille par le contrat.",
+    emptyGames: "Aucune partie pour le moment.",
+    choosePseudo: "Choisir un pseudo",
+    editPseudo: "Modifier le pseudo",
+    pseudoNotice: "Ce pseudo sera associe a ton wallet dans la base locale.",
+    save: "Enregistrer",
+    zkWorkNotice: "La compilation et la generation de preuve peuvent prendre un moment dans le navigateur.",
+    elapsed: "Temps ecoule",
+    refresh: "Rafraichir",
+    walletMissing: "Wallet Mina introuvable. Installe Auro ou active l'extension.",
+    noWalletAccount: "Aucun compte retourne par le wallet.",
+    walletFound: "Wallet connecte. Pseudo retrouve :",
+    choosePseudoMessage: "Wallet connecte. Choisis un pseudo pour enregistrer cette adresse.",
+    pseudoSaved: "Pseudo enregistre :",
+    pseudoUpdated: "Pseudo modifie :",
+    creatorOnlyHash: "Seul le createur peut renseigner le hash de creation.",
+    pasteCreationHash: "Colle le hash de la transaction de creation visible dans Auro ou l'explorateur.",
+    hashSaved: "Hash de creation renseigne. La synchronisation on-chain va etre verifiee.",
+    creatorOnlyFailed: "Seul le createur peut marquer cette creation comme echouee.",
+    confirmFailed: "Marquer cette creation comme echouee ? A utiliser uniquement si la transaction create est failed sur l'explorateur.",
+    optionalReason: "Raison optionnelle",
+    failedReasonDefault: "Create transaction failed on-chain",
+    markedFailed: "Creation marquee comme echouee. La partie est exclue de la racine Merkle locale.",
+    walletAndPseudoRequired: "Pseudo et wallet requis.",
+    createdOnchain: "Defi cree on-chain et indexe.",
+    createdMock: "Defi cree en mode simulation.",
+    cannotJoinOwn: "Tu ne peux pas rejoindre ton propre defi.",
+    incompatibleOnchain: "Partie non compatible on-chain.",
+    joinedOnchain: "Defi rejoint on-chain. Les deux joueurs peuvent reveler.",
+    joinedMock: "Defi rejoint en mode simulation.",
+    walletSecretRequired: "Wallet et secret requis.",
+    bothSecretsRequired: "Les deux secrets doivent etre reveles.",
+    bothRevealed: "Les deux secrets sont reveles. Resultat calcule localement; le settlement fera verifier et payer on-chain.",
+    waitingOtherReveal: "Secret revele. En attente du reveal de l'autre joueur.",
+    incompleteSettlement: "Partie incomplete pour settlement on-chain.",
+    settledOnchain: "Partie reglee on-chain et indexee.",
+    settledMock: "Partie reglee en mode simulation.",
+    walletRequired: "Wallet requis.",
+    refundNotReady: "Le timeout doit etre atteint et les transactions create/join doivent etre incluses avant un refund.",
+    playerOnlyRefund: "Seul un joueur de cette partie peut demander le refund.",
+    incompleteRefund: "Partie incomplete pour refund on-chain.",
+    refundSent: "Refund envoye on-chain et indexe.",
+    refundMock: "Partie remboursee en mode simulation.",
+    invalidRefundTimeout: "Le timeout de refund doit etre un nombre entier positif.",
+    activeAfterSlot: "actif apres le slot",
+    minaZkDice: "Mina / Zeko zk dice"
+  }
+};
 
 function DiceFace({ value }: { value: number | "?" }) {
   const pips: Record<number, number[]> = {
@@ -71,6 +240,8 @@ function formatMina(value: string): string {
 }
 
 function App() {
+  const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem("zkroll:locale") === "fr" ? "fr" : "en"));
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("zkroll:theme") === "dark" ? "dark" : "light"));
   const [pseudo, setPseudo] = useState("");
   const [publicKey, setPublicKey] = useState("");
   const [pseudoDraft, setPseudoDraft] = useState("");
@@ -94,7 +265,8 @@ function App() {
     devnet: null,
     zeko: null
   });
-  const [message, setMessage] = useState("Connecte ton wallet pour commencer.");
+  const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
+  const [message, setMessage] = useState(() => copy.en.walletPrompt);
 
   const visibleGames = useMemo(
     () => games.filter((game) => game.status !== "pending_signature" || game.creatorPublicKey === publicKey),
@@ -121,7 +293,8 @@ function App() {
       hash.startsWith("fake") ||
       hash.startsWith("create_") ||
       hash.startsWith("join_") ||
-      hash.startsWith("settle_")
+      hash.startsWith("settle_") ||
+      hash.startsWith("refund_")
     ) {
       return "UNKNOWN";
     }
@@ -176,7 +349,7 @@ function App() {
 
   function normalizedRefundTimeout() {
     const value = Number(refundTimeoutSlots);
-    if (!Number.isInteger(value) || value < 1) throw new Error("Le timeout de refund doit etre un nombre entier positif.");
+    if (!Number.isInteger(value) || value < 1) throw new Error(t("invalidRefundTimeout"));
     return value;
   }
 
@@ -187,6 +360,15 @@ function App() {
       setSecretVault(JSON.parse(savedVault) as Record<string, string>);
     }
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem("zkroll:locale", locale);
+  }, [locale]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("zkroll:theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!onchainEnabled || games.length === 0) return;
@@ -296,7 +478,7 @@ function App() {
 
   async function computeDice(game: Game) {
     if (!game.creatorReveal || !game.joinerReveal) {
-      throw new Error("Les deux secrets doivent etre reveles.");
+      throw new Error(t("bothSecretsRequired"));
     }
 
     const gameIdField = game.gameIdField ?? game.id;
@@ -327,7 +509,7 @@ function App() {
 
   async function connectWallet() {
     if (!window.mina) {
-      setMessage("Wallet Mina introuvable. Installe Auro ou active l'extension.");
+      setMessage(t("walletMissing"));
       return;
     }
 
@@ -335,7 +517,7 @@ function App() {
     const account = accounts[0] ?? "";
     setPublicKey(account);
     if (!account) {
-      setMessage("Aucun compte retourne par le wallet.");
+      setMessage(t("noWalletAccount"));
       return;
     }
 
@@ -350,11 +532,11 @@ function App() {
       const player = await getPlayerByPublicKey(account);
       setPseudo(player.pseudo);
       setPseudoModalOpen(false);
-      setMessage(`Wallet connecte. Pseudo retrouve : ${player.pseudo}.`);
+      setMessage(`${t("walletFound")} ${player.pseudo}.`);
     } catch {
       setPseudoDraft("");
       setPseudoModalOpen(true);
-      setMessage("Wallet connecte. Choisis un pseudo pour enregistrer cette adresse.");
+      setMessage(t("choosePseudoMessage"));
     }
   }
 
@@ -362,9 +544,16 @@ function App() {
     event.preventDefault();
     if (!publicKey) return;
     const player = await createPlayer({ pseudo: pseudoDraft.trim(), publicKey });
+    const wasEditing = Boolean(pseudo);
     setPseudo(player.pseudo);
     setPseudoModalOpen(false);
-    setMessage(`Pseudo enregistre : ${player.pseudo}.`);
+    setMessage(`${wasEditing ? t("pseudoUpdated") : t("pseudoSaved")} ${player.pseudo}.`);
+  }
+
+  function openPseudoEditor() {
+    if (!publicKey) return;
+    setPseudoDraft(pseudo);
+    setPseudoModalOpen(true);
   }
 
   async function runAction(action: () => Promise<void>) {
@@ -391,36 +580,34 @@ function App() {
   async function handleReconcileCreation(game: Game) {
     await runAction(async () => {
       if (game.creatorPublicKey !== publicKey) {
-        throw new Error("Seul le createur peut renseigner le hash de creation.");
+        throw new Error(t("creatorOnlyHash"));
       }
-      const txHash = window.prompt("Colle le hash de la transaction de creation visible dans Auro ou l'explorateur.");
+      const txHash = window.prompt(t("pasteCreationHash"));
       if (!txHash?.trim()) return;
       const reconciled = await reconcileCreationTx(game.id, txHash.trim());
       setSelectedGameId(reconciled.id);
-      setMessage("Hash de creation renseigne. La synchronisation on-chain va etre verifiee.");
+      setMessage(t("hashSaved"));
     });
   }
 
   async function handleMarkCreationFailed(game: Game) {
     await runAction(async () => {
       if (game.creatorPublicKey !== publicKey) {
-        throw new Error("Seul le createur peut marquer cette creation comme echouee.");
+        throw new Error(t("creatorOnlyFailed"));
       }
-      const confirmed = window.confirm(
-        "Marquer cette creation comme echouee ? A utiliser uniquement si la transaction create est failed sur l'explorateur."
-      );
+      const confirmed = window.confirm(t("confirmFailed"));
       if (!confirmed) return;
       const reason =
-        window.prompt("Raison optionnelle", "Create transaction failed on-chain") ?? "Create transaction failed on-chain";
+        window.prompt(t("optionalReason"), t("failedReasonDefault")) ?? t("failedReasonDefault");
       const failed = await markCreationFailed(game.id, reason.trim() || undefined);
       setSelectedGameId(failed.id);
-      setMessage("Creation marquee comme echouee. La partie est exclue de la racine Merkle locale.");
+      setMessage(t("markedFailed"));
     });
   }
 
   async function handleCreateGame() {
     await runAction(async () => {
-      if (!pseudo || !publicKey) throw new Error("Pseudo et wallet requis.");
+      if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
       const secret = randomFieldString();
       const gameIdField = randomFieldString();
       const creatorPseudoHash = onchainEnabled ? await pseudoHash(pseudo) : undefined;
@@ -466,14 +653,14 @@ function App() {
         setSelectedGameId(reconciled.id);
       }
 
-      setMessage(onchainEnabled ? "Defi cree on-chain et indexe." : "Defi cree en mode simulation.");
+      setMessage(onchainEnabled ? t("createdOnchain") : t("createdMock"));
     });
   }
 
   async function handleJoinGame(game: Game) {
     await runAction(async () => {
-      if (!pseudo || !publicKey) throw new Error("Pseudo et wallet requis.");
-      if (game.creatorPublicKey === publicKey) throw new Error("Tu ne peux pas rejoindre ton propre defi.");
+      if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
+      if (game.creatorPublicKey === publicKey) throw new Error(t("cannotJoinOwn"));
       const secret = randomFieldString();
       const gameIdField = game.gameIdField ?? game.id;
       const joinerPseudoHash = onchainEnabled ? await pseudoHash(pseudo) : undefined;
@@ -484,7 +671,7 @@ function App() {
       let txHash = fakeTxHash("join");
 
       if (onchainEnabled) {
-        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) throw new Error("Partie non compatible on-chain.");
+        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) throw new Error(t("incompatibleOnchain"));
         const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await joinGameOnchain({
           provider: window.mina,
@@ -514,21 +701,21 @@ function App() {
       });
       rememberSecret(joined.id, secret);
       setSelectedGameId(joined.id);
-      setMessage(onchainEnabled ? "Defi rejoint on-chain. Les deux joueurs peuvent reveler." : "Defi rejoint en mode simulation.");
+      setMessage(onchainEnabled ? t("joinedOnchain") : t("joinedMock"));
     });
   }
 
   async function handleReveal(game: Game) {
     await runAction(async () => {
       const secret = secretFor(game);
-      if (!publicKey || !secret) throw new Error("Wallet et secret requis.");
+      if (!publicKey || !secret) throw new Error(t("walletSecretRequired"));
       const updatedGame = await revealGame(game.id, { publicKey, secret });
       if (updatedGame.creatorReveal && updatedGame.joinerReveal) {
         const { creatorDie, joinerDie } = await computeDice(updatedGame);
         await animateDice(updatedGame.id, creatorDie, joinerDie);
-        setMessage("Les deux secrets sont reveles. Resultat calcule localement; le settlement fera verifier et payer on-chain.");
+        setMessage(t("bothRevealed"));
       } else {
-        setMessage("Secret revele. En attente du reveal de l'autre joueur.");
+        setMessage(t("waitingOtherReveal"));
       }
     });
   }
@@ -536,7 +723,7 @@ function App() {
   async function handleSettle(game: Game) {
     await runAction(async () => {
       if (!game.creatorReveal || !game.joinerReveal) {
-        throw new Error("Les deux secrets doivent etre reveles.");
+        throw new Error(t("bothSecretsRequired"));
       }
 
       const { creatorDie, joinerDie } = await computeDice(game);
@@ -556,7 +743,7 @@ function App() {
           !game.joinerCommitment ||
           !game.refundDeadlineSlot
         ) {
-          throw new Error("Partie incomplete pour settlement on-chain.");
+          throw new Error(t("incompleteSettlement"));
         }
         const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await settleGameOnchain({
@@ -586,22 +773,22 @@ function App() {
         winnerPublicKey,
         settlementTxHash: txHash
       });
-      setMessage(onchainEnabled ? "Partie reglee on-chain et indexee." : "Partie reglee en mode simulation.");
+      setMessage(onchainEnabled ? t("settledOnchain") : t("settledMock"));
     });
   }
 
   async function handleRefund(game: Game) {
     await runAction(async () => {
-      if (!publicKey) throw new Error("Wallet requis.");
-      if (!canRefund(game)) throw new Error("Le timeout doit etre atteint et les transactions create/join doivent etre incluses avant un refund.");
+      if (!publicKey) throw new Error(t("walletRequired"));
+      if (!canRefund(game)) throw new Error(t("refundNotReady"));
       if (game.creatorPublicKey !== publicKey && game.joinerPublicKey !== publicKey) {
-        throw new Error("Seul un joueur de cette partie peut demander le refund.");
+        throw new Error(t("playerOnlyRefund"));
       }
 
       let txHash = fakeTxHash("refund");
       if (onchainEnabled) {
         if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
-          throw new Error("Partie incomplete pour refund on-chain.");
+          throw new Error(t("incompleteRefund"));
         }
         const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await refundGameOnchain({
@@ -624,7 +811,7 @@ function App() {
       }
 
       await refundGame(game.id, { refundTxHash: txHash });
-      setMessage(onchainEnabled ? "Refund envoye on-chain et indexe." : "Partie remboursee en mode simulation.");
+      setMessage(onchainEnabled ? t("refundSent") : t("refundMock"));
     });
   }
 
@@ -633,10 +820,10 @@ function App() {
       {pseudoModalOpen && (
         <div className="modalBackdrop">
           <form className="modal" onSubmit={(event) => void savePseudo(event)}>
-            <h2>Choisir un pseudo</h2>
-            <p className="notice">Ce pseudo sera associe a ton wallet dans la base locale.</p>
+            <h2>{pseudo ? t("editPseudo") : t("choosePseudo")}</h2>
+            <p className="notice">{t("pseudoNotice")}</p>
             <label>
-              Pseudo
+              {t("pseudo")}
               <input
                 autoFocus
                 value={pseudoDraft}
@@ -645,7 +832,7 @@ function App() {
               />
             </label>
             <button className="primary" disabled={!pseudoDraft.trim()} type="submit">
-              Enregistrer
+              {t("save")}
             </button>
           </form>
         </div>
@@ -658,34 +845,61 @@ function App() {
             <div className="progress">
               <span style={{ width: `${onchainProgress.progress}%` }} />
             </div>
-            <p className="notice">La compilation et la generation de preuve peuvent prendre un moment dans le navigateur.</p>
-            <p className="timer">Temps ecoule : {onchainElapsedSeconds}s</p>
+            <p className="notice">{t("zkWorkNotice")}</p>
+            <p className="timer">{t("elapsed")}: {onchainElapsedSeconds}s</p>
           </div>
         </div>
       )}
 
       <section className="topbar">
         <div>
-          <p className="eyebrow">Mina / Zeko zk dice</p>
+          <p className="eyebrow">{t("minaZkDice")}</p>
           <div className="brand">
             <img src="/zkroll-logo.svg" alt="" />
             <h1>zkroll</h1>
           </div>
         </div>
-        <button className="iconButton" onClick={() => void refreshGames()} title="Rafraichir">
-          <RefreshCw size={18} />
-        </button>
+        <div className="topActions">
+          <label className="compactSelect" title="Language">
+            <Languages size={16} />
+            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
+              <option value="en">EN</option>
+              <option value="fr">FR</option>
+            </select>
+          </label>
+          <button
+            className="iconButton"
+            onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+            title={theme === "dark" ? "Light" : "Dark"}
+          >
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button className="iconButton" onClick={() => void refreshGames()} title={t("refresh")}>
+            <RefreshCw size={18} />
+          </button>
+        </div>
       </section>
 
       <section className="layout">
         <aside className="panel">
-          <h2>Joueur</h2>
+          <h2>{t("player")}</h2>
           <div className="identityBox">
-            <span>Pseudo</span>
-            <strong>{pseudo || "Non configure"}</strong>
+            <div className="identityHead">
+              <span>{t("pseudo")}</span>
+              <button
+                className="tinyIconButton"
+                disabled={!publicKey}
+                onClick={openPseudoEditor}
+                title={t("editPseudo")}
+                type="button"
+              >
+                <Pencil size={15} />
+              </button>
+            </div>
+            <strong>{pseudo || t("noPseudo")}</strong>
           </div>
           <label>
-            Reseau
+            {t("network")}
             <select value={network} onChange={(event) => setNetwork(event.target.value as NetworkId)}>
               {Object.values(networks).map((item) => (
                 <option key={item.id} value={item.id}>
@@ -696,17 +910,17 @@ function App() {
           </label>
           <button onClick={() => void connectWallet()} className="primary">
             <Wallet size={18} />
-            {publicKey ? "Wallet connecte" : "Connecter wallet"}
+            {publicKey ? t("walletConnected") : t("connectWallet")}
           </button>
           {publicKey && <p className="key">{publicKey}</p>}
 
-          <h2>Nouveau defi</h2>
+          <h2>{t("newChallenge")}</h2>
           <label>
-            Mise en MINA
+            {t("stake")}
             <input min="0.1" step="0.1" type="number" value={stake} onChange={(event) => setStake(event.target.value)} />
           </label>
           <label>
-            Timeout refund (slots)
+            {t("refundTimeout")}
             <input
               min="1"
               step="1"
@@ -717,15 +931,15 @@ function App() {
           </label>
           <button disabled={busy || !pseudo || !publicKey} onClick={() => void handleCreateGame()} className="primary">
             <Dices size={18} />
-            Creer
+            {t("create")}
           </button>
           <p className="notice">{message}</p>
         </aside>
 
         <section className="games">
           <div className="sectionHead">
-            <h2>Parties</h2>
-          <span>{visibleGames.length} indexees</span>
+            <h2>{t("games")}</h2>
+          <span>{visibleGames.length} {t("indexed")}</span>
           </div>
           <div className="gameList">
             {visibleGames.map((game) => (
@@ -747,24 +961,24 @@ function App() {
           {selectedGame ? (
             <>
               <div className="sectionHead">
-                <h2>Defi {selectedGame.id}</h2>
+                <h2>{t("challenge")} {selectedGame.id}</h2>
                 <ShieldCheck size={20} />
               </div>
               <dl>
                 <div>
-                  <dt>Createur</dt>
+                  <dt>{t("creator")}</dt>
                   <dd>{selectedGame.creatorPseudo}</dd>
                 </div>
                 <div>
-                  <dt>Adversaire</dt>
-                  <dd>{selectedGame.joinerPseudo ?? "En attente"}</dd>
+                  <dt>{t("opponent")}</dt>
+                  <dd>{selectedGame.joinerPseudo ?? t("waiting")}</dd>
                 </div>
                 <div>
-                  <dt>Mise</dt>
+                  <dt>{t("stake")}</dt>
                   <dd>{formatMina(selectedGame.stakeNanoMina)} MINA</dd>
                 </div>
                 <div>
-                  <dt>Transaction</dt>
+                  <dt>{t("transaction")}</dt>
                   <dd>
                     {selectedGame.creationTxHash}
                     <span className={`txBadge ${creationStatusFor(selectedGame).toLowerCase()}`}>
@@ -806,27 +1020,27 @@ function App() {
                   </div>
                 )}
                 <div>
-                  <dt>Refund</dt>
+                  <dt>{t("refund")}</dt>
                   <dd>
                     {selectedGame.refundDeadlineSlot
-                      ? `${selectedGame.refundTimeoutSlots} slots, actif apres le slot ${selectedGame.refundDeadlineSlot}. Slot courant: ${
+                      ? `${selectedGame.refundTimeoutSlots} slots, ${t("activeAfterSlot")} ${selectedGame.refundDeadlineSlot}. ${t("currentSlot")}: ${
                           currentSlots[selectedGame.network] ?? "..."
                         }`
-                      : "Non configure"}
+                      : t("notConfigured")}
                   </dd>
                 </div>
                 <div>
-                  <dt>Etat on-chain</dt>
+                  <dt>{t("onchainState")}</dt>
                   <dd>
                     {selectedGame.status === "pending_signature"
-                      ? "Signature envoyee ou en attente de hash"
+                      ? t("signaturePending")
                       : selectedGame.status === "failed"
-                        ? selectedGame.failureReason ?? "Creation echouee on-chain"
+                        ? selectedGame.failureReason ?? t("creationFailed")
                         : selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED"
-                      ? "En attente de confirmation creation"
+                      ? t("waitingCreation")
                       : selectedGame.status === "joined" && statusFor(selectedGame.joinTxHash) !== "INCLUDED"
-                        ? "En attente de confirmation join"
-                        : "Actions disponibles selon l'etat de partie"}
+                        ? t("waitingJoin")
+                        : t("actionsAvailable")}
                   </dd>
                 </div>
                 {selectedGame.zkappAddress && (
@@ -840,10 +1054,10 @@ function App() {
               {selectedGame.status === "pending_signature" && (
                 <div className="actions">
                   <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
-                    Renseigner le hash
+                    {t("enterHash")}
                   </button>
                   <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
-                    Marquer echouee
+                    {t("markFailed")}
                   </button>
                 </div>
               )}
@@ -851,13 +1065,13 @@ function App() {
               {selectedGame.status === "created" && (
                 <button disabled={busy || !canJoin(selectedGame)} onClick={() => void handleJoinGame(selectedGame)} className="primary">
                   <Dices size={18} />
-                  Rejoindre
+                  {t("join")}
                 </button>
               )}
 
               {selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED" && (
                 <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
-                  Marquer echouee
+                  {t("markFailed")}
                 </button>
               )}
 
@@ -882,20 +1096,20 @@ function App() {
                     />
                   </div>
                   <button disabled={busy || !canReveal(selectedGame)} onClick={() => void handleReveal(selectedGame)} className="primary">
-                    Reveler
+                    {t("reveal")}
                   </button>
                   <button disabled={busy || !canSettle(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
-                    Regler
+                    {t("settle")}
                   </button>
                   <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
-                    Refund
+                    {t("refund")}
                   </button>
                 </div>
               )}
 
               {selectedGame.status === "created" && (
                 <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
-                  Refund
+                  {t("refund")}
                 </button>
               )}
 
@@ -912,20 +1126,20 @@ function App() {
               {selectedGame.status === "refunded" && (
                 <div className="winner">
                   <ShieldCheck size={22} />
-                  <strong>Partie remboursee</strong>
+                  <strong>{t("refundedGame")}</strong>
                 </div>
               )}
 
               {selectedGame.status === "failed" && (
                 <div className="winner failedBox">
                   <ShieldCheck size={22} />
-                  <strong>Creation echouee</strong>
-                  <span>{selectedGame.failureReason ?? "Aucun fonds n'a ete verrouille par le contrat."}</span>
+                  <strong>{t("failedGame")}</strong>
+                  <span>{selectedGame.failureReason ?? t("noLockedFunds")}</span>
                 </div>
               )}
             </>
           ) : (
-            <p className="empty">Aucune partie pour le moment.</p>
+            <p className="empty">{t("emptyGames")}</p>
           )}
         </section>
       </section>
