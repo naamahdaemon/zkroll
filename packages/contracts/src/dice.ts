@@ -14,7 +14,7 @@ export function commitmentFor(secret: Field, player: PublicKey, gameId: Field): 
 
 export function dieFromSecrets(firstSecret: Field, secondSecret: Field, gameId: Field, salt: Field): Field {
   const rollHash = Poseidon.hash([firstSecret, secondSecret, gameId, salt]);
-  const raw = Field.fromBits(rollHash.toBits(3));
+  const raw = Field.fromBits(rollHash.toBits().slice(0, 3));
   return Provable.if(raw.greaterThan(5), raw.sub(6), raw).add(1);
 }
 
