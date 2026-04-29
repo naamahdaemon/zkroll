@@ -87,7 +87,7 @@ export type SettleGameRequest = {
 export type NetworkConfig = {
   id: NetworkId;
   label: string;
-  networkId: "mainnet" | "testnet" | "zeko";
+  networkId: "mainnet" | "testnet" | "zeko" | "zeko_testnet";
   minaEndpoint: string;
   archiveEndpoint: string;
   explorerBaseUrl: string;
@@ -113,9 +113,9 @@ export const networks: Record<NetworkId, NetworkConfig> = {
   zeko: {
     id: "zeko",
     label: "Zeko",
-    networkId: "zeko",
-    minaEndpoint: "https://devnet.zeko.io/graphql",
-    archiveEndpoint: "https://devnet.zeko.io/graphql",
+    networkId: "zeko_testnet",
+    minaEndpoint: "https://testnet.zeko.io/graphql",
+    archiveEndpoint: "https://archive.testnet.zeko.io/graphql",
     explorerBaseUrl: "https://zekoscan.io/tx"
   }
 };

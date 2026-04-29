@@ -20,6 +20,10 @@ const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async ()
 
 await tx.prove();
 tx.sign([feePayerKey, zkappKey]);
+
+console.log("GraphQL deployment mutation:");
+console.log(tx.toGraphqlQuery());
+
 const pending = await tx.send();
 
 logJson({
