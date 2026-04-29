@@ -176,11 +176,21 @@ function App() {
   }, [games]);
 
   function rememberSecret(gameId: string, secret: string) {
+    if (!publicKey) return;
     setSecretVault((vault) => {
-      const nextVault = { ...vault, [gameId]: secret };
+      const nextVault = { ...vault, [secretKey(gameId, publicKey)]: secret };
       localStorage.setItem("zkroll:secrets", JSON.stringify(nextVault));
       return nextVault;
     });
+  }
+
+  function secretKey(gameId: string, playerPublicKey: string) {
+    return `${gameId}:${playerPublicKey}`;
+  }
+
+  function secretFor(game: Game) {
+    if (!publicKey) return undefined;
+    return secretVault[secretKey(game.id, publicKey)] ?? secretVault[game.id];
   }
 
   async function computeDice(game: Game) {
@@ -376,7 +386,7 @@ function App() {
 
   async function handleReveal(game: Game) {
     await runAction(async () => {
-      const secret = secretVault[game.id];
+      const secret = secretFor(game);
       if (!publicKey || !secret) throw new Error("Wallet et secret requis.");
       const updatedGame = await revealGame(game.id, { publicKey, secret });
       if (updatedGame.creatorReveal && updatedGame.joinerReveal) {
