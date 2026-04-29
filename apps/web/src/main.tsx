@@ -126,6 +126,14 @@ function App() {
     return txStatuses[hash] ?? "PENDING";
   }
 
+  function isTerminalTxStatus(status: TxStatus | undefined) {
+    return status === "INCLUDED" || status === "FAILED";
+  }
+
+  function shouldPollGame(game: Game) {
+    return game.status !== "settled" && game.status !== "refunded" && game.status !== "failed";
+  }
+
   function creationStatusFor(game: Game): TxStatus {
     return game.status === "failed" ? "FAILED" : statusFor(game.creationTxHash);
   }
@@ -183,15 +191,19 @@ function App() {
 
     let cancelled = false;
     const poll = async () => {
-      const txs = games.flatMap((game) =>
-        [
+      const txs = games.flatMap((game) => {
+        if (!shouldPollGame(game)) return [];
+        return [
           { network: game.network, hash: game.creationTxHash },
           { network: game.network, hash: game.joinTxHash },
           { network: game.network, hash: game.settlementTxHash },
           { network: game.network, hash: game.refundTxHash }
-        ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash))
+        ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash));
+      });
+      const unique = Array.from(new Map(txs.map((item) => [item.hash, item])).values()).filter(
+        (item) => !isTerminalTxStatus(txStatuses[item.hash])
       );
-      const unique = Array.from(new Map(txs.map((item) => [item.hash, item])).values());
+      if (unique.length === 0) return;
 
       const nextStatuses: Record<string, TxStatus> = {};
       await Promise.all(
@@ -216,7 +228,7 @@ function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [games]);
+  }, [games, txStatuses]);
 
   useEffect(() => {
     if (!onchainEnabled) return;

@@ -111,6 +111,7 @@ Exact content:
 ZKROLL_DB_PATH=zkroll-devnet.db
 ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 ZKROLL_WEB_ORIGIN=http://127.0.0.1:5174
+ZKROLL_ONCHAIN_ROOT_CACHE_MS=15000
 ```
 
 For local development, you can either export the variables in your shell or create your own `.env` loading mechanism. The current API reads environment variables directly.
@@ -121,6 +122,7 @@ PowerShell:
 $env:ZKROLL_DB_PATH="zkroll-devnet.db"
 $env:ZKROLL_CONTRACT_ADDRESS="B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS"
 $env:ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
+$env:ZKROLL_ONCHAIN_ROOT_CACHE_MS="15000"
 npm run dev:api
 ```
 
@@ -130,10 +132,13 @@ Bash:
 export ZKROLL_DB_PATH="zkroll-devnet.db"
 export ZKROLL_CONTRACT_ADDRESS="B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS"
 export ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
+export ZKROLL_ONCHAIN_ROOT_CACHE_MS="15000"
 npm run dev:api
 ```
 
 Use a fresh SQLite file for each fresh contract deployment. The contract starts with an empty Merkle root, so an old DB containing games from another contract will not match the on-chain root.
+
+`ZKROLL_ONCHAIN_ROOT_CACHE_MS` caches the fetched zkApp root per network for a short period. This reduces repeated node calls when the UI polls several transaction statuses.
 
 ## 7. Configure The Web App
 

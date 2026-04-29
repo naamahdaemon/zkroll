@@ -3,6 +3,9 @@ import { CREATED, EMPTY, gameLeaf, JOINED, REFUNDED, SETTLED } from "@zkroll/con
 import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
 import { listGames } from "./db.js";
 
+const onchainRootCacheMs = Number(process.env.ZKROLL_ONCHAIN_ROOT_CACHE_MS ?? 15_000);
+const onchainRootCache = new Map<NetworkId, { expiresAt: number; result: { root: string | null; error: string | null } }>();
+
 function statusField(status: GameStatus) {
   if (status === "created") return CREATED;
   if (status === "joined" || status === "player_one_revealed" || status === "player_two_revealed") return JOINED;
@@ -55,33 +58,46 @@ export function backendGamesRoot(network: NetworkId) {
 }
 
 export async function onchainGamesRoot(network: NetworkId) {
+  const cached = onchainRootCache.get(network);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+
   const address = process.env.ZKROLL_CONTRACT_ADDRESS;
   if (!address) {
-    return {
+    const result = {
       root: null,
       error: "Missing ZKROLL_CONTRACT_ADDRESS in API environment"
     };
+    onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
+    return result;
   }
 
   const { account, error } = await fetchAccount({ publicKey: address }, networks[network].minaEndpoint);
   if (error) {
-    return {
+    const result = {
       root: null,
       error: error.statusText
     };
+    onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
+    return result;
   }
 
   if (!account?.zkapp?.appState?.[0]) {
-    return {
+    const result = {
       root: null,
       error: `No zkApp appState found for ${address} on ${network}`
     };
+    onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
+    return result;
   }
 
-  return {
+  const result = {
     root: Field(account.zkapp.appState[0]).toString(),
     error: null
   };
+  onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
+  return result;
 }
 
 export function witnessForGameId(network: NetworkId, gameIdField: string) {
