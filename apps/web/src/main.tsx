@@ -37,6 +37,8 @@ const nanoMina = 1_000_000_000;
 const onchainEnabled = import.meta.env.VITE_ONCHAIN_ENABLED === "true";
 const globalContractAddress = import.meta.env.VITE_ZKROLL_CONTRACT_ADDRESS as string | undefined;
 const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
+const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
+const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 type TxStatus = "INCLUDED" | "PENDING" | "FAILED" | "UNKNOWN";
 
 function DiceFace({ value }: { value: number | "?" }) {
@@ -223,7 +225,7 @@ function App() {
     };
 
     void poll();
-    const interval = window.setInterval(() => void poll(), 15000);
+    const interval = window.setInterval(() => void poll(), txPollIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -253,7 +255,7 @@ function App() {
     };
 
     void poll();
-    const interval = window.setInterval(() => void poll(), 30000);
+    const interval = window.setInterval(() => void poll(), slotPollIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

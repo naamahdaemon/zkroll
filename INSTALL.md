@@ -164,6 +164,8 @@ VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
+VITE_TX_POLL_INTERVAL_MS=60000
+VITE_SLOT_POLL_INTERVAL_MS=60000
 ```
 
 Without `VITE_ONCHAIN_ENABLED=true`, the UI stays in simulation mode.
@@ -183,6 +185,8 @@ The Vite server is configured with COOP/COEP headers because o1js browser provin
 `VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the on-chain Merkle leaf.
 
 `VITE_O1JS_BROWSER_CACHE_ENABLED=false` disables the best-effort o1js browser cache stored in `localStorage`. Use it if circuit compilation hangs after previous runs or after changing o1js/contract versions. With the cache disabled, the first compile can be slower but avoids stale or corrupted local proving data.
+
+`VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction/root sync status for active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
 
 For game creation, the UI now creates a local `pending_signature` game before opening Auro. This protects the deterministic data needed to rebuild the Merkle leaf if Auro signs and broadcasts the transaction but does not return the hash to the web page.
 
