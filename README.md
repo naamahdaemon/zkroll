@@ -12,6 +12,7 @@ The first implementation uses a commit-reveal flow:
 6. The contract settles the pot.
 7. If a game is abandoned, either player can trigger an on-chain refund after the configured deadline slot.
 8. If a creation transaction fails before changing contract state, the local game can be marked `failed` and is excluded from the indexed Merkle root.
+9. A join transaction is indexed as `join_pending` until the on-chain root confirms it, which prevents competing local joins without changing the contract.
 
 ## Packages
 

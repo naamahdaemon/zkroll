@@ -60,6 +60,7 @@ export function optionalStatus(value: unknown): GameStatus | undefined {
   if (value === undefined) return undefined;
   if (
     value === "created" ||
+    value === "join_pending" ||
     value === "joined" ||
     value === "player_one_revealed" ||
     value === "player_two_revealed" ||

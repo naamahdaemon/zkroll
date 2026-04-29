@@ -5,6 +5,8 @@ import { fetchLastBlock } from "o1js";
 import { assertNetworkId, networks } from "@zkroll/shared";
 import {
   createGame,
+  confirmJoinGame,
+  failPendingJoin,
   getGame,
   getPlayerByPublicKey,
   getPlayerByPseudo,
@@ -27,7 +29,7 @@ import {
   requiredPositiveIntegerString,
   requiredString
 } from "./validation.js";
-import { backendGamesRoot, onchainGamesRoot, witnessForGameId } from "./merkle.js";
+import { backendGamesRootForTransaction, onchainGamesRoot, witnessForGameId } from "./merkle.js";
 
 const app = Fastify({
   logger: true
@@ -84,7 +86,7 @@ app.get("/transactions/:network/:hash/status", async (request, reply) => {
   try {
     const { network, hash } = request.params as { network: string; hash: string };
     const networkId = assertNetworkId(network);
-    const backendRoot = backendGamesRoot(networkId);
+    const backendRoot = backendGamesRootForTransaction(networkId, hash);
     const chain = await onchainGamesRoot(networkId);
     const status = chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN";
     return {
@@ -187,6 +189,32 @@ app.post("/games/:id/join", async (request, reply) => {
       refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
       joinTxHash: requiredString(body, "joinTxHash")
     });
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/join-confirmed", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const game = getGame(id);
+    if (!game?.joinTxHash) throw new Error("Pending join not found");
+    const backendRoot = backendGamesRootForTransaction(game.network, game.joinTxHash);
+    const chain = await onchainGamesRoot(game.network);
+    if (!chain.root || chain.root !== backendRoot) {
+      throw new Error("Join transaction is not included in the contract root yet");
+    }
+    return confirmJoinGame(id);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/join-failed", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return failPendingJoin(id, optionalString(body, "reason"));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

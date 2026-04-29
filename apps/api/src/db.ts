@@ -36,6 +36,7 @@ db.exec(`
     status text not null,
     refund_timeout_slots integer not null default 120,
     refund_deadline_slot text,
+    pending_join_refund_deadline_slot text,
     failure_reason text,
     creation_tx_hash text not null unique,
     join_tx_hash text,
@@ -55,6 +56,7 @@ for (const statement of [
   "alter table games add column joiner_pseudo_hash text",
   "alter table games add column refund_timeout_slots integer not null default 120",
   "alter table games add column refund_deadline_slot text",
+  "alter table games add column pending_join_refund_deadline_slot text",
   "alter table games add column failure_reason text",
   "alter table games add column refund_tx_hash text"
 ]) {
@@ -95,6 +97,7 @@ type GameRow = {
   status: GameStatus;
   refund_timeout_slots: number;
   refund_deadline_slot: string | null;
+  pending_join_refund_deadline_slot: string | null;
   failure_reason: string | null;
   creation_tx_hash: string;
   join_tx_hash: string | null;
@@ -135,6 +138,7 @@ function gameFromRow(row: GameRow): Game {
     status: row.status,
     refundTimeoutSlots: row.refund_timeout_slots,
     refundDeadlineSlot: row.refund_deadline_slot,
+    pendingJoinRefundDeadlineSlot: row.pending_join_refund_deadline_slot,
     failureReason: row.failure_reason,
     creationTxHash: row.creation_tx_hash,
     joinTxHash: row.join_tx_hash,
@@ -290,9 +294,9 @@ export function joinGame(
           joiner_public_key = ?,
           joiner_pseudo_hash = ?,
           joiner_commitment = ?,
-          refund_deadline_slot = coalesce(?, refund_deadline_slot),
+          pending_join_refund_deadline_slot = ?,
           join_tx_hash = ?,
-          status = 'joined',
+          status = 'join_pending',
           updated_at = ?
       where id = ? and status = 'created'
     `
@@ -310,6 +314,55 @@ export function joinGame(
 
   if (result.changes !== 1) {
     throw new Error("Game is not open");
+  }
+
+  return getGame(id)!;
+}
+
+export function confirmJoinGame(id: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set refund_deadline_slot = coalesce(pending_join_refund_deadline_slot, refund_deadline_slot),
+          pending_join_refund_deadline_slot = null,
+          status = 'joined',
+          updated_at = ?
+      where id = ? and status = 'join_pending' and join_tx_hash is not null
+    `
+    )
+    .run(now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Join cannot be confirmed");
+  }
+
+  return getGame(id)!;
+}
+
+export function failPendingJoin(id: string, reason?: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set joiner_pseudo = null,
+          joiner_public_key = null,
+          joiner_pseudo_hash = null,
+          joiner_commitment = null,
+          join_tx_hash = null,
+          pending_join_refund_deadline_slot = null,
+          failure_reason = ?,
+          status = 'created',
+          updated_at = ?
+      where id = ? and status = 'join_pending'
+    `
+    )
+    .run(reason ?? null, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Pending join cannot be released");
   }
 
   return getGame(id)!;

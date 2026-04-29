@@ -106,6 +106,20 @@ export function joinGame(
   });
 }
 
+export function confirmJoinGame(id: string) {
+  return request<Game>(`/games/${id}/join-confirmed`, {
+    method: "PATCH",
+    body: JSON.stringify({})
+  });
+}
+
+export function failPendingJoin(id: string, reason?: string) {
+  return request<Game>(`/games/${id}/join-failed`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason })
+  });
+}
+
 export function revealGame(id: string, input: { publicKey: string; secret: string }) {
   return request<Game>(`/games/${id}/reveal`, {
     method: "POST",

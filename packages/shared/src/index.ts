@@ -3,6 +3,7 @@ export type NetworkId = "mainnet" | "devnet" | "zeko";
 export type GameStatus =
   | "pending_signature"
   | "created"
+  | "join_pending"
   | "joined"
   | "player_one_revealed"
   | "player_two_revealed"
@@ -39,6 +40,7 @@ export type Game = {
   status: GameStatus;
   refundTimeoutSlots: number;
   refundDeadlineSlot: string | null;
+  pendingJoinRefundDeadlineSlot: string | null;
   failureReason: string | null;
   creationTxHash: string;
   joinTxHash: string | null;

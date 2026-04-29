@@ -16,6 +16,11 @@
   --danger-bg: #fdeaea;
   --danger-border: #e5b5b5;
   --danger-text: #5c1f1f;
+  --die-bg: #f8fbff;
+  --die-border: #c8d7e5;
+  --die-pip: #17201b;
+  --die-shadow: rgba(23, 32, 27, 0.1);
+  --die-inset: rgba(23, 32, 27, 0.06);
   color: var(--text);
   background: var(--bg);
   font-family:
@@ -40,6 +45,11 @@
   --danger-bg: #3b1f22;
   --danger-border: #7f444b;
   --danger-text: #ffdede;
+  --die-bg: #edf4ee;
+  --die-border: #dcebe3;
+  --die-pip: #07110e;
+  --die-shadow: rgba(0, 0, 0, 0.35);
+  --die-inset: rgba(7, 17, 14, 0.08);
 }
 
 * {
@@ -313,6 +323,7 @@ select {
 }
 
 .status.joined,
+.status.join_pending,
 .status.player_one_revealed,
 .status.player_two_revealed {
   background: #8b5a18;
@@ -400,13 +411,13 @@ dd {
 .dieFace {
   align-items: center;
   aspect-ratio: 1;
-  background: var(--surface-soft);
-  border: 1px solid #c8d7e5;
+  background: var(--die-bg);
+  border: 1px solid var(--die-border);
   border-radius: 8px;
   box-shadow:
-    inset -8px -10px 0 rgba(23, 32, 27, 0.06),
-    0 10px 20px rgba(23, 32, 27, 0.1);
-  color: var(--text);
+    inset -8px -10px 0 var(--die-inset),
+    0 10px 20px var(--die-shadow);
+  color: var(--die-pip);
   display: grid;
   font-size: 30px;
   font-weight: 900;
@@ -427,7 +438,7 @@ dd {
 }
 
 .pip.visible {
-  background: #17201b;
+  background: var(--die-pip);
   box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.2);
 }
 

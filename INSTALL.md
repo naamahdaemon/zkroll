@@ -223,9 +223,10 @@ http://127.0.0.1:5174
 7. Wait until the UI shows the creation as included/synced. If the explorer shows the create transaction as failed, click `Marquer echouee`; no funds were locked and the local game is excluded from the Merkle root.
 8. Connect a second funded Devnet wallet.
 9. Join the challenge. The joiner pays the fee and locks the matching stake.
-10. Wait until the UI shows the join as included/synced.
-11. Reveal from both players.
-12. Click `Regler`. The wallet that clicks pays the settlement fee.
+10. The local game moves to `join_pending`. This blocks competing local joins while keeping the Merkle root in the original `created` state until the join transaction is included.
+11. Wait until the UI shows the join as included/synced, then click `Confirm join` if it is not confirmed automatically by your workflow.
+12. Reveal from both players.
+13. Click `Regler`. The wallet that clicks pays the settlement fee.
 
 The contract recomputes both dice, validates the commitments, and pays the pot or refunds both players on a draw.
 
@@ -253,6 +254,8 @@ SQLite can contain games for several networks at the same time. Witnesses and sy
 `pending_signature` games are deliberately excluded from the backend Merkle root. They become part of the root only after the creation hash is reconciled and the game moves to `created`. If the browser loses the wallet response, use `Renseigner le hash` on the pending game instead of creating another game with the same transaction.
 
 `failed` games are also excluded from the backend Merkle root. Use this status when a creation transaction exists on the explorer but failed on-chain, for example with `Valid_while_precondition_unsatisfied`. This is a local/indexer cleanup only and does not require a contract redeploy.
+
+`join_pending` games keep the joiner data and transaction hash locally, but the current backend Merkle root still treats the game as `created`. For the pending join transaction hash, the API compares a prospective root where that one join is applied. Once that prospective root matches the contract root, `join_pending` can be confirmed to `joined`. If the join transaction fails, use `Release join` to return the game to `created`.
 
 ## 11. ZK Compilation UX
 

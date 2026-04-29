@@ -22,30 +22,40 @@ function publicKeyOrEmpty(value: string | null) {
   return value ? PublicKey.fromBase58(value) : (PublicKey.empty() as PublicKey);
 }
 
-export function leafForGame(game: Game): Field {
+export function leafForGame(game: Game, options?: { pendingJoinAsJoined?: boolean }): Field {
+  const isPendingJoinCurrent = game.status === "join_pending" && !options?.pendingJoinAsJoined;
+  const status = game.status === "join_pending" ? (options?.pendingJoinAsJoined ? "joined" : "created") : game.status;
+  const joinerPublicKey = isPendingJoinCurrent ? null : game.joinerPublicKey;
+  const joinerPseudoHash = isPendingJoinCurrent ? null : game.joinerPseudoHash;
+  const joinerCommitment = isPendingJoinCurrent ? null : game.joinerCommitment;
+  const refundDeadlineSlot =
+    game.status === "join_pending" && options?.pendingJoinAsJoined
+      ? game.pendingJoinRefundDeadlineSlot
+      : game.refundDeadlineSlot;
+
   return gameLeaf({
-    status: statusField(game.status),
+    status: statusField(status),
     creator: PublicKey.fromBase58(game.creatorPublicKey),
     creatorPseudoHash: fieldOrEmpty(game.creatorPseudoHash),
-    joiner: publicKeyOrEmpty(game.joinerPublicKey),
-    joinerPseudoHash: fieldOrEmpty(game.joinerPseudoHash),
+    joiner: publicKeyOrEmpty(joinerPublicKey),
+    joinerPseudoHash: fieldOrEmpty(joinerPseudoHash),
     stake: UInt64.from(game.stakeNanoMina),
     creatorCommitment: Field(game.creatorCommitment),
-    joinerCommitment: fieldOrEmpty(game.joinerCommitment),
+    joinerCommitment: fieldOrEmpty(joinerCommitment),
     creatorDie: game.creatorDie ? Field(game.creatorDie) : EMPTY,
     joinerDie: game.joinerDie ? Field(game.joinerDie) : EMPTY,
     winner: publicKeyOrEmpty(game.winnerPublicKey),
-    refundDeadlineSlot: game.refundDeadlineSlot ? UInt32.from(game.refundDeadlineSlot) : UInt32.zero
+    refundDeadlineSlot: refundDeadlineSlot ? UInt32.from(refundDeadlineSlot) : UInt32.zero
   });
 }
 
-export function buildGamesMap(network: NetworkId) {
+export function buildGamesMap(network: NetworkId, options?: { pendingJoinHash?: string }) {
   const map = new MerkleMap();
   for (const game of listGames()) {
     if (game.network !== network) continue;
     if (!game.gameIdField || game.status === "cancelled" || game.status === "failed" || game.status === "pending_signature") continue;
     try {
-      map.set(Field(game.gameIdField), leafForGame(game));
+      map.set(Field(game.gameIdField), leafForGame(game, { pendingJoinAsJoined: game.joinTxHash === options?.pendingJoinHash }));
     } catch {
       // Ignore older local mock games whose commitments are not Field values.
     }
@@ -55,6 +65,10 @@ export function buildGamesMap(network: NetworkId) {
 
 export function backendGamesRoot(network: NetworkId) {
   return buildGamesMap(network).getRoot().toString();
+}
+
+export function backendGamesRootForTransaction(network: NetworkId, hash: string) {
+  return buildGamesMap(network, { pendingJoinHash: hash }).getRoot().toString();
 }
 
 export async function onchainGamesRoot(network: NetworkId) {

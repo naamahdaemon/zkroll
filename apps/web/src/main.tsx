@@ -5,6 +5,8 @@ import { networks, type Game, type NetworkId } from "@zkroll/shared";
 import {
   createGame,
   createPlayer,
+  confirmJoinGame,
+  failPendingJoin,
   getCurrentSlot,
   getMerkleWitness,
   getPlayerByPublicKey,
@@ -71,6 +73,9 @@ const copy: Record<Locale, Record<string, string>> = {
     creationFailed: "Creation failed on-chain",
     waitingCreation: "Waiting for creation confirmation",
     waitingJoin: "Waiting for join confirmation",
+    joinPending: "Join transaction pending",
+    confirmJoin: "Confirm join",
+    releaseJoin: "Release join",
     actionsAvailable: "Actions available for this game state",
     enterHash: "Enter hash",
     markFailed: "Mark failed",
@@ -108,6 +113,10 @@ const copy: Record<Locale, Record<string, string>> = {
     cannotJoinOwn: "You cannot join your own challenge.",
     incompatibleOnchain: "Game is not compatible with on-chain mode.",
     joinedOnchain: "Challenge joined on-chain. Both players can reveal.",
+    joinPendingMessage: "Join transaction sent. Waiting for on-chain inclusion before revealing.",
+    joinConfirmed: "Join confirmed. Both players can reveal.",
+    joinReleased: "Pending join released. The challenge is open again.",
+    joinFailedReason: "Join transaction failed or was not included.",
     joinedMock: "Challenge joined in simulation mode.",
     walletSecretRequired: "Wallet and secret required.",
     bothSecretsRequired: "Both secrets must be revealed.",
@@ -153,6 +162,9 @@ const copy: Record<Locale, Record<string, string>> = {
     creationFailed: "Creation echouee on-chain",
     waitingCreation: "En attente de confirmation creation",
     waitingJoin: "En attente de confirmation join",
+    joinPending: "Transaction join en attente",
+    confirmJoin: "Confirmer join",
+    releaseJoin: "Liberer join",
     actionsAvailable: "Actions disponibles selon l'etat de partie",
     enterHash: "Renseigner le hash",
     markFailed: "Marquer echouee",
@@ -190,6 +202,10 @@ const copy: Record<Locale, Record<string, string>> = {
     cannotJoinOwn: "Tu ne peux pas rejoindre ton propre defi.",
     incompatibleOnchain: "Partie non compatible on-chain.",
     joinedOnchain: "Defi rejoint on-chain. Les deux joueurs peuvent reveler.",
+    joinPendingMessage: "Transaction join envoyee. En attente d'inclusion on-chain avant reveal.",
+    joinConfirmed: "Join confirme. Les deux joueurs peuvent reveler.",
+    joinReleased: "Join en attente libere. Le defi est de nouveau ouvert.",
+    joinFailedReason: "Transaction join echouee ou non incluse.",
     joinedMock: "Defi rejoint en mode simulation.",
     walletSecretRequired: "Wallet et secret requis.",
     bothSecretsRequired: "Les deux secrets doivent etre reveles.",
@@ -323,6 +339,10 @@ function App() {
       statusFor(game.creationTxHash) === "INCLUDED" &&
       statusFor(game.joinTxHash) === "INCLUDED"
     );
+  }
+
+  function canConfirmJoin(game: Game): boolean {
+    return game.status === "join_pending" && statusFor(game.joinTxHash) === "INCLUDED";
   }
 
   function canSettle(game: Game): boolean {
@@ -699,9 +719,30 @@ function App() {
         refundDeadlineSlot,
         joinTxHash: txHash
       });
-      rememberSecret(joined.id, secret);
-      setSelectedGameId(joined.id);
-      setMessage(onchainEnabled ? t("joinedOnchain") : t("joinedMock"));
+      const indexedGame = onchainEnabled ? joined : await confirmJoinGame(joined.id);
+      rememberSecret(indexedGame.id, secret);
+      setSelectedGameId(indexedGame.id);
+      setMessage(onchainEnabled ? t("joinPendingMessage") : t("joinedMock"));
+    });
+  }
+
+  async function handleConfirmJoin(game: Game) {
+    await runAction(async () => {
+      if (!canConfirmJoin(game)) throw new Error(t("waitingJoin"));
+      const confirmed = await confirmJoinGame(game.id);
+      setSelectedGameId(confirmed.id);
+      setMessage(t("joinConfirmed"));
+    });
+  }
+
+  async function handleReleaseJoin(game: Game) {
+    await runAction(async () => {
+      if (game.status !== "join_pending") return;
+      const confirmed = window.confirm(t("releaseJoin"));
+      if (!confirmed) return;
+      const released = await failPendingJoin(game.id, t("joinFailedReason"));
+      setSelectedGameId(released.id);
+      setMessage(t("joinReleased"));
     });
   }
 
@@ -1038,6 +1079,8 @@ function App() {
                         ? selectedGame.failureReason ?? t("creationFailed")
                         : selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED"
                       ? t("waitingCreation")
+                      : selectedGame.status === "join_pending"
+                        ? t("joinPending")
                       : selectedGame.status === "joined" && statusFor(selectedGame.joinTxHash) !== "INCLUDED"
                         ? t("waitingJoin")
                         : t("actionsAvailable")}
@@ -1073,6 +1116,20 @@ function App() {
                 <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
                   {t("markFailed")}
                 </button>
+              )}
+
+              {selectedGame.status === "join_pending" && (
+                <div className="actions">
+                  <button disabled={busy || !canConfirmJoin(selectedGame)} onClick={() => void handleConfirmJoin(selectedGame)} className="primary">
+                    {t("confirmJoin")}
+                  </button>
+                  <button
+                    disabled={busy || (selectedGame.creatorPublicKey !== publicKey && selectedGame.joinerPublicKey !== publicKey)}
+                    onClick={() => void handleReleaseJoin(selectedGame)}
+                  >
+                    {t("releaseJoin")}
+                  </button>
+                </div>
               )}
 
               {(selectedGame.status === "joined" ||
