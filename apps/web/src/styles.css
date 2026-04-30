@@ -283,6 +283,30 @@ select {
   margin-top: 16px;
 }
 
+.gameFilters {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.searchInput {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto 1fr;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.searchInput input {
+  border: 0;
+  min-height: 38px;
+  padding: 0;
+}
+
 .gameCard {
   border-radius: 8px;
   display: grid;
@@ -303,6 +327,60 @@ select {
 
 .gameCard small {
   color: var(--muted);
+}
+
+.playersLine {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.playersLine strong,
+.playerResult {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.playersLine span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.resultIcon {
+  flex: 0 0 auto;
+}
+
+.winnerIcon {
+  color: #b98212;
+}
+
+.mutedIcon {
+  color: var(--muted);
+}
+
+.pagination {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr auto 1fr;
+  margin-top: 16px;
+}
+
+.pagination button {
+  border-radius: 6px;
+  min-height: 38px;
+}
+
+.pagination span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .status {
@@ -364,6 +442,17 @@ dt {
 dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.hashLink {
+  color: var(--primary);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.hashLink:hover {
+  text-decoration: underline;
 }
 
 .txBadge {
@@ -541,5 +630,9 @@ dd {
 
   .topbar {
     align-items: flex-start;
+  }
+
+  .gameFilters {
+    grid-template-columns: 1fr;
   }
 }

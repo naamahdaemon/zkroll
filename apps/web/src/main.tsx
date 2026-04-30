@@ -1,7 +1,7 @@
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Dices, Languages, Moon, Pencil, RefreshCw, ShieldCheck, Sun, Trophy, Wallet } from "lucide-react";
-import { networks, type Game, type NetworkId } from "@zkroll/shared";
+import { CircleEqual, Dices, Languages, Moon, Pencil, RefreshCw, RotateCcw, Search, ShieldCheck, Sun, Trophy, Wallet } from "lucide-react";
+import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
 import {
   createGame,
   createPlayer,
@@ -41,9 +41,24 @@ const globalContractAddress = import.meta.env.VITE_ZKROLL_CONTRACT_ADDRESS as st
 const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
+const gamesPerPage = 5;
 type TxStatus = "INCLUDED" | "PENDING" | "FAILED" | "UNKNOWN";
 type Locale = "en" | "fr";
 type Theme = "light" | "dark";
+type StatusFilter = "all" | GameStatus;
+type NetworkFilter = "all" | NetworkId;
+const gameStatuses: GameStatus[] = [
+  "pending_signature",
+  "created",
+  "join_pending",
+  "joined",
+  "player_one_revealed",
+  "player_two_revealed",
+  "settled",
+  "refunded",
+  "failed",
+  "cancelled"
+];
 
 const copy: Record<Locale, Record<string, string>> = {
   en: {
@@ -59,6 +74,13 @@ const copy: Record<Locale, Record<string, string>> = {
     refundTimeout: "Refund timeout (slots)",
     create: "Create",
     games: "Games",
+    allStatuses: "All statuses",
+    allNetworks: "All networks",
+    searchPlayer: "Search player",
+    previous: "Previous",
+    next: "Next",
+    page: "Page",
+    draw: "Draw",
     indexed: "indexed",
     challenge: "Challenge",
     creator: "Creator",
@@ -148,6 +170,13 @@ const copy: Record<Locale, Record<string, string>> = {
     refundTimeout: "Timeout refund (slots)",
     create: "Creer",
     games: "Parties",
+    allStatuses: "Tous les etats",
+    allNetworks: "Tous les reseaux",
+    searchPlayer: "Rechercher joueur",
+    previous: "Precedent",
+    next: "Suivant",
+    page: "Page",
+    draw: "Egalite",
     indexed: "indexees",
     challenge: "Defi",
     creator: "Createur",
@@ -267,6 +296,10 @@ function App() {
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
+  const [playerSearch, setPlayerSearch] = useState("");
+  const [gamesPage, setGamesPage] = useState(1);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -289,9 +322,28 @@ function App() {
     [games, publicKey]
   );
 
+  const filteredGames = useMemo(() => {
+    const needle = playerSearch.trim().toLowerCase();
+    return visibleGames.filter((game) => {
+      const statusMatches = statusFilter === "all" || game.status === statusFilter;
+      const networkMatches = networkFilter === "all" || game.network === networkFilter;
+      const searchMatches =
+        !needle ||
+        game.creatorPseudo.toLowerCase().includes(needle) ||
+        (game.joinerPseudo?.toLowerCase().includes(needle) ?? false);
+      return statusMatches && networkMatches && searchMatches;
+    });
+  }, [networkFilter, playerSearch, statusFilter, visibleGames]);
+
+  const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
+  const paginatedGames = useMemo(
+    () => filteredGames.slice((gamesPage - 1) * gamesPerPage, gamesPage * gamesPerPage),
+    [filteredGames, gamesPage]
+  );
+
   const selectedGame = useMemo(
-    () => visibleGames.find((game) => game.id === selectedGameId) ?? visibleGames[0] ?? null,
-    [visibleGames, selectedGameId]
+    () => filteredGames.find((game) => game.id === selectedGameId) ?? filteredGames[0] ?? null,
+    [filteredGames, selectedGameId]
   );
 
   async function refreshGames() {
@@ -319,6 +371,53 @@ function App() {
 
   function isTerminalTxStatus(status: TxStatus | undefined) {
     return status === "INCLUDED" || status === "FAILED";
+  }
+
+  function isExplorerHash(hash: string | null | undefined) {
+    return Boolean(
+      hash &&
+        !hash.startsWith("pending:") &&
+        !hash.startsWith("fake") &&
+        !hash.startsWith("create_") &&
+        !hash.startsWith("join_") &&
+        !hash.startsWith("settle_") &&
+        !hash.startsWith("refund_")
+    );
+  }
+
+  function txExplorerUrl(networkId: NetworkId, hash: string) {
+    return `${networks[networkId].explorerBaseUrl}/${encodeURIComponent(hash)}`;
+  }
+
+  function accountExplorerUrl(networkId: NetworkId, address: string) {
+    if (networkId === "zeko") return `https://zekoscan.io/account/${encodeURIComponent(address)}`;
+    return `https://minascan.io/${networkId}/account/${encodeURIComponent(address)}/zk-txs`;
+  }
+
+  function displayTx(networkId: NetworkId, hash: string | null | undefined, status?: TxStatus) {
+    if (!hash) return null;
+    const content = isExplorerHash(hash) ? (
+      <a className="hashLink" href={txExplorerUrl(networkId, hash)} rel="noreferrer" target="_blank">
+        {hash}
+      </a>
+    ) : (
+      <span>{hash}</span>
+    );
+
+    return (
+      <>
+        {content}
+        {status && <span className={`txBadge ${status.toLowerCase()}`}>{status}</span>}
+      </>
+    );
+  }
+
+  function resultIconFor(game: Game, player: "creator" | "joiner") {
+    if (game.status === "refunded") return <RotateCcw className="resultIcon mutedIcon" size={16} />;
+    if (game.status !== "settled") return null;
+    if (!game.winnerPublicKey) return <CircleEqual className="resultIcon mutedIcon" size={16} />;
+    const playerKey = player === "creator" ? game.creatorPublicKey : game.joinerPublicKey;
+    return playerKey === game.winnerPublicKey ? <Trophy className="resultIcon winnerIcon" size={16} /> : null;
   }
 
   function shouldPollGame(game: Game) {
@@ -384,6 +483,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem("zkroll:locale", locale);
   }, [locale]);
+
+  useEffect(() => {
+    setGamesPage(1);
+  }, [networkFilter, playerSearch, statusFilter]);
+
+  useEffect(() => {
+    setGamesPage((current) => Math.min(current, totalGamePages));
+  }, [totalGamePages]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -980,22 +1087,84 @@ function App() {
         <section className="games">
           <div className="sectionHead">
             <h2>{t("games")}</h2>
-          <span>{visibleGames.length} {t("indexed")}</span>
+            <span>{filteredGames.length} / {visibleGames.length} {t("indexed")}</span>
+          </div>
+          <div className="gameFilters">
+            <label>
+              {t("onchainState")}
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+                <option value="all">{t("allStatuses")}</option>
+                {gameStatuses.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("network")}
+              <select value={networkFilter} onChange={(event) => setNetworkFilter(event.target.value as NetworkFilter)}>
+                <option value="all">{t("allNetworks")}</option>
+                {Object.values(networks).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {t("searchPlayer")}
+              <span className="searchInput">
+                <Search size={16} />
+                <input
+                  value={playerSearch}
+                  onChange={(event) => setPlayerSearch(event.target.value)}
+                  placeholder={t("pseudo")}
+                />
+              </span>
+            </label>
           </div>
           <div className="gameList">
-            {visibleGames.map((game) => (
+            {paginatedGames.map((game) => (
               <button
                 key={game.id}
                 className={game.id === selectedGame?.id ? "gameCard selected" : "gameCard"}
                 onClick={() => setSelectedGameId(game.id)}
               >
                 <span className={`status ${game.status}`}>{game.status}</span>
-                <strong>{game.creatorPseudo}</strong>
+                <div className="playersLine">
+                  <strong>
+                    {game.creatorPseudo}
+                    {resultIconFor(game, "creator")}
+                  </strong>
+                  <span>vs</span>
+                  <strong>
+                    {game.joinerPseudo ?? t("waiting")}
+                    {game.joinerPseudo && resultIconFor(game, "joiner")}
+                  </strong>
+                </div>
                 <span>{formatMina(game.stakeNanoMina)} MINA</span>
                 <small>{networks[game.network].label}</small>
               </button>
             ))}
+            {filteredGames.length === 0 && <p className="empty">{t("emptyGames")}</p>}
           </div>
+          {filteredGames.length > gamesPerPage && (
+            <div className="pagination">
+              <button disabled={gamesPage === 1} onClick={() => setGamesPage((page) => Math.max(1, page - 1))}>
+                {t("previous")}
+              </button>
+              <span>
+                {t("page")} {gamesPage} / {totalGamePages}
+              </span>
+              <button
+                disabled={gamesPage === totalGamePages}
+                onClick={() => setGamesPage((page) => Math.min(totalGamePages, page + 1))}
+              >
+                {t("next")}
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="panel detail">
@@ -1008,11 +1177,17 @@ function App() {
               <dl>
                 <div>
                   <dt>{t("creator")}</dt>
-                  <dd>{selectedGame.creatorPseudo}</dd>
+                  <dd className="playerResult">
+                    {selectedGame.creatorPseudo}
+                    {resultIconFor(selectedGame, "creator")}
+                  </dd>
                 </div>
                 <div>
                   <dt>{t("opponent")}</dt>
-                  <dd>{selectedGame.joinerPseudo ?? t("waiting")}</dd>
+                  <dd className="playerResult">
+                    {selectedGame.joinerPseudo ?? t("waiting")}
+                    {selectedGame.joinerPseudo && resultIconFor(selectedGame, "joiner")}
+                  </dd>
                 </div>
                 <div>
                   <dt>{t("stake")}</dt>
@@ -1020,44 +1195,24 @@ function App() {
                 </div>
                 <div>
                   <dt>{t("transaction")}</dt>
-                  <dd>
-                    {selectedGame.creationTxHash}
-                    <span className={`txBadge ${creationStatusFor(selectedGame).toLowerCase()}`}>
-                      {creationStatusFor(selectedGame)}
-                    </span>
-                  </dd>
+                  <dd>{displayTx(selectedGame.network, selectedGame.creationTxHash, creationStatusFor(selectedGame))}</dd>
                 </div>
                 {selectedGame.joinTxHash && (
                   <div>
                     <dt>Join tx</dt>
-                    <dd>
-                      {selectedGame.joinTxHash}
-                      <span className={`txBadge ${statusFor(selectedGame.joinTxHash).toLowerCase()}`}>
-                        {statusFor(selectedGame.joinTxHash)}
-                      </span>
-                    </dd>
+                    <dd>{displayTx(selectedGame.network, selectedGame.joinTxHash, statusFor(selectedGame.joinTxHash))}</dd>
                   </div>
                 )}
                 {selectedGame.settlementTxHash && (
                   <div>
                     <dt>Settlement tx</dt>
-                    <dd>
-                      {selectedGame.settlementTxHash}
-                      <span className={`txBadge ${statusFor(selectedGame.settlementTxHash).toLowerCase()}`}>
-                        {statusFor(selectedGame.settlementTxHash)}
-                      </span>
-                    </dd>
+                    <dd>{displayTx(selectedGame.network, selectedGame.settlementTxHash, statusFor(selectedGame.settlementTxHash))}</dd>
                   </div>
                 )}
                 {selectedGame.refundTxHash && (
                   <div>
                     <dt>Refund tx</dt>
-                    <dd>
-                      {selectedGame.refundTxHash}
-                      <span className={`txBadge ${statusFor(selectedGame.refundTxHash).toLowerCase()}`}>
-                        {statusFor(selectedGame.refundTxHash)}
-                      </span>
-                    </dd>
+                    <dd>{displayTx(selectedGame.network, selectedGame.refundTxHash, statusFor(selectedGame.refundTxHash))}</dd>
                   </div>
                 )}
                 <div>
@@ -1089,7 +1244,16 @@ function App() {
                 {selectedGame.zkappAddress && (
                   <div>
                     <dt>zkApp</dt>
-                    <dd>{selectedGame.zkappAddress}</dd>
+                    <dd>
+                      <a
+                        className="hashLink"
+                        href={accountExplorerUrl(selectedGame.network, selectedGame.zkappAddress)}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {selectedGame.zkappAddress}
+                      </a>
+                    </dd>
                   </div>
                 )}
               </dl>
@@ -1176,7 +1340,7 @@ function App() {
                   <span>
                     {selectedGame.creatorDie} - {selectedGame.joinerDie}
                   </span>
-                  <strong>{selectedGame.winnerPublicKey ?? "Egalite"}</strong>
+                  <strong>{selectedGame.winnerPublicKey ?? t("draw")}</strong>
                 </div>
               )}
 
