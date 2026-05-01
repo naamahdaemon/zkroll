@@ -39,6 +39,7 @@ import {
   createGameOnchain,
   diceOutcomeOnchain,
   ensureWalletNetwork,
+  externalBrowserUrl,
   generateGameZkappKey,
   getProvingCompatibility,
   joinGameOnchain,
@@ -186,6 +187,8 @@ const copy: Record<Locale, Record<string, string>> = {
     provingCompatibilityTitle: "ZK proving may not work in this browser",
     provingCompatibilityIntro: "This device cannot safely compile the circuit here.",
     provingCompatibilityAdvice: "Open zkroll in a full browser with COOP/COEP support, or use desktop.",
+    openInBrowser: "Open in browser",
+    copyPageUrl: "Copy page URL",
     openAuro: "Open Auro",
     copyWalletConnectUri: "Copy WalletConnect URI",
     walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here.",
@@ -298,6 +301,8 @@ const copy: Record<Locale, Record<string, string>> = {
     provingCompatibilityTitle: "La preuve ZK risque de ne pas fonctionner dans ce navigateur",
     provingCompatibilityIntro: "Cet environnement ne peut pas compiler le circuit de maniere fiable.",
     provingCompatibilityAdvice: "Ouvre zkroll dans un navigateur complet compatible COOP/COEP, ou utilise desktop.",
+    openInBrowser: "Ouvrir dans le navigateur",
+    copyPageUrl: "Copier l'URL",
     openAuro: "Ouvrir Auro",
     copyWalletConnectUri: "Copier l'URI WalletConnect",
     walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici.",
@@ -1186,6 +1191,21 @@ function App() {
               ))}
             </ul>
             {!provingCompatibility.ok && <p>{t("provingCompatibilityAdvice")}</p>}
+            {!provingCompatibility.ok && provingCompatibility.isWalletWebView && (
+              <div className="inlineActions">
+                <a className="primary actionLink" href={externalBrowserUrl()} rel="noreferrer">
+                  {t("openInBrowser")}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(window.location.href);
+                  }}
+                >
+                  {t("copyPageUrl")}
+                </button>
+              </div>
+            )}
           </div>
         </section>
       )}

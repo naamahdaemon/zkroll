@@ -82,6 +82,21 @@ export function getProvingCompatibility(): ProvingCompatibility {
   };
 }
 
+export function externalBrowserUrl() {
+  const target = window.location.href;
+  const encoded = encodeURIComponent(target);
+  const ua = userAgent();
+  if (/Android/i.test(ua)) {
+    const withoutScheme = target.replace(/^https?:\/\//, "");
+    const scheme = target.startsWith("https://") ? "https" : "http";
+    return `intent://${withoutScheme}#Intent;scheme=${scheme};package=com.android.chrome;end`;
+  }
+  if (/iPhone|iPad|iPod/i.test(ua)) {
+    return `googlechrome://navigate?url=${encoded}`;
+  }
+  return target;
+}
+
 function provingCompatibilityError(compatibility: ProvingCompatibility) {
   const codes = compatibility.issues.filter((issue) => issue.severity === "error").map((issue) => issue.code);
   return `Compilation ZK impossible dans ce navigateur (${codes.join(", ")}). Ouvre zkroll dans un navigateur complet compatible COOP/COEP, par exemple Chrome/Safari, ou utilise desktop.`;

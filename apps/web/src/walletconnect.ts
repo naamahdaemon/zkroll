@@ -47,11 +47,11 @@ function isIOS() {
 }
 
 function connectOpenUrl(uri: string) {
-  return `https://link.walletconnect.com/?uri=${encodeURIComponent(uri)}`;
+  return `aurowallet://wc?uri=${encodeURIComponent(uri)}`;
 }
 
 function requestOpenUrl() {
-  return isIOS() ? "https://applinks.aurowallet.com/applinks?action=openurl&url=" : "aurowallet://";
+  return "aurowallet://";
 }
 
 function openAuroForRequest() {

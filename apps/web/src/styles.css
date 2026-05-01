@@ -158,6 +158,13 @@ h1 {
   padding-left: 18px;
 }
 
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .compactSelect {
   align-items: center;
   border: 1px solid var(--border-strong);
