@@ -1,5 +1,6 @@
 import SignClient from "@walletconnect/sign-client";
 import type { NetworkId } from "@zkroll/shared";
+import { extractTransactionHash } from "./onchain";
 import type { MinaProvider } from "./types";
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -152,11 +153,14 @@ function feeToMina(fee?: number) {
 }
 
 function normalizeResult(result: unknown) {
+  if (typeof result === "string") return { hash: extractTransactionHash(result) ?? undefined };
   if (!result || typeof result !== "object") return result;
   const record = result as Record<string, unknown>;
-  if (typeof record.hash === "string") return { hash: record.hash };
-  if (typeof record.transactionHash === "string") return { hash: record.transactionHash };
-  if (typeof record.txHash === "string") return { hash: record.txHash };
+  if (typeof record.hash === "string") return { hash: extractTransactionHash(record.hash) ?? undefined };
+  if (typeof record.transactionHash === "string") return { hash: extractTransactionHash(record.transactionHash) ?? undefined };
+  if (typeof record.txHash === "string") return { hash: extractTransactionHash(record.txHash) ?? undefined };
+  const hash = extractTransactionHash(JSON.stringify(result));
+  if (hash) return { hash };
   return result;
 }
 

@@ -48,6 +48,13 @@ db.exec(`
     refund_tx_status text,
     created_at text not null,
     updated_at text not null,
+    join_at text,
+    creator_reveal_at text,
+    joiner_reveal_at text,
+    settled_at text,
+    refunded_at text,
+    failed_at text,
+    cancelled_at text,
     foreign key (creator_pseudo) references players(pseudo),
     foreign key (joiner_pseudo) references players(pseudo)
   );
@@ -66,7 +73,14 @@ for (const statement of [
   "alter table games add column creation_tx_status text not null default 'PENDING'",
   "alter table games add column join_tx_status text",
   "alter table games add column settlement_tx_status text",
-  "alter table games add column refund_tx_status text"
+  "alter table games add column refund_tx_status text",
+  "alter table games add column join_at text",
+  "alter table games add column creator_reveal_at text",
+  "alter table games add column joiner_reveal_at text",
+  "alter table games add column settled_at text",
+  "alter table games add column refunded_at text",
+  "alter table games add column failed_at text",
+  "alter table games add column cancelled_at text"
 ]) {
   try {
     db.exec(statement);
@@ -146,6 +160,13 @@ type GameRow = {
   refund_tx_status: TransactionStatus | null;
   created_at: string;
   updated_at: string;
+  join_at: string | null;
+  creator_reveal_at: string | null;
+  joiner_reveal_at: string | null;
+  settled_at: string | null;
+  refunded_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
 };
 
 function playerFromRow(row: PlayerRow): Player {
@@ -190,7 +211,14 @@ function gameFromRow(row: GameRow): Game {
     settlementTxStatus: row.settlement_tx_status,
     refundTxStatus: row.refund_tx_status,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    joinAt: row.join_at,
+    creatorRevealAt: row.creator_reveal_at,
+    joinerRevealAt: row.joiner_reveal_at,
+    settledAt: row.settled_at,
+    refundedAt: row.refunded_at,
+    failedAt: row.failed_at,
+    cancelledAt: row.cancelled_at
   };
 }
 
@@ -301,13 +329,14 @@ export function markCreationFailed(id: string, reason?: string): Game {
       set status = 'failed',
           creation_tx_status = 'FAILED',
           failure_reason = ?,
+          failed_at = ?,
           updated_at = ?
       where id = ?
         and status in ('pending_signature', 'created')
         and join_tx_hash is null
     `
     )
-    .run(reason ?? null, now, id);
+    .run(reason ?? null, now, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Game creation cannot be marked as failed");
@@ -318,8 +347,8 @@ export function markCreationFailed(id: string, reason?: string): Game {
 
 export function listGames(status?: GameStatus): Game[] {
   const rows = status
-    ? (db.prepare("select * from games where status = ? order by created_at desc").all(status) as GameRow[])
-    : (db.prepare("select * from games order by created_at desc").all() as GameRow[]);
+    ? (db.prepare("select * from games where status = ? order by updated_at desc, created_at desc").all(status) as GameRow[])
+    : (db.prepare("select * from games order by updated_at desc, created_at desc").all() as GameRow[]);
 
   return rows.map(gameFromRow);
 }
@@ -424,10 +453,11 @@ export function markTransactionFailed(network: NetworkId, hash: string, reason?:
       set creation_tx_status = 'FAILED',
           status = case when join_tx_hash is null then 'failed' else status end,
           failure_reason = ?,
+          failed_at = case when join_tx_hash is null then ? else failed_at end,
           updated_at = ?
       where id = ?
     `
-    ).run(reason ?? null, now, game.id);
+    ).run(reason ?? null, now, now, game.id);
     return getGame(game.id);
   }
 
@@ -439,6 +469,7 @@ export function markTransactionFailed(network: NetworkId, hash: string, reason?:
           joiner_public_key = null,
           joiner_pseudo_hash = null,
           joiner_commitment = null,
+          join_at = null,
           pending_join_refund_deadline_slot = null,
           join_tx_status = 'FAILED',
           failure_reason = ?,
@@ -457,6 +488,7 @@ export function markTransactionFailed(network: NetworkId, hash: string, reason?:
       set creator_die = null,
           joiner_die = null,
           winner_public_key = null,
+          settled_at = null,
           settlement_tx_status = 'FAILED',
           failure_reason = ?,
           status = ?,
@@ -475,6 +507,7 @@ export function markTransactionFailed(network: NetworkId, hash: string, reason?:
       update games
       set refund_tx_status = 'FAILED',
           failure_reason = ?,
+          refunded_at = null,
           status = ?,
           updated_at = ?
       where id = ?
@@ -509,6 +542,7 @@ export function joinGame(
           pending_join_refund_deadline_slot = ?,
           join_tx_hash = ?,
           join_tx_status = 'PENDING',
+          join_at = ?,
           status = 'join_pending',
           updated_at = ?
       where id = ? and status = 'created'
@@ -521,6 +555,7 @@ export function joinGame(
       input.joinerCommitment,
       input.refundDeadlineSlot ?? null,
       input.joinTxHash,
+      now,
       now,
       id
     );
@@ -567,6 +602,7 @@ export function failPendingJoin(id: string, reason?: string): Game {
           joiner_commitment = null,
           join_tx_hash = null,
           join_tx_status = 'FAILED',
+          join_at = null,
           pending_join_refund_deadline_slot = null,
           failure_reason = ?,
           status = 'created',
@@ -593,13 +629,14 @@ export function refundGame(id: string, input: { refundTxHash: string }): Game {
       update games
       set refund_tx_hash = ?,
           refund_tx_status = ?,
+          refunded_at = ?,
           status = 'refunded',
           updated_at = ?
       where id = ?
         and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed')
     `
     )
-    .run(input.refundTxHash, refundTxStatus, now, id);
+    .run(input.refundTxHash, refundTxStatus, now, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Game cannot be refunded");
@@ -636,11 +673,23 @@ export function revealSecret(id: string, publicKey: string, secret: string): Gam
     update games
     set creator_reveal = coalesce(?, creator_reveal),
         joiner_reveal = coalesce(?, joiner_reveal),
+        creator_reveal_at = case when ? is not null and creator_reveal_at is null then ? else creator_reveal_at end,
+        joiner_reveal_at = case when ? is not null and joiner_reveal_at is null then ? else joiner_reveal_at end,
         status = ?,
         updated_at = ?
     where id = ?
   `
-  ).run(isCreator ? secret : null, isJoiner ? secret : null, nextStatus, now, id);
+  ).run(
+    isCreator ? secret : null,
+    isJoiner ? secret : null,
+    isCreator ? secret : null,
+    now,
+    isJoiner ? secret : null,
+    now,
+    nextStatus,
+    now,
+    id
+  );
 
   return getGame(id)!;
 }
@@ -666,12 +715,13 @@ export function settleGame(
           winner_public_key = ?,
           settlement_tx_hash = ?,
           settlement_tx_status = ?,
+          settled_at = ?,
           status = 'settled',
           updated_at = ?
       where id = ? and creator_reveal is not null and joiner_reveal is not null
     `
     )
-    .run(input.creatorDie, input.joinerDie, input.winnerPublicKey, input.settlementTxHash, settlementTxStatus, now, id);
+    .run(input.creatorDie, input.joinerDie, input.winnerPublicKey, input.settlementTxHash, settlementTxStatus, now, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Game cannot be settled");

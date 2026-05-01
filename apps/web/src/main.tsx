@@ -46,6 +46,7 @@ import {
   nextRefundDeadlineSlot,
   pseudoHash,
   refundGameOnchain,
+  requiredTransactionHash,
   settleGameOnchain,
   type OnchainProgress,
   type ProvingCompatibility,
@@ -193,6 +194,16 @@ const copy: Record<Locale, Record<string, string>> = {
     copyWalletConnectUri: "Copy WalletConnect URI",
     walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here.",
     walletConnectNotConfigured: "Mobile WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID.",
+    createdAt: "Created",
+    updatedAt: "Updated",
+    joinedAt: "Joined",
+    creatorRevealedAt: "Creator reveal",
+    joinerRevealedAt: "Opponent reveal",
+    settledAt: "Settled",
+    refundedAt: "Refunded",
+    failedAt: "Failed",
+    cancelledAt: "Cancelled",
+    timeline: "Timeline",
     issueNoWebAssembly: "WebAssembly is not available.",
     issueNoWorker: "Web workers or blob workers are not available.",
     issueNotCrossOriginIsolated: "The page is not cross-origin isolated, so SharedArrayBuffer cannot be used.",
@@ -307,6 +318,16 @@ const copy: Record<Locale, Record<string, string>> = {
     copyWalletConnectUri: "Copier l'URI WalletConnect",
     walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici.",
     walletConnectNotConfigured: "WalletConnect mobile n'est pas configure. Renseigne VITE_WALLETCONNECT_PROJECT_ID.",
+    createdAt: "Creee",
+    updatedAt: "Mise a jour",
+    joinedAt: "Rejointe",
+    creatorRevealedAt: "Reveal createur",
+    joinerRevealedAt: "Reveal adversaire",
+    settledAt: "Reglee",
+    refundedAt: "Remboursee",
+    failedAt: "Echouee",
+    cancelledAt: "Annulee",
+    timeline: "Chronologie",
     issueNoWebAssembly: "WebAssembly n'est pas disponible.",
     issueNoWorker: "Les web workers ou blob workers ne sont pas disponibles.",
     issueNotCrossOriginIsolated: "La page n'est pas cross-origin isolated, donc SharedArrayBuffer ne peut pas etre utilise.",
@@ -354,6 +375,14 @@ function formatMina(value: string): string {
   });
 }
 
+function formatDateTime(value: string | null | undefined, locale: Locale): string {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(locale === "fr" ? "fr-FR" : "en-US", {
+    dateStyle: "short",
+    timeStyle: "medium"
+  }).format(new Date(value));
+}
+
 function App() {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem("zkroll:locale") === "fr" ? "fr" : "en"));
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("zkroll:theme") === "dark" ? "dark" : "light"));
@@ -397,15 +426,17 @@ function App() {
 
   const filteredGames = useMemo(() => {
     const needle = playerSearch.trim().toLowerCase();
-    return visibleGames.filter((game) => {
-      const statusMatches = statusFilter === "all" || game.status === statusFilter;
-      const networkMatches = networkFilter === "all" || game.network === networkFilter;
-      const searchMatches =
-        !needle ||
-        game.creatorPseudo.toLowerCase().includes(needle) ||
-        (game.joinerPseudo?.toLowerCase().includes(needle) ?? false);
-      return statusMatches && networkMatches && searchMatches;
-    });
+    return visibleGames
+      .filter((game) => {
+        const statusMatches = statusFilter === "all" || game.status === statusFilter;
+        const networkMatches = networkFilter === "all" || game.network === networkFilter;
+        const searchMatches =
+          !needle ||
+          game.creatorPseudo.toLowerCase().includes(needle) ||
+          (game.joinerPseudo?.toLowerCase().includes(needle) ?? false);
+        return statusMatches && networkMatches && searchMatches;
+      })
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
   }, [networkFilter, playerSearch, statusFilter, visibleGames]);
 
   const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
@@ -831,7 +862,7 @@ function App() {
       }
       const txHash = window.prompt(t("pasteCreationHash"));
       if (!txHash?.trim()) return;
-      const reconciled = await reconcileCreationTx(game.id, txHash.trim());
+      const reconciled = await reconcileCreationTx(game.id, requiredTransactionHash(txHash));
       setSelectedGameId(reconciled.id);
       setMessage(t("hashSaved"));
     });
@@ -899,6 +930,7 @@ function App() {
           network,
           senderPublicKey: publicKey,
           zkappPrivateKey: gameKey!.privateKey,
+          gameId: created.id,
           pseudo,
           secret,
           gameIdField,
@@ -1327,6 +1359,7 @@ function App() {
                 </div>
                 <span>{formatMina(game.stakeNanoMina)} MINA</span>
                 <small>{networks[game.network].label}</small>
+                <small>{t("updatedAt")}: {formatDateTime(game.updatedAt, locale)}</small>
               </button>
             ))}
             {filteredGames.length === 0 && <p className="empty">{t("emptyGames")}</p>}
@@ -1374,6 +1407,24 @@ function App() {
                 <div>
                   <dt>{t("stake")}</dt>
                   <dd>{formatMina(selectedGame.stakeNanoMina)} MINA</dd>
+                </div>
+                <div>
+                  <dt>{t("timeline")}</dt>
+                  <dd className="timeline">
+                    <span>{t("createdAt")}: {formatDateTime(selectedGame.createdAt, locale)}</span>
+                    {selectedGame.joinAt && <span>{t("joinedAt")}: {formatDateTime(selectedGame.joinAt, locale)}</span>}
+                    {selectedGame.creatorRevealAt && (
+                      <span>{t("creatorRevealedAt")}: {formatDateTime(selectedGame.creatorRevealAt, locale)}</span>
+                    )}
+                    {selectedGame.joinerRevealAt && (
+                      <span>{t("joinerRevealedAt")}: {formatDateTime(selectedGame.joinerRevealAt, locale)}</span>
+                    )}
+                    {selectedGame.settledAt && <span>{t("settledAt")}: {formatDateTime(selectedGame.settledAt, locale)}</span>}
+                    {selectedGame.refundedAt && <span>{t("refundedAt")}: {formatDateTime(selectedGame.refundedAt, locale)}</span>}
+                    {selectedGame.failedAt && <span>{t("failedAt")}: {formatDateTime(selectedGame.failedAt, locale)}</span>}
+                    {selectedGame.cancelledAt && <span>{t("cancelledAt")}: {formatDateTime(selectedGame.cancelledAt, locale)}</span>}
+                    <span>{t("updatedAt")}: {formatDateTime(selectedGame.updatedAt, locale)}</span>
+                  </dd>
                 </div>
                 <div>
                   <dt>{t("transaction")}</dt>

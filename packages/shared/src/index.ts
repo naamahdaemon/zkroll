@@ -54,6 +54,13 @@ export type Game = {
   refundTxStatus: TransactionStatus | null;
   createdAt: string;
   updatedAt: string;
+  joinAt: string | null;
+  creatorRevealAt: string | null;
+  joinerRevealAt: string | null;
+  settledAt: string | null;
+  refundedAt: string | null;
+  failedAt: string | null;
+  cancelledAt: string | null;
 };
 
 export type CreatePlayerRequest = {

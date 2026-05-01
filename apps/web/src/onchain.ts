@@ -231,13 +231,30 @@ function assertProvider(provider: MinaProvider | undefined): MinaProvider {
 }
 
 function normalizeWalletHash(result: unknown): string | null {
-  if (typeof result === "string") return result;
+  if (typeof result === "string") return extractTransactionHash(result);
   if (!result || typeof result !== "object") return null;
   const record = result as Record<string, unknown>;
-  if (typeof record.hash === "string") return record.hash;
-  if (typeof record.transactionHash === "string") return record.transactionHash;
-  if (typeof record.txHash === "string") return record.txHash;
-  return null;
+  if (typeof record.hash === "string") return extractTransactionHash(record.hash);
+  if (typeof record.transactionHash === "string") return extractTransactionHash(record.transactionHash);
+  if (typeof record.txHash === "string") return extractTransactionHash(record.txHash);
+  return extractTransactionHash(JSON.stringify(result));
+}
+
+export function extractTransactionHash(value: string): string | null {
+  return value.match(/5J[1-9A-HJ-NP-Za-km-z]{40,}/)?.[0] ?? null;
+}
+
+export function requiredTransactionHash(value: string): string {
+  const hash = extractTransactionHash(value);
+  if (!hash) {
+    throw new Error("Aucun hash de transaction Mina 5J... trouve dans le texte fourni.");
+  }
+  return hash;
+}
+
+function compactGameMemo(action: string, gameId?: string) {
+  const suffix = gameId ? ` ${gameId.slice(0, 12)}` : "";
+  return `zkroll ${action}${suffix}`.slice(0, 32);
 }
 
 async function sendWithWallet(provider: MinaProvider, transactionJson: string, memo: string, onProgress?: ProgressCallback) {
@@ -264,7 +281,7 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, m
       throw new Error("Transaction envoyee possible, mais hash non renseigne. Colle le hash pour indexer la partie.");
     }
     report(onProgress, "Transaction renseignee", 100);
-    return manualHash.trim();
+    return requiredTransactionHash(manualHash);
   }
 
   const hash = normalizeWalletHash(result);
@@ -276,7 +293,7 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, m
       throw new Error("Le wallet n'a pas renvoye de hash exploitable.");
     }
     report(onProgress, "Transaction renseignee", 100);
-    return manualHash.trim();
+    return requiredTransactionHash(manualHash);
   }
 
   report(onProgress, "Transaction envoyee", 100);
@@ -315,6 +332,7 @@ export async function createGameOnchain(input: {
   network: NetworkId;
   senderPublicKey: string;
   zkappPrivateKey: string;
+  gameId: string;
   pseudo: string;
   secret: string;
   gameIdField: string;
@@ -346,7 +364,7 @@ export async function createGameOnchain(input: {
   await tx.prove();
   tx.sign([zkappKey]);
   report(input.onProgress, "Preuve generee", 82);
-  const txHash = await sendWithWallet(provider, tx.toJSON(), "zkroll create", input.onProgress);
+  const txHash = await sendWithWallet(provider, tx.toJSON(), compactGameMemo("create", input.gameId), input.onProgress);
   return { txHash, zkappAddress: zkappAddress.toBase58() };
 }
 
@@ -386,7 +404,7 @@ export async function joinGameOnchain(input: {
   report(input.onProgress, "Generation de la preuve", 54);
   await tx.prove();
   report(input.onProgress, "Preuve generee", 82);
-  return sendWithWallet(provider, tx.toJSON(), "zkroll join", input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), compactGameMemo("join", input.gameIdField), input.onProgress);
 }
 
 export async function settleGameOnchain(input: {
@@ -432,7 +450,7 @@ export async function settleGameOnchain(input: {
   report(input.onProgress, "Generation de la preuve", 54);
   await tx.prove();
   report(input.onProgress, "Preuve generee", 82);
-  return sendWithWallet(provider, tx.toJSON(), "zkroll settle", input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), compactGameMemo("settle", input.gameIdField), input.onProgress);
 }
 
 export async function refundGameOnchain(input: {
@@ -483,7 +501,7 @@ export async function refundGameOnchain(input: {
   report(input.onProgress, "Generation de la preuve", 54);
   await tx.prove();
   report(input.onProgress, "Preuve generee", 82);
-  return sendWithWallet(provider, tx.toJSON(), "zkroll refund", input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), compactGameMemo("refund", input.gameIdField), input.onProgress);
 }
 
 export async function diceOutcomeOnchain(creatorSecret: string, joinerSecret: string, gameIdField: string) {
