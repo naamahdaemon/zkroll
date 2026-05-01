@@ -53,6 +53,7 @@ import {
   type ProvingCompatibilityIssueCode
 } from "./onchain";
 import {
+  disconnectWalletConnect,
   mobileBrowserCanUseWalletConnect,
   setWalletConnectPromptHandler,
   walletConnectConfigured,
@@ -94,6 +95,7 @@ const copy: Record<Locale, Record<string, string>> = {
     pseudo: "Pseudo",
     network: "Network",
     connectWallet: "Connect wallet",
+    disconnectWallet: "Disconnect",
     walletConnected: "Wallet connected",
     newChallenge: "New challenge",
     stake: "Stake in MINA",
@@ -218,6 +220,7 @@ const copy: Record<Locale, Record<string, string>> = {
     pseudo: "Pseudo",
     network: "Reseau",
     connectWallet: "Connecter wallet",
+    disconnectWallet: "Deconnecter",
     walletConnected: "Wallet connecte",
     newChallenge: "Nouveau defi",
     stake: "Mise en MINA",
@@ -814,6 +817,22 @@ function App() {
     }
   }
 
+  async function disconnectWallet() {
+    if (!window.mina && walletConnectConfigured()) {
+      try {
+        await disconnectWalletConnect();
+      } catch (error) {
+        setMessage((error as Error).message);
+      }
+    }
+    setPublicKey("");
+    setPseudo("");
+    setPseudoDraft("");
+    setPseudoModalOpen(false);
+    setWalletConnectPrompt(null);
+    setMessage(t("walletPrompt"));
+  }
+
   async function savePseudo(event: FormEvent) {
     event.preventDefault();
     if (!publicKey) return;
@@ -1270,10 +1289,17 @@ function App() {
               ))}
             </select>
           </label>
-          <button onClick={() => void connectWallet()} className="primary">
-            <Wallet size={18} />
-            {publicKey ? t("walletConnected") : t("connectWallet")}
-          </button>
+          <div className="walletActions">
+            <button onClick={() => void connectWallet()} className="primary">
+              <Wallet size={18} />
+              {publicKey ? t("walletConnected") : t("connectWallet")}
+            </button>
+            {publicKey && (
+              <button onClick={() => void disconnectWallet()} type="button">
+                {t("disconnectWallet")}
+              </button>
+            )}
+          </div>
           {publicKey && <p className="key">{publicKey}</p>}
 
           <h2>{t("newChallenge")}</h2>

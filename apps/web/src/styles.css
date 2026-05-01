@@ -287,6 +287,11 @@ select {
   text-decoration: none;
 }
 
+.walletActions {
+  display: grid;
+  gap: 8px;
+}
+
 .iconButton {
   aspect-ratio: 1;
   padding: 0;

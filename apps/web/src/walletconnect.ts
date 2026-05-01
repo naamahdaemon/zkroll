@@ -39,6 +39,23 @@ export function mobileBrowserCanUseWalletConnect() {
   return walletConnectConfigured() && typeof window !== "undefined" && !window.mina;
 }
 
+export async function disconnectWalletConnect() {
+  const activeSession = session;
+  session = null;
+  currentChainId = null;
+  promptHandler?.(null);
+  if (!activeSession) return;
+
+  const nextClient = await client();
+  await nextClient.disconnect({
+    topic: activeSession.topic,
+    reason: {
+      code: 6000,
+      message: "User disconnected"
+    }
+  });
+}
+
 function isMobile() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
 }
