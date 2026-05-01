@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CircleEqual, Dices, Languages, Moon, Pencil, RefreshCw, RotateCcw, Search, ShieldCheck, Sun, Trophy, Wallet } from "lucide-react";
 import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
@@ -309,6 +309,7 @@ function App() {
   const [onchainStartedAt, setOnchainStartedAt] = useState<number | null>(null);
   const [onchainElapsedSeconds, setOnchainElapsedSeconds] = useState(0);
   const [txStatuses, setTxStatuses] = useState<Record<string, TxStatus>>({});
+  const txStatusesRef = useRef(txStatuses);
   const [currentSlots, setCurrentSlots] = useState<Record<NetworkId, string | null>>({
     mainnet: null,
     devnet: null,
@@ -345,6 +346,16 @@ function App() {
     () => filteredGames.find((game) => game.id === selectedGameId) ?? filteredGames[0] ?? null,
     [filteredGames, selectedGameId]
   );
+
+  const selectedGameTxs = useMemo(() => {
+    if (!selectedGame) return [];
+    return [
+      { network: selectedGame.network, hash: selectedGame.creationTxHash },
+      { network: selectedGame.network, hash: selectedGame.joinTxHash },
+      { network: selectedGame.network, hash: selectedGame.settlementTxHash },
+      { network: selectedGame.network, hash: selectedGame.refundTxHash }
+    ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash) && isExplorerHash(item.hash));
+  }, [selectedGame]);
 
   async function refreshGames() {
     const nextGames = await listGames();
@@ -498,21 +509,16 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (!onchainEnabled || games.length === 0) return;
+    txStatusesRef.current = txStatuses;
+  }, [txStatuses]);
+
+  useEffect(() => {
+    if (!onchainEnabled || selectedGameTxs.length === 0) return;
 
     let cancelled = false;
     const poll = async () => {
-      const txs = games.flatMap((game) => {
-        if (!shouldPollGame(game)) return [];
-        return [
-          { network: game.network, hash: game.creationTxHash },
-          { network: game.network, hash: game.joinTxHash },
-          { network: game.network, hash: game.settlementTxHash },
-          { network: game.network, hash: game.refundTxHash }
-        ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash) && isExplorerHash(item.hash));
-      });
-      const unique = Array.from(new Map(txs.map((item) => [item.hash, item])).values()).filter(
-        (item) => !isTerminalTxStatus(txStatuses[item.hash])
+      const unique = Array.from(new Map(selectedGameTxs.map((item) => [item.hash, item])).values()).filter(
+        (item) => !isTerminalTxStatus(txStatusesRef.current[item.hash])
       );
       if (unique.length === 0) return;
 
@@ -535,16 +541,15 @@ function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [games, txStatuses]);
+  }, [selectedGameTxs]);
 
   useEffect(() => {
-    if (!onchainEnabled) return;
+    if (!onchainEnabled || !selectedGame) return;
 
     let cancelled = false;
     const poll = async () => {
-      const networksToPoll = Array.from(new Set([network, selectedGame?.network].filter(Boolean))) as NetworkId[];
       const nextSlots = await Promise.all(
-        networksToPoll.map(async (item) => {
+        [selectedGame.network].map(async (item) => {
           try {
             const result = await getCurrentSlot(item);
             return [item, result.currentSlot] as const;
@@ -565,7 +570,7 @@ function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [network, selectedGame?.network]);
+  }, [selectedGame?.network]);
 
   useEffect(() => {
     if (!onchainProgress || !onchainStartedAt) {
