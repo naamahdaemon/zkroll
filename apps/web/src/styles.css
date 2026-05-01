@@ -403,6 +403,26 @@ select {
   text-transform: uppercase;
 }
 
+.revealDots {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.revealDot {
+  background: var(--surface-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  height: 12px;
+  width: 12px;
+}
+
+.revealDot.done {
+  background: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
 .resultIcon {
   flex: 0 0 auto;
 }

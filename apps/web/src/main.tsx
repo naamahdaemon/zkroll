@@ -1463,6 +1463,10 @@ function App() {
                     {game.joinerPseudo && resultIconFor(game, "joiner")}
                   </strong>
                 </div>
+                <div className="revealDots" aria-label={`${t("reveal")}: ${game.creatorReveal ? "1" : "0"} / ${game.joinerReveal ? "1" : "0"}`}>
+                  <span className={game.creatorReveal ? "revealDot done" : "revealDot"} title={t("creatorRevealedAt")} />
+                  <span className={game.joinerReveal ? "revealDot done" : "revealDot"} title={t("joinerRevealedAt")} />
+                </div>
                 <span>{formatMina(game.stakeNanoMina)} MINA</span>
                 <small>{networks[game.network].label}</small>
                 <small>{t("updatedAt")}: {formatDateTime(game.updatedAt, locale)}</small>
