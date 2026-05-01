@@ -4,7 +4,23 @@ import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/sh
 import { listGames } from "./db.js";
 
 const onchainRootCacheMs = Number(process.env.ZKROLL_ONCHAIN_ROOT_CACHE_MS ?? 15_000);
+const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 12_000);
 const onchainRootCache = new Map<NetworkId, { expiresAt: number; result: { root: string | null; error: string | null } }>();
+const onchainRootRequests = new Map<NetworkId, Promise<{ root: string | null; error: string | null }>>();
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 function statusField(status: GameStatus) {
   if (status === "created") return CREATED;
@@ -77,6 +93,17 @@ export async function onchainGamesRoot(network: NetworkId) {
     return cached.result;
   }
 
+  const running = onchainRootRequests.get(network);
+  if (running) return running;
+
+  const request = fetchOnchainGamesRoot(network).finally(() => {
+    onchainRootRequests.delete(network);
+  });
+  onchainRootRequests.set(network, request);
+  return request;
+}
+
+async function fetchOnchainGamesRoot(network: NetworkId) {
   const address = process.env.ZKROLL_CONTRACT_ADDRESS;
   if (!address) {
     const result = {
@@ -87,7 +114,11 @@ export async function onchainGamesRoot(network: NetworkId) {
     return result;
   }
 
-  const { account, error } = await fetchAccount({ publicKey: address }, networks[network].minaEndpoint);
+  const { account, error } = await withTimeout(
+    fetchAccount({ publicKey: address }, networks[network].minaEndpoint),
+    chainRequestTimeoutMs,
+    `${network} account fetch`
+  );
   if (error) {
     const result = {
       root: null,

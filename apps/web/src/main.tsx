@@ -509,7 +509,7 @@ function App() {
           { network: game.network, hash: game.joinTxHash },
           { network: game.network, hash: game.settlementTxHash },
           { network: game.network, hash: game.refundTxHash }
-        ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash));
+        ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash) && isExplorerHash(item.hash));
       });
       const unique = Array.from(new Map(txs.map((item) => [item.hash, item])).values()).filter(
         (item) => !isTerminalTxStatus(txStatuses[item.hash])

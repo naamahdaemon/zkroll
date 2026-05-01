@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { nanoid } from "nanoid";
 import { fetchLastBlock } from "o1js";
-import { assertNetworkId, networks } from "@zkroll/shared";
+import { assertNetworkId, networks, type NetworkId } from "@zkroll/shared";
 import {
   createGame,
   confirmJoinGame,
@@ -34,6 +34,56 @@ import { backendGamesRootForTransaction, onchainGamesRoot, witnessForGameId } fr
 const app = Fastify({
   logger: true
 });
+
+const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 12_000);
+const currentSlotCacheMs = Number(process.env.ZKROLL_CURRENT_SLOT_CACHE_MS ?? 15_000);
+const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
+const currentSlotRequests = new Map<NetworkId, Promise<string>>();
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function currentSlotFor(network: NetworkId) {
+  const cached = currentSlotCache.get(network);
+  if (cached && cached.expiresAt > Date.now()) return cached.currentSlot;
+
+  const running = currentSlotRequests.get(network);
+  if (running) return running;
+
+  const request = withTimeout(fetchLastBlock(networks[network].minaEndpoint), chainRequestTimeoutMs, `${network} latest block fetch`)
+    .then((latest) => {
+      const currentSlot = latest.globalSlotSinceGenesis.toString();
+      currentSlotCache.set(network, { expiresAt: Date.now() + currentSlotCacheMs, currentSlot });
+      return currentSlot;
+    })
+    .finally(() => {
+      currentSlotRequests.delete(network);
+    });
+  currentSlotRequests.set(network, request);
+  return request;
+}
+
+function isLocalTransactionHash(hash: string) {
+  return (
+    hash.startsWith("pending:") ||
+    hash.startsWith("fake") ||
+    hash.startsWith("create_") ||
+    hash.startsWith("join_") ||
+    hash.startsWith("settle_") ||
+    hash.startsWith("refund_")
+  );
+}
 
 await app.register(cors, {
   origin: process.env.ZKROLL_WEB_ORIGIN ?? true
@@ -86,6 +136,18 @@ app.get("/transactions/:network/:hash/status", async (request, reply) => {
   try {
     const { network, hash } = request.params as { network: string; hash: string };
     const networkId = assertNetworkId(network);
+    if (isLocalTransactionHash(hash)) {
+      return {
+        hash,
+        network: networkId,
+        status: "UNKNOWN",
+        backendRoot: null,
+        chainRoot: null,
+        chainRootError: "Local transaction placeholder; no on-chain lookup performed.",
+        contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
+      };
+    }
+
     const backendRoot = backendGamesRootForTransaction(networkId, hash);
     const chain = await onchainGamesRoot(networkId);
     const status = chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN";
@@ -108,10 +170,9 @@ app.get("/networks/:network/current-slot", async (request, reply) => {
   try {
     const { network } = request.params as { network: string };
     const networkId = assertNetworkId(network);
-    const latest = await fetchLastBlock(networks[networkId].minaEndpoint);
     return {
       network: networkId,
-      currentSlot: latest.globalSlotSinceGenesis.toString()
+      currentSlot: await currentSlotFor(networkId)
     };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
