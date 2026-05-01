@@ -276,6 +276,10 @@ select {
   font-weight: 800;
 }
 
+.actionLink {
+  text-decoration: none;
+}
+
 .iconButton {
   aspect-ratio: 1;
   padding: 0;

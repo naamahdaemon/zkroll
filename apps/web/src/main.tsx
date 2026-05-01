@@ -50,6 +50,13 @@ import {
   type ProvingCompatibility,
   type ProvingCompatibilityIssueCode
 } from "./onchain";
+import {
+  mobileBrowserCanUseWalletConnect,
+  setWalletConnectPromptHandler,
+  walletConnectConfigured,
+  walletConnectProvider,
+  type WalletConnectPrompt
+} from "./walletconnect";
 import "./styles.css";
 import "./types";
 
@@ -179,6 +186,10 @@ const copy: Record<Locale, Record<string, string>> = {
     provingCompatibilityTitle: "ZK proving may not work in this browser",
     provingCompatibilityIntro: "This device cannot safely compile the circuit here.",
     provingCompatibilityAdvice: "Open zkroll in a full browser with COOP/COEP support, or use desktop.",
+    openAuro: "Open Auro",
+    copyWalletConnectUri: "Copy WalletConnect URI",
+    walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here.",
+    walletConnectNotConfigured: "Mobile WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID.",
     issueNoWebAssembly: "WebAssembly is not available.",
     issueNoWorker: "Web workers or blob workers are not available.",
     issueNotCrossOriginIsolated: "The page is not cross-origin isolated, so SharedArrayBuffer cannot be used.",
@@ -287,6 +298,10 @@ const copy: Record<Locale, Record<string, string>> = {
     provingCompatibilityTitle: "La preuve ZK risque de ne pas fonctionner dans ce navigateur",
     provingCompatibilityIntro: "Cet environnement ne peut pas compiler le circuit de maniere fiable.",
     provingCompatibilityAdvice: "Ouvre zkroll dans un navigateur complet compatible COOP/COEP, ou utilise desktop.",
+    openAuro: "Ouvrir Auro",
+    copyWalletConnectUri: "Copier l'URI WalletConnect",
+    walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici.",
+    walletConnectNotConfigured: "WalletConnect mobile n'est pas configure. Renseigne VITE_WALLETCONNECT_PROJECT_ID.",
     issueNoWebAssembly: "WebAssembly n'est pas disponible.",
     issueNoWorker: "Les web workers ou blob workers ne sont pas disponibles.",
     issueNotCrossOriginIsolated: "La page n'est pas cross-origin isolated, donc SharedArrayBuffer ne peut pas etre utilise.",
@@ -366,6 +381,7 @@ function App() {
     zeko: null
   });
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
+  const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
   const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
   const [message, setMessage] = useState(() => copy.en.walletPrompt);
 
@@ -587,6 +603,11 @@ function App() {
   }, []);
 
   useEffect(() => {
+    setWalletConnectPromptHandler(setWalletConnectPrompt);
+    return () => setWalletConnectPromptHandler(null);
+  }, []);
+
+  useEffect(() => {
     txStatusesRef.current = txStatuses;
   }, [txStatuses]);
 
@@ -720,12 +741,17 @@ function App() {
   }
 
   async function connectWallet() {
-    if (!window.mina) {
+    const provider = window.mina ?? (mobileBrowserCanUseWalletConnect() ? walletConnectProvider() : undefined);
+    if (!provider) {
+      if (!window.mina && !walletConnectConfigured()) {
+        setMessage(t("walletConnectNotConfigured"));
+        return;
+      }
       setMessage(t("walletMissing"));
       return;
     }
 
-    const accounts = await window.mina.requestAccounts();
+    const accounts = await provider.requestAccounts();
     const account = accounts[0] ?? "";
     setPublicKey(account);
     if (!account) {
@@ -734,7 +760,7 @@ function App() {
     }
 
     try {
-      await ensureWalletNetwork(window.mina, network);
+      await ensureWalletNetwork(provider, network);
     } catch (error) {
       setMessage((error as Error).message);
       return;
@@ -787,6 +813,10 @@ function App() {
   function updateOnchainProgress(progress: OnchainProgress) {
     setOnchainStartedAt((startedAt) => startedAt ?? Date.now());
     setOnchainProgress(progress);
+  }
+
+  function walletProvider() {
+    return window.mina ?? (mobileBrowserCanUseWalletConnect() ? walletConnectProvider() : undefined);
   }
 
   async function handleReconcileCreation(game: Game) {
@@ -860,7 +890,7 @@ function App() {
 
       if (onchainEnabled) {
         const result = await createGameOnchain({
-          provider: window.mina,
+          provider: walletProvider(),
           network,
           senderPublicKey: publicKey,
           zkappPrivateKey: gameKey!.privateKey,
@@ -896,7 +926,7 @@ function App() {
       if (onchainEnabled) {
         if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot || !game.zkappAddress) throw new Error(t("incompatibleOnchain"));
         txHash = await joinGameOnchain({
-          provider: window.mina,
+          provider: walletProvider(),
           network: game.network,
           senderPublicKey: publicKey,
           pseudo,
@@ -990,7 +1020,7 @@ function App() {
           throw new Error(t("incompleteSettlement"));
         }
         txHash = await settleGameOnchain({
-          provider: window.mina,
+          provider: walletProvider(),
           network: game.network,
           senderPublicKey: publicKey,
           gameIdField: game.gameIdField,
@@ -1034,7 +1064,7 @@ function App() {
           throw new Error(t("incompleteRefund"));
         }
         txHash = await refundGameOnchain({
-          provider: window.mina,
+          provider: walletProvider(),
           network: game.network,
           senderPublicKey: publicKey,
           status: game.status,
@@ -1077,6 +1107,28 @@ function App() {
               {t("save")}
             </button>
           </form>
+        </div>
+      )}
+
+      {walletConnectPrompt && (
+        <div className="modalBackdrop">
+          <div className="modal">
+            <h2>WalletConnect</h2>
+            <p className="notice">{t("walletConnectPrompt")}</p>
+            <a className="primary actionLink" href={walletConnectPrompt.openUrl} rel="noreferrer">
+              {t("openAuro")}
+            </a>
+            {walletConnectPrompt.uri && (
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(walletConnectPrompt.uri ?? "");
+                }}
+              >
+                {t("copyWalletConnectUri")}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

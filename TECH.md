@@ -74,6 +74,14 @@ The o1js browser cache can be disabled with:
 VITE_O1JS_BROWSER_CACHE_ENABLED=false
 ```
 
+On mobile, Auro's in-app browser does not expose the isolation needed by o1js proving. Use a native mobile browser with `window.crossOriginIsolated === true`, then connect/sign through Auro Mobile WalletConnect:
+
+```env
+VITE_WALLETCONNECT_PROJECT_ID=your-reown-project-id
+```
+
+Desktop/laptop keeps using the injected `window.mina` provider when the Auro extension is available. WalletConnect is only used when `window.mina` is absent and `VITE_WALLETCONNECT_PROJECT_ID` is configured.
+
 ## Upgrade Rule
 
 Changing contract methods changes the verification key for newly created games.

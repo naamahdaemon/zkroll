@@ -189,6 +189,7 @@ VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000
+VITE_WALLETCONNECT_PROJECT_ID=
 ```
 
 Without `VITE_ONCHAIN_ENABLED=true`, the UI stays in simulation mode.
@@ -210,6 +211,8 @@ The Vite server is configured with COOP/COEP headers because o1js browser provin
 `VITE_O1JS_BROWSER_CACHE_ENABLED=false` disables the best-effort o1js browser cache stored in `localStorage`. Use it if circuit compilation hangs after previous runs or after changing o1js/contract versions. With the cache disabled, the first compile can be slower but avoids stale or corrupted local proving data.
 
 `VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction status for visible or active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
+
+`VITE_WALLETCONNECT_PROJECT_ID` enables Auro Mobile through WalletConnect from an external mobile browser. Leave it empty to keep the current desktop/laptop behavior only. Create the project id in Reown Cloud and rebuild the web app after setting it.
 
 For game creation, the UI now creates a local `pending_signature` game before opening Auro. This stores the generated per-game zkApp address and the deterministic game data if Auro signs and broadcasts the transaction but does not return the hash to the web page.
 
@@ -480,6 +483,7 @@ VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000
+VITE_WALLETCONNECT_PROJECT_ID=
 ```
 
 The web app must be rebuilt after changing any `VITE_*` value.

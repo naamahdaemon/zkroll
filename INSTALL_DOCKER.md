@@ -107,6 +107,7 @@ VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=false
 VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
+VITE_WALLETCONNECT_PROJECT_ID=
 ```
 
 Important:
@@ -114,6 +115,7 @@ Important:
 - This branch creates one zkApp account per game, so no global contract address is required.
 - Use a fresh SQLite DB when switching from the old global-root branch to this branch.
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
+- Set `VITE_WALLETCONNECT_PROJECT_ID` to a Reown Cloud project id to enable Auro Mobile from Chrome/Safari. Leave it empty if you only want desktop extension support.
 - Remove old compose references to `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS`, and `VITE_ZKROLL_CONTRACT_ADDRESS`. They are obsolete and will produce Docker Compose warnings if left in `docker-compose.prod.yml`.
 
 Check your production compose file:
@@ -579,6 +581,7 @@ VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=false
 VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
+VITE_WALLETCONNECT_PROJECT_ID=
 ```
 
 Important :
@@ -586,6 +589,7 @@ Important :
 - Cette branche cree un compte zkApp par partie, donc aucune adresse de contrat global n'est requise.
 - Utilise une base SQLite neuve en passant de l'ancienne branche a racine globale vers cette branche.
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
+- Renseigne `VITE_WALLETCONNECT_PROJECT_ID` avec un project id Reown Cloud pour activer Auro Mobile depuis Chrome/Safari. Laisse vide si tu veux uniquement le support extension desktop.
 - Supprime les anciennes references compose a `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS` et `VITE_ZKROLL_CONTRACT_ADDRESS`. Elles sont obsoletes et provoquent des warnings Docker Compose si elles restent dans `docker-compose.prod.yml`.
 
 Verifie ton fichier compose de production :

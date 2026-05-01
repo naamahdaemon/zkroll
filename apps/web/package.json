@@ -11,6 +11,7 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@walletconnect/sign-client": "^2.23.9",
     "@zkroll/contracts": "0.1.0",
     "@zkroll/shared": "0.1.0",
     "lucide-react": "^0.468.0",
