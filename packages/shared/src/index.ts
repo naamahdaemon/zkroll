@@ -12,6 +12,8 @@ export type GameStatus =
   | "failed"
   | "cancelled";
 
+export type TransactionStatus = "PENDING" | "INCLUDED" | "FAILED" | "UNKNOWN";
+
 export type Player = {
   pseudo: string;
   publicKey: string;
@@ -46,6 +48,10 @@ export type Game = {
   joinTxHash: string | null;
   settlementTxHash: string | null;
   refundTxHash: string | null;
+  creationTxStatus: TransactionStatus;
+  joinTxStatus: TransactionStatus | null;
+  settlementTxStatus: TransactionStatus | null;
+  refundTxStatus: TransactionStatus | null;
   createdAt: string;
   updatedAt: string;
 };

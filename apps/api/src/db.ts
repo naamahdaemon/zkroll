@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { Game, GameStatus, NetworkId, Player } from "@zkroll/shared";
+import type { Game, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
 
 const dbPath = process.env.ZKROLL_DB_PATH ?? "zkroll.db";
 
@@ -42,6 +42,10 @@ db.exec(`
     join_tx_hash text,
     settlement_tx_hash text,
     refund_tx_hash text,
+    creation_tx_status text not null default 'PENDING',
+    join_tx_status text,
+    settlement_tx_status text,
+    refund_tx_status text,
     created_at text not null,
     updated_at text not null,
     foreign key (creator_pseudo) references players(pseudo),
@@ -58,7 +62,11 @@ for (const statement of [
   "alter table games add column refund_deadline_slot text",
   "alter table games add column pending_join_refund_deadline_slot text",
   "alter table games add column failure_reason text",
-  "alter table games add column refund_tx_hash text"
+  "alter table games add column refund_tx_hash text",
+  "alter table games add column creation_tx_status text not null default 'PENDING'",
+  "alter table games add column join_tx_status text",
+  "alter table games add column settlement_tx_status text",
+  "alter table games add column refund_tx_status text"
 ]) {
   try {
     db.exec(statement);
@@ -68,6 +76,35 @@ for (const statement of [
     }
   }
 }
+
+db.exec(`
+  update games
+  set creation_tx_status = case
+      when status = 'failed' then 'FAILED'
+      when status in ('joined', 'join_pending', 'player_one_revealed', 'player_two_revealed', 'settled', 'refunded') then 'INCLUDED'
+      when creation_tx_hash like 'fake%' or creation_tx_hash like 'create_%' then 'INCLUDED'
+      when creation_tx_hash like 'pending:%' then 'PENDING'
+      else coalesce(nullif(creation_tx_status, ''), 'PENDING')
+    end,
+    join_tx_status = case
+      when join_tx_hash is null then null
+      when status in ('joined', 'player_one_revealed', 'player_two_revealed', 'settled', 'refunded') then 'INCLUDED'
+      when join_tx_hash like 'fake%' or join_tx_hash like 'join_%' then 'INCLUDED'
+      else coalesce(nullif(join_tx_status, ''), 'PENDING')
+    end,
+    settlement_tx_status = case
+      when settlement_tx_hash is null then null
+      when status = 'settled' then 'INCLUDED'
+      when settlement_tx_hash like 'fake%' or settlement_tx_hash like 'settle_%' then 'INCLUDED'
+      else coalesce(nullif(settlement_tx_status, ''), 'PENDING')
+    end,
+    refund_tx_status = case
+      when refund_tx_hash is null then null
+      when status = 'refunded' then 'INCLUDED'
+      when refund_tx_hash like 'fake%' or refund_tx_hash like 'refund_%' then 'INCLUDED'
+      else coalesce(nullif(refund_tx_status, ''), 'PENDING')
+    end
+`);
 
 type PlayerRow = {
   pseudo: string;
@@ -103,6 +140,10 @@ type GameRow = {
   join_tx_hash: string | null;
   settlement_tx_hash: string | null;
   refund_tx_hash: string | null;
+  creation_tx_status: TransactionStatus;
+  join_tx_status: TransactionStatus | null;
+  settlement_tx_status: TransactionStatus | null;
+  refund_tx_status: TransactionStatus | null;
   created_at: string;
   updated_at: string;
 };
@@ -144,6 +185,10 @@ function gameFromRow(row: GameRow): Game {
     joinTxHash: row.join_tx_hash,
     settlementTxHash: row.settlement_tx_hash,
     refundTxHash: row.refund_tx_hash,
+    creationTxStatus: row.creation_tx_status,
+    joinTxStatus: row.join_tx_status,
+    settlementTxStatus: row.settlement_tx_status,
+    refundTxStatus: row.refund_tx_status,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -194,12 +239,13 @@ export function createGame(input: {
   const now = new Date().toISOString();
   const creationTxHash = input.creationTxHash ?? `pending:${input.id}`;
   const status: GameStatus = input.creationTxHash ? "created" : "pending_signature";
+  const creationTxStatus: TransactionStatus = input.creationTxHash ? "INCLUDED" : "PENDING";
   db.prepare(
     `
     insert into games (
       id, network, zkapp_address, game_id_field, creator_pseudo, creator_public_key, creator_pseudo_hash, stake_nano_mina,
-      creator_commitment, refund_timeout_slots, refund_deadline_slot, status, creation_tx_hash, created_at, updated_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      creator_commitment, refund_timeout_slots, refund_deadline_slot, status, creation_tx_hash, creation_tx_status, created_at, updated_at
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
   ).run(
     input.id,
@@ -215,6 +261,7 @@ export function createGame(input: {
     input.refundDeadlineSlot ?? null,
     status,
     creationTxHash,
+    creationTxStatus,
     now,
     now
   );
@@ -229,6 +276,7 @@ export function reconcileCreationTx(id: string, creationTxHash: string): Game {
       `
       update games
       set creation_tx_hash = ?,
+          creation_tx_status = 'PENDING',
           status = 'created',
           updated_at = ?
       where id = ? and status = 'pending_signature'
@@ -250,6 +298,7 @@ export function markCreationFailed(id: string, reason?: string): Game {
       `
       update games
       set status = 'failed',
+          creation_tx_status = 'FAILED',
           failure_reason = ?,
           updated_at = ?
       where id = ?
@@ -279,6 +328,43 @@ export function getGame(id: string): Game | null {
   return row ? gameFromRow(row) : null;
 }
 
+export function getStoredTransactionStatus(network: NetworkId, hash: string): TransactionStatus | null {
+  const row = db
+    .prepare(
+      `
+      select
+        case
+          when creation_tx_hash = ? then creation_tx_status
+          when join_tx_hash = ? then join_tx_status
+          when settlement_tx_hash = ? then settlement_tx_status
+          when refund_tx_hash = ? then refund_tx_status
+        end as status
+      from games
+      where network = ?
+        and ? in (creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash)
+      limit 1
+    `
+    )
+    .get(hash, hash, hash, hash, network, hash) as { status: TransactionStatus | null } | undefined;
+  return row?.status ?? null;
+}
+
+export function updateStoredTransactionStatus(network: NetworkId, hash: string, status: TransactionStatus) {
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    update games
+    set creation_tx_status = case when creation_tx_hash = ? then ? else creation_tx_status end,
+        join_tx_status = case when join_tx_hash = ? then ? else join_tx_status end,
+        settlement_tx_status = case when settlement_tx_hash = ? then ? else settlement_tx_status end,
+        refund_tx_status = case when refund_tx_hash = ? then ? else refund_tx_status end,
+        updated_at = ?
+    where network = ?
+      and ? in (creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash)
+  `
+  ).run(hash, status, hash, status, hash, status, hash, status, now, network, hash);
+}
+
 export function joinGame(
   id: string,
   input: {
@@ -301,6 +387,7 @@ export function joinGame(
           joiner_commitment = ?,
           pending_join_refund_deadline_slot = ?,
           join_tx_hash = ?,
+          join_tx_status = 'PENDING',
           status = 'join_pending',
           updated_at = ?
       where id = ? and status = 'created'
@@ -332,6 +419,7 @@ export function confirmJoinGame(id: string): Game {
       update games
       set refund_deadline_slot = coalesce(pending_join_refund_deadline_slot, refund_deadline_slot),
           pending_join_refund_deadline_slot = null,
+          join_tx_status = 'INCLUDED',
           status = 'joined',
           updated_at = ?
       where id = ? and status = 'join_pending' and join_tx_hash is not null
@@ -357,6 +445,7 @@ export function failPendingJoin(id: string, reason?: string): Game {
           joiner_pseudo_hash = null,
           joiner_commitment = null,
           join_tx_hash = null,
+          join_tx_status = 'FAILED',
           pending_join_refund_deadline_slot = null,
           failure_reason = ?,
           status = 'created',
@@ -380,6 +469,7 @@ export function refundGame(id: string, input: { refundTxHash: string }): Game {
       `
       update games
       set refund_tx_hash = ?,
+          refund_tx_status = 'INCLUDED',
           status = 'refunded',
           updated_at = ?
       where id = ?
@@ -450,6 +540,7 @@ export function settleGame(
           joiner_die = ?,
           winner_public_key = ?,
           settlement_tx_hash = ?,
+          settlement_tx_status = 'INCLUDED',
           status = 'settled',
           updated_at = ?
       where id = ? and creator_reveal is not null and joiner_reveal is not null

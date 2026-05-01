@@ -2,7 +2,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { nanoid } from "nanoid";
 import { fetchLastBlock } from "o1js";
-import { assertNetworkId, networks, type NetworkId } from "@zkroll/shared";
+import { assertNetworkId, networks, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
   createGame,
   confirmJoinGame,
@@ -10,6 +10,7 @@ import {
   getGame,
   getPlayerByPublicKey,
   getPlayerByPseudo,
+  getStoredTransactionStatus,
   joinGame,
   listGames,
   markCreationFailed,
@@ -17,6 +18,7 @@ import {
   refundGame,
   revealSecret,
   settleGame,
+  updateStoredTransactionStatus,
   upsertPlayer
 } from "./db.js";
 import {
@@ -85,6 +87,57 @@ function isLocalTransactionHash(hash: string) {
   );
 }
 
+function terminalStoredStatus(status: TransactionStatus | null) {
+  return status === "INCLUDED" || status === "FAILED";
+}
+
+async function resolveTransactionStatus(network: NetworkId, hash: string) {
+  const storedStatus = getStoredTransactionStatus(network, hash);
+  if (terminalStoredStatus(storedStatus)) {
+    return {
+      hash,
+      network,
+      status: storedStatus,
+      backendRoot: null,
+      chainRoot: null,
+      chainRootError: null,
+      contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null,
+      source: "db"
+    };
+  }
+
+  if (isLocalTransactionHash(hash)) {
+    return {
+      hash,
+      network,
+      status: storedStatus ?? "UNKNOWN",
+      backendRoot: null,
+      chainRoot: null,
+      chainRootError: "Local transaction placeholder; no on-chain lookup performed.",
+      contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null,
+      source: "db"
+    };
+  }
+
+  const backendRoot = backendGamesRootForTransaction(network, hash);
+  const chain = await onchainGamesRoot(network);
+  const status: TransactionStatus = chain.root ? (chain.root === backendRoot ? "INCLUDED" : (storedStatus ?? "PENDING")) : "UNKNOWN";
+  if (status === "INCLUDED") {
+    updateStoredTransactionStatus(network, hash, status);
+  }
+
+  return {
+    hash,
+    network,
+    status,
+    backendRoot,
+    chainRoot: chain.root,
+    chainRootError: chain.error,
+    contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null,
+    source: "chain"
+  };
+}
+
 await app.register(cors, {
   origin: process.env.ZKROLL_WEB_ORIGIN ?? true
 });
@@ -136,30 +189,7 @@ app.get("/transactions/:network/:hash/status", async (request, reply) => {
   try {
     const { network, hash } = request.params as { network: string; hash: string };
     const networkId = assertNetworkId(network);
-    if (isLocalTransactionHash(hash)) {
-      return {
-        hash,
-        network: networkId,
-        status: "UNKNOWN",
-        backendRoot: null,
-        chainRoot: null,
-        chainRootError: "Local transaction placeholder; no on-chain lookup performed.",
-        contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
-      };
-    }
-
-    const backendRoot = backendGamesRootForTransaction(networkId, hash);
-    const chain = await onchainGamesRoot(networkId);
-    const status = chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN";
-    return {
-      hash,
-      network: networkId,
-      status,
-      backendRoot,
-      chainRoot: chain.root,
-      chainRootError: chain.error,
-      contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
-    };
+    return resolveTransactionStatus(networkId, hash);
   } catch (error) {
     const { network, hash } = request.params as { network: string; hash: string };
     return { hash, network, status: "UNKNOWN", error: (error as Error).message };
@@ -177,41 +207,8 @@ app.post("/transactions/statuses", async (request, reply) => {
         hash: requiredString(value, "hash")
       };
     });
-    const roots = new Map<NetworkId, Awaited<ReturnType<typeof onchainGamesRoot>>>();
-
     return {
-      items: await Promise.all(
-        items.map(async (item) => {
-          if (isLocalTransactionHash(item.hash)) {
-            return {
-              hash: item.hash,
-              network: item.network,
-              status: "UNKNOWN",
-              backendRoot: null,
-              chainRoot: null,
-              chainRootError: "Local transaction placeholder; no on-chain lookup performed.",
-              contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
-            };
-          }
-
-          let chain = roots.get(item.network);
-          if (!chain) {
-            chain = await onchainGamesRoot(item.network);
-            roots.set(item.network, chain);
-          }
-
-          const backendRoot = backendGamesRootForTransaction(item.network, item.hash);
-          return {
-            hash: item.hash,
-            network: item.network,
-            status: chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN",
-            backendRoot,
-            chainRoot: chain.root,
-            chainRootError: chain.error,
-            contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
-          };
-        })
-      )
+      items: await Promise.all(items.map((item) => resolveTransactionStatus(item.network, item.hash)))
     };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

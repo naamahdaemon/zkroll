@@ -1,4 +1,4 @@
-import type { Game, GameStatus, NetworkId, Player } from "@zkroll/shared";
+import type { Game, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 
@@ -46,13 +46,13 @@ export function getMerkleWitness(network: NetworkId, gameIdField: string) {
 }
 
 export function getTransactionStatus(network: NetworkId, hash: string) {
-  return request<{ hash: string; network: NetworkId; status: "INCLUDED" | "PENDING" | "UNKNOWN" }>(
+  return request<{ hash: string; network: NetworkId; status: TransactionStatus }>(
     `/transactions/${network}/${encodeURIComponent(hash)}/status`
   );
 }
 
 export function getTransactionStatuses(items: { network: NetworkId; hash: string }[]) {
-  return request<{ items: { hash: string; network: NetworkId; status: "INCLUDED" | "PENDING" | "UNKNOWN" }[] }>(
+  return request<{ items: { hash: string; network: NetworkId; status: TransactionStatus }[] }>(
     "/transactions/statuses",
     {
       method: "POST",

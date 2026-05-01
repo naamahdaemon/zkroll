@@ -1,7 +1,7 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CircleEqual, Dices, Languages, Moon, Pencil, RefreshCw, RotateCcw, Search, ShieldCheck, Sun, Trophy, Wallet } from "lucide-react";
-import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
+import { networks, type Game, type GameStatus, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
   createGame,
   createPlayer,
@@ -42,7 +42,7 @@ const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLO
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
-type TxStatus = "INCLUDED" | "PENDING" | "FAILED" | "UNKNOWN";
+type TxStatus = TransactionStatus;
 type Locale = "en" | "fr";
 type Theme = "light" | "dark";
 type StatusFilter = "all" | GameStatus;
@@ -360,6 +360,19 @@ function App() {
   async function refreshGames() {
     const nextGames = await listGames();
     setGames(nextGames);
+    setTxStatuses((current) => {
+      const fromGames = Object.fromEntries(
+        nextGames.flatMap((game) =>
+          [
+            [game.creationTxHash, game.creationTxStatus],
+            [game.joinTxHash, game.joinTxStatus],
+            [game.settlementTxHash, game.settlementTxStatus],
+            [game.refundTxHash, game.refundTxStatus]
+          ].filter((item): item is [string, TxStatus] => Boolean(item[0]) && Boolean(item[1]))
+        )
+      );
+      return { ...current, ...fromGames };
+    });
     const nextVisibleGames = nextGames.filter((game) => game.status !== "pending_signature" || game.creatorPublicKey === publicKey);
     if (!selectedGameId && nextVisibleGames[0]) setSelectedGameId(nextVisibleGames[0].id);
   }
