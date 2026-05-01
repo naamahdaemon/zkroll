@@ -114,6 +114,15 @@ Important:
 - This branch creates one zkApp account per game, so no global contract address is required.
 - Use a fresh SQLite DB when switching from the old global-root branch to this branch.
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
+- Remove old compose references to `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS`, and `VITE_ZKROLL_CONTRACT_ADDRESS`. They are obsolete and will produce Docker Compose warnings if left in `docker-compose.prod.yml`.
+
+Check your production compose file:
+
+```bash
+grep -n "ZKROLL_CONTRACT_ADDRESS\|ZKROLL_ONCHAIN_ROOT_CACHE_MS\|VITE_ZKROLL_CONTRACT_ADDRESS" docker-compose.prod.yml
+```
+
+If the command prints lines, remove those variables from the `api` service environment, the `web` service environment, and any `web` build args.
 
 ## 6. Required Directories
 
@@ -424,6 +433,20 @@ ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 
 Then rebuild `api` and `web`.
 
+The UI should not poll every historical game transaction. It should poll only visible or active games and rely on cached per-game zkApp state. If requests are still too frequent, increase `VITE_TX_POLL_INTERVAL_MS` and `VITE_SLOT_POLL_INTERVAL_MS`.
+
+### Docker Compose Warns About Unset Contract Variables
+
+These warnings mean the production `docker-compose.prod.yml` still references variables from the old global-contract architecture:
+
+```text
+ZKROLL_CONTRACT_ADDRESS
+ZKROLL_ONCHAIN_ROOT_CACHE_MS
+VITE_ZKROLL_CONTRACT_ADDRESS
+```
+
+They are no longer needed. Remove them from the compose file, then rebuild `api` and `web`.
+
 ### `window.crossOriginIsolated` Is `false`
 
 Check headers:
@@ -563,6 +586,15 @@ Important :
 - Cette branche cree un compte zkApp par partie, donc aucune adresse de contrat global n'est requise.
 - Utilise une base SQLite neuve en passant de l'ancienne branche a racine globale vers cette branche.
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
+- Supprime les anciennes references compose a `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS` et `VITE_ZKROLL_CONTRACT_ADDRESS`. Elles sont obsoletes et provoquent des warnings Docker Compose si elles restent dans `docker-compose.prod.yml`.
+
+Verifie ton fichier compose de production :
+
+```bash
+grep -n "ZKROLL_CONTRACT_ADDRESS\|ZKROLL_ONCHAIN_ROOT_CACHE_MS\|VITE_ZKROLL_CONTRACT_ADDRESS" docker-compose.prod.yml
+```
+
+Si la commande affiche des lignes, supprime ces variables de l'environnement du service `api`, de l'environnement du service `web` et des build args de `web`.
 
 ## 6. Dossiers Persistants
 
@@ -872,6 +904,20 @@ ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ```
 
 Puis rebuild `api` et `web`.
+
+L'UI ne doit pas poller toutes les transactions historiques. Elle doit poller uniquement les jeux visibles ou actifs et s'appuyer sur le cache d'etat zkApp par partie. Si les requetes restent trop frequentes, augmente `VITE_TX_POLL_INTERVAL_MS` et `VITE_SLOT_POLL_INTERVAL_MS`.
+
+### Docker Compose Affiche Des Warnings Sur Des Variables De Contrat
+
+Ces warnings indiquent que `docker-compose.prod.yml` reference encore des variables de l'ancienne architecture a contrat global :
+
+```text
+ZKROLL_CONTRACT_ADDRESS
+ZKROLL_ONCHAIN_ROOT_CACHE_MS
+VITE_ZKROLL_CONTRACT_ADDRESS
+```
+
+Elles ne sont plus necessaires. Supprime-les du fichier compose, puis rebuild `api` et `web`.
 
 ### `window.crossOriginIsolated` Vaut `false`
 

@@ -31,4 +31,6 @@ npm run dev:web
 
 The API listens on `http://127.0.0.1:4000` and the web app uses `http://127.0.0.1:5174`.
 
-See `INSTALL.md` for deployment, `.env.local`, wallet, and refund timeout configuration. This branch uses one zkApp per game, so use a fresh SQLite database while testing it.
+See `INSTALL.md` for deployment, `.env.local`, wallet, and refund timeout configuration.
+
+See `TECH.md` for the current technical architecture. This version uses one zkApp account per game, so it does not require a global contract address. Use a fresh SQLite database when switching from the old global-root prototype.

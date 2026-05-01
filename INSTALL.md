@@ -122,8 +122,10 @@ Exact content:
 ```env
 ZKROLL_DB_PATH=zkroll-devnet.db
 ZKROLL_WEB_ORIGIN=http://127.0.0.1:5174
+ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
 ```
 
 For local development, you can either export the variables in your shell or create your own `.env` loading mechanism. The current API reads environment variables directly.
@@ -133,8 +135,10 @@ PowerShell:
 ```powershell
 $env:ZKROLL_DB_PATH="zkroll-devnet.db"
 $env:ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
+$env:ZKROLL_CURRENT_SLOT_CACHE_MS="15000"
 $env:ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 $env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
+$env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
 npm run dev:api
 ```
 
@@ -143,8 +147,10 @@ Bash:
 ```bash
 export ZKROLL_DB_PATH="zkroll-devnet.db"
 export ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
+export ZKROLL_CURRENT_SLOT_CACHE_MS="15000"
 export ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
+export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
 npm run dev:api
 ```
 
@@ -153,6 +159,10 @@ Use a fresh SQLite file when switching to this branch. Old global-root games are
 `ZKROLL_ZKAPP_STATE_CACHE_MS` caches each per-game zkApp state lookup. The API uses this state to automatically mark known transaction hashes as included when the game contract reaches the expected status.
 
 `ZKROLL_TX_STATUS_SCAN_BLOCKS` controls how many recent blocks the API scans to detect included failed zkApp transactions by hash. This is used to mark failed creations or failed joins automatically when the zkApp state never advances.
+
+`ZKROLL_CURRENT_SLOT_CACHE_MS` caches current-slot lookups used by refund eligibility.
+
+`ZKROLL_CHAIN_REQUEST_TIMEOUT_MS` bounds external Mina GraphQL calls. Lower values make the API fail fast when public endpoints are slow; higher values can reduce `UNKNOWN` statuses but may make requests feel slower.
 
 ## 7. Configure The Web App
 
@@ -199,7 +209,7 @@ The Vite server is configured with COOP/COEP headers because o1js browser provin
 
 `VITE_O1JS_BROWSER_CACHE_ENABLED=false` disables the best-effort o1js browser cache stored in `localStorage`. Use it if circuit compilation hangs after previous runs or after changing o1js/contract versions. With the cache disabled, the first compile can be slower but avoids stale or corrupted local proving data.
 
-`VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction/root sync status for active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
+`VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction status for visible or active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
 
 For game creation, the UI now creates a local `pending_signature` game before opening Auro. This stores the generated per-game zkApp address and the deterministic game data if Auro signs and broadcasts the transaction but does not return the hash to the web page.
 
@@ -237,7 +247,7 @@ http://127.0.0.1:5174
 8. Connect a second funded Devnet wallet.
 9. Join the challenge. The joiner pays the fee and locks the matching stake.
 10. The local game moves to `join_pending`. This blocks competing local joins while the transaction is being included.
-11. Wait until the join transaction is included, then click `Confirm join` if it is not confirmed automatically by your workflow.
+11. Wait until the join transaction is included. The API should confirm it automatically from the per-game zkApp state; use the manual control only as a fallback after checking the explorer.
 12. Reveal from both players.
 13. Click `Regler`. The wallet that clicks pays the settlement fee.
 
@@ -319,7 +329,7 @@ The current backend is suitable for local testing, Devnet testing, and controlle
 - The chain is the source of truth for stake locking, commitments, dice rolls, and payout.
 - The backend stores pseudos, lists games, and mirrors local workflow state.
 - Browser proving with o1js is heavy. The production build warns about the large o1js chunk; this is expected for now.
-- A production indexer should rebuild SQLite from chain events/actions instead of relying only on local writes.
+- A production indexer should rebuild SQLite from chain events/actions through an archive node or hosted indexer instead of relying only on local writes.
 
 ### Main Production Gaps
 
@@ -453,6 +463,10 @@ HOST=127.0.0.1
 PORT=4000
 ZKROLL_DB_PATH=/var/lib/zkroll/zkroll-mainnet.db
 ZKROLL_WEB_ORIGIN=https://zkroll.example.com
+ZKROLL_CURRENT_SLOT_CACHE_MS=60000
+ZKROLL_ZKAPP_STATE_CACHE_MS=60000
+ZKROLL_TX_STATUS_SCAN_BLOCKS=50
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 ```
 
 Web:
@@ -495,8 +509,10 @@ Environment=HOST=127.0.0.1
 Environment=PORT=4000
 Environment=ZKROLL_DB_PATH=/var/lib/zkroll/zkroll-mainnet.db
 Environment=ZKROLL_WEB_ORIGIN=https://zkroll.example.com
+Environment=ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 Environment=ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 Environment=ZKROLL_TX_STATUS_SCAN_BLOCKS=50
+Environment=ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
 
 [Install]
 WantedBy=multi-user.target

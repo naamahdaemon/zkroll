@@ -34,7 +34,7 @@ import {
   requiredPositiveIntegerString,
   requiredString
 } from "./validation.js";
-import { backendGamesRootForTransaction, onchainGamesRoot, witnessForGameId } from "./merkle.js";
+import { witnessForGameId } from "./merkle.js";
 
 const app = Fastify({
   logger: true
@@ -301,26 +301,15 @@ async function resolveTransactionStatus(network: NetworkId, hash: string) {
     };
   }
 
-  const backendRoot = backendGamesRootForTransaction(network, hash);
-  const chain = await onchainGamesRoot(network);
-  const status: TransactionStatus = chain.root
-    ? chain.root === backendRoot
-      ? "INCLUDED"
-      : (storedTransaction?.status ?? "PENDING")
-    : "UNKNOWN";
-  if (status === "INCLUDED") {
-    updateStoredTransactionStatus(network, hash, status);
-  }
-
   return {
     hash,
     network,
-    status,
-    backendRoot,
-    chainRoot: chain.root,
-    chainRootError: chain.error,
-    contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null,
-    source: "chain"
+    status: "UNKNOWN" as TransactionStatus,
+    backendRoot: null,
+    chainRoot: null,
+    chainRootError: "Unknown transaction hash; no local game is mapped to this hash.",
+    contractAddress: null,
+    source: "db"
   };
 }
 

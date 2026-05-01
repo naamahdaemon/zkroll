@@ -1,26 +1,7 @@
-import { fetchAccount, Field, MerkleMap, PublicKey, UInt32, UInt64 } from "o1js";
+import { Field, MerkleMap, PublicKey, UInt32, UInt64 } from "o1js";
 import { CREATED, EMPTY, gameLeaf, JOINED, REFUNDED, SETTLED } from "@zkroll/contracts";
-import { networks, type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
+import { type Game, type GameStatus, type NetworkId } from "@zkroll/shared";
 import { listGames } from "./db.js";
-
-const onchainRootCacheMs = Number(process.env.ZKROLL_ONCHAIN_ROOT_CACHE_MS ?? 15_000);
-const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 12_000);
-const onchainRootCache = new Map<NetworkId, { expiresAt: number; result: { root: string | null; error: string | null } }>();
-const onchainRootRequests = new Map<NetworkId, Promise<{ root: string | null; error: string | null }>>();
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
 
 function statusField(status: GameStatus) {
   if (status === "created") return CREATED;
@@ -77,72 +58,6 @@ export function buildGamesMap(network: NetworkId, options?: { pendingJoinHash?: 
     }
   }
   return map;
-}
-
-export function backendGamesRoot(network: NetworkId) {
-  return buildGamesMap(network).getRoot().toString();
-}
-
-export function backendGamesRootForTransaction(network: NetworkId, hash: string) {
-  return buildGamesMap(network, { pendingJoinHash: hash }).getRoot().toString();
-}
-
-export async function onchainGamesRoot(network: NetworkId) {
-  const cached = onchainRootCache.get(network);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.result;
-  }
-
-  const running = onchainRootRequests.get(network);
-  if (running) return running;
-
-  const request = fetchOnchainGamesRoot(network).finally(() => {
-    onchainRootRequests.delete(network);
-  });
-  onchainRootRequests.set(network, request);
-  return request;
-}
-
-async function fetchOnchainGamesRoot(network: NetworkId) {
-  const address = process.env.ZKROLL_CONTRACT_ADDRESS;
-  if (!address) {
-    const result = {
-      root: null,
-      error: "Missing ZKROLL_CONTRACT_ADDRESS in API environment"
-    };
-    onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
-    return result;
-  }
-
-  const { account, error } = await withTimeout(
-    fetchAccount({ publicKey: address }, networks[network].minaEndpoint),
-    chainRequestTimeoutMs,
-    `${network} account fetch`
-  );
-  if (error) {
-    const result = {
-      root: null,
-      error: error.statusText
-    };
-    onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
-    return result;
-  }
-
-  if (!account?.zkapp?.appState?.[0]) {
-    const result = {
-      root: null,
-      error: `No zkApp appState found for ${address} on ${network}`
-    };
-    onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
-    return result;
-  }
-
-  const result = {
-    root: Field(account.zkapp.appState[0]).toString(),
-    error: null
-  };
-  onchainRootCache.set(network, { expiresAt: Date.now() + onchainRootCacheMs, result });
-  return result;
 }
 
 export function witnessForGameId(network: NetworkId, gameIdField: string) {
