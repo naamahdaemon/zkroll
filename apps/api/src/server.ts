@@ -215,6 +215,23 @@ app.post("/transactions/statuses", async (request, reply) => {
   }
 });
 
+app.patch("/transactions/:network/:hash/status", async (request, reply) => {
+  try {
+    const { network, hash } = request.params as { network: string; hash: string };
+    const networkId = assertNetworkId(network);
+    const body = asBody(request.body);
+    const status = requiredString(body, "status");
+    if (status !== "INCLUDED") {
+      throw new Error("Only manual INCLUDED confirmation is supported");
+    }
+
+    updateStoredTransactionStatus(networkId, hash, status);
+    return resolveTransactionStatus(networkId, hash);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
 app.get("/networks/:network/current-slot", async (request, reply) => {
   try {
     const { network } = request.params as { network: string };

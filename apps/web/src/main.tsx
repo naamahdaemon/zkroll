@@ -13,6 +13,7 @@ import {
   getTransactionStatuses,
   joinGame,
   listGames,
+  markTransactionIncluded,
   markCreationFailed,
   reconcileCreationTx,
   refundGame,
@@ -101,6 +102,9 @@ const copy: Record<Locale, Record<string, string>> = {
     actionsAvailable: "Actions available for this game state",
     enterHash: "Enter hash",
     markFailed: "Mark failed",
+    markIncluded: "Mark included",
+    confirmIncluded: "Mark this transaction as included? Only do this after checking the explorer.",
+    transactionIncluded: "Transaction marked as included.",
     join: "Join",
     reveal: "Reveal",
     settle: "Settle",
@@ -197,6 +201,9 @@ const copy: Record<Locale, Record<string, string>> = {
     actionsAvailable: "Actions disponibles selon l'etat de partie",
     enterHash: "Renseigner le hash",
     markFailed: "Marquer echouee",
+    markIncluded: "Marquer incluse",
+    confirmIncluded: "Marquer cette transaction comme incluse ? A faire uniquement apres verification dans l'explorateur.",
+    transactionIncluded: "Transaction marquee comme incluse.",
     join: "Rejoindre",
     reveal: "Reveler",
     settle: "Regler",
@@ -429,10 +436,20 @@ function App() {
     );
 
     return (
-      <>
+      <span className="txLine">
         {content}
         {status && <span className={`txBadge ${status.toLowerCase()}`}>{status}</span>}
-      </>
+        {status === "PENDING" && isExplorerHash(hash) && (
+          <button
+            className="txAction"
+            disabled={busy}
+            onClick={() => void handleMarkTransactionIncluded(networkId, hash)}
+            type="button"
+          >
+            {t("markIncluded")}
+          </button>
+        )}
+      </span>
     );
   }
 
@@ -743,6 +760,16 @@ function App() {
       const failed = await markCreationFailed(game.id, reason.trim() || undefined);
       setSelectedGameId(failed.id);
       setMessage(t("markedFailed"));
+    });
+  }
+
+  async function handleMarkTransactionIncluded(networkId: NetworkId, hash: string) {
+    await runAction(async () => {
+      const confirmed = window.confirm(t("confirmIncluded"));
+      if (!confirmed) return;
+      const result = await markTransactionIncluded(networkId, hash);
+      setTxStatuses((current) => ({ ...current, [hash]: result.status }));
+      setMessage(t("transactionIncluded"));
     });
   }
 

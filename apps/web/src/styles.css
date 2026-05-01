@@ -455,6 +455,21 @@ dd {
   text-decoration: underline;
 }
 
+.txLine {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.txAction {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  min-height: 24px;
+  padding: 0 9px;
+}
+
 .txBadge {
   border-radius: 999px;
   display: inline-flex;

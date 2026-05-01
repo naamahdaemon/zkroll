@@ -61,6 +61,16 @@ export function getTransactionStatuses(items: { network: NetworkId; hash: string
   );
 }
 
+export function markTransactionIncluded(network: NetworkId, hash: string) {
+  return request<{ hash: string; network: NetworkId; status: TransactionStatus }>(
+    `/transactions/${network}/${encodeURIComponent(hash)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "INCLUDED" })
+    }
+  );
+}
+
 export function getCurrentSlot(network: NetworkId) {
   return request<{ network: NetworkId; currentSlot: string }>(`/networks/${network}/current-slot`);
 }
