@@ -51,6 +51,16 @@ export function getTransactionStatus(network: NetworkId, hash: string) {
   );
 }
 
+export function getTransactionStatuses(items: { network: NetworkId; hash: string }[]) {
+  return request<{ items: { hash: string; network: NetworkId; status: "INCLUDED" | "PENDING" | "UNKNOWN" }[] }>(
+    "/transactions/statuses",
+    {
+      method: "POST",
+      body: JSON.stringify({ items })
+    }
+  );
+}
+
 export function getCurrentSlot(network: NetworkId) {
   return request<{ network: NetworkId; currentSlot: string }>(`/networks/${network}/current-slot`);
 }

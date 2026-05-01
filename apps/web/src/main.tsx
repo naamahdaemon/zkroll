@@ -10,7 +10,7 @@ import {
   getCurrentSlot,
   getMerkleWitness,
   getPlayerByPublicKey,
-  getTransactionStatus,
+  getTransactionStatuses,
   joinGame,
   listGames,
   markCreationFailed,
@@ -516,17 +516,13 @@ function App() {
       );
       if (unique.length === 0) return;
 
-      const nextStatuses: Record<string, TxStatus> = {};
-      await Promise.all(
-        unique.map(async (item) => {
-          try {
-            const result = await getTransactionStatus(item.network, item.hash);
-            nextStatuses[item.hash] = result.status;
-          } catch {
-            nextStatuses[item.hash] = "UNKNOWN";
-          }
-        })
-      );
+      let nextStatuses: Record<string, TxStatus> = {};
+      try {
+        const result = await getTransactionStatuses(unique);
+        nextStatuses = Object.fromEntries(result.items.map((item) => [item.hash, item.status]));
+      } catch {
+        nextStatuses = Object.fromEntries(unique.map((item) => [item.hash, "UNKNOWN"]));
+      }
 
       if (!cancelled) {
         setTxStatuses((current) => ({ ...current, ...nextStatuses }));
@@ -546,7 +542,7 @@ function App() {
 
     let cancelled = false;
     const poll = async () => {
-      const networksToPoll = Array.from(new Set([network, ...games.map((game) => game.network)]));
+      const networksToPoll = Array.from(new Set([network, selectedGame?.network].filter(Boolean))) as NetworkId[];
       const nextSlots = await Promise.all(
         networksToPoll.map(async (item) => {
           try {
@@ -569,7 +565,7 @@ function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [games, network]);
+  }, [network, selectedGame?.network]);
 
   useEffect(() => {
     if (!onchainProgress || !onchainStartedAt) {

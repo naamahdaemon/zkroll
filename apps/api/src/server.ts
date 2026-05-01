@@ -166,6 +166,58 @@ app.get("/transactions/:network/:hash/status", async (request, reply) => {
   }
 });
 
+app.post("/transactions/statuses", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    const rawItems = Array.isArray(body.items) ? body.items : [];
+    const items = rawItems.map((item) => {
+      const value = item as { network?: string; hash?: string };
+      return {
+        network: assertNetworkId(requiredString(value, "network")),
+        hash: requiredString(value, "hash")
+      };
+    });
+    const roots = new Map<NetworkId, Awaited<ReturnType<typeof onchainGamesRoot>>>();
+
+    return {
+      items: await Promise.all(
+        items.map(async (item) => {
+          if (isLocalTransactionHash(item.hash)) {
+            return {
+              hash: item.hash,
+              network: item.network,
+              status: "UNKNOWN",
+              backendRoot: null,
+              chainRoot: null,
+              chainRootError: "Local transaction placeholder; no on-chain lookup performed.",
+              contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
+            };
+          }
+
+          let chain = roots.get(item.network);
+          if (!chain) {
+            chain = await onchainGamesRoot(item.network);
+            roots.set(item.network, chain);
+          }
+
+          const backendRoot = backendGamesRootForTransaction(item.network, item.hash);
+          return {
+            hash: item.hash,
+            network: item.network,
+            status: chain.root ? (chain.root === backendRoot ? "INCLUDED" : "PENDING") : "UNKNOWN",
+            backendRoot,
+            chainRoot: chain.root,
+            chainRootError: chain.error,
+            contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null
+          };
+        })
+      )
+    };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
 app.get("/networks/:network/current-slot", async (request, reply) => {
   try {
     const { network } = request.params as { network: string };
