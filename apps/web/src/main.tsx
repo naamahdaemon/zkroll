@@ -75,7 +75,6 @@ type TxStatus = TransactionStatus;
 type Locale = "en" | "fr";
 type Theme = "light" | "dark";
 type StatusFilter = "all" | GameStatus;
-type NetworkFilter = "all" | NetworkId;
 const gameStatuses: GameStatus[] = [
   "pending_signature",
   "created",
@@ -442,7 +441,6 @@ function App() {
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
   const [playerSearch, setPlayerSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
@@ -466,8 +464,8 @@ function App() {
   const [message, setMessage] = useState(() => copy.en.walletPrompt);
 
   const visibleGames = useMemo(
-    () => games.filter((game) => game.status !== "pending_signature" || game.creatorPublicKey === publicKey),
-    [games, publicKey]
+    () => games.filter((game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)),
+    [games, network, publicKey]
   );
 
   const filteredGames = useMemo(() => {
@@ -475,15 +473,14 @@ function App() {
     return visibleGames
       .filter((game) => {
         const statusMatches = statusFilter === "all" || game.status === statusFilter;
-        const networkMatches = networkFilter === "all" || game.network === networkFilter;
         const searchMatches =
           !needle ||
           game.creatorPseudo.toLowerCase().includes(needle) ||
           (game.joinerPseudo?.toLowerCase().includes(needle) ?? false);
-        return statusMatches && networkMatches && searchMatches;
+        return statusMatches && searchMatches;
       })
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-  }, [networkFilter, playerSearch, statusFilter, visibleGames]);
+  }, [playerSearch, statusFilter, visibleGames]);
 
   const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
   const paginatedGames = useMemo(
@@ -522,7 +519,9 @@ function App() {
       );
       return { ...current, ...fromGames };
     });
-    const nextVisibleGames = nextGames.filter((game) => game.status !== "pending_signature" || game.creatorPublicKey === publicKey);
+    const nextVisibleGames = nextGames.filter(
+      (game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)
+    );
     if (!selectedGameId && nextVisibleGames[0]) setSelectedGameId(nextVisibleGames[0].id);
   }
 
@@ -669,7 +668,7 @@ function App() {
 
   useEffect(() => {
     setGamesPage(1);
-  }, [networkFilter, playerSearch, statusFilter]);
+  }, [network, playerSearch, statusFilter]);
 
   useEffect(() => {
     setGamesPage((current) => Math.min(current, totalGamePages));
@@ -1443,17 +1442,6 @@ function App() {
                 {gameStatuses.map((item) => (
                   <option key={item} value={item}>
                     {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("network")}
-              <select value={networkFilter} onChange={(event) => setNetworkFilter(event.target.value as NetworkFilter)}>
-                <option value="all">{t("allNetworks")}</option>
-                {Object.values(networks).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
                   </option>
                 ))}
               </select>
