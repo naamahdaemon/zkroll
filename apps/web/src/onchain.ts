@@ -83,18 +83,7 @@ export function getProvingCompatibility(): ProvingCompatibility {
 }
 
 export function externalBrowserUrl() {
-  const target = window.location.href;
-  const encoded = encodeURIComponent(target);
-  const ua = userAgent();
-  if (/Android/i.test(ua)) {
-    const withoutScheme = target.replace(/^https?:\/\//, "");
-    const scheme = target.startsWith("https://") ? "https" : "http";
-    return `intent://${withoutScheme}#Intent;scheme=${scheme};package=com.android.chrome;end`;
-  }
-  if (/iPhone|iPad|iPod/i.test(ua)) {
-    return `googlechrome://navigate?url=${encoded}`;
-  }
-  return target;
+  return window.location.href;
 }
 
 function provingCompatibilityError(compatibility: ProvingCompatibility) {

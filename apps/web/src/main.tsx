@@ -128,6 +128,7 @@ const copy: Record<Locale, Record<string, string>> = {
     releaseJoin: "Release join",
     actionsAvailable: "Actions available for this game state",
     enterHash: "Enter hash",
+    resignCreation: "Resign",
     markFailed: "Mark failed",
     markIncluded: "Mark included",
     confirmIncluded: "Mark this transaction as included? Only do this after checking the explorer.",
@@ -155,6 +156,9 @@ const copy: Record<Locale, Record<string, string>> = {
     creatorOnlyHash: "Only the creator can enter the creation hash.",
     pasteCreationHash: "Paste the creation transaction hash visible in Auro or the explorer.",
     hashSaved: "Creation hash saved. On-chain sync will be checked.",
+    resignCreationConfirm: "Before re-signing, check Auro or the explorer. If the transaction already exists, paste its hash instead. Re-sign now?",
+    creationMaterialMissing: "Local creation material is missing. Paste the transaction hash if it exists, or create a new challenge.",
+    creationResigned: "Creation transaction signed again and indexed.",
     creatorOnlyFailed: "Only the creator can mark this creation as failed.",
     confirmFailed: "Mark this creation as failed? Use only if the create transaction failed on the explorer.",
     optionalReason: "Optional reason",
@@ -253,6 +257,7 @@ const copy: Record<Locale, Record<string, string>> = {
     releaseJoin: "Liberer join",
     actionsAvailable: "Actions disponibles selon l'etat de partie",
     enterHash: "Renseigner le hash",
+    resignCreation: "Resigner",
     markFailed: "Marquer echouee",
     markIncluded: "Marquer incluse",
     confirmIncluded: "Marquer cette transaction comme incluse ? A faire uniquement apres verification dans l'explorateur.",
@@ -280,6 +285,9 @@ const copy: Record<Locale, Record<string, string>> = {
     creatorOnlyHash: "Seul le createur peut renseigner le hash de creation.",
     pasteCreationHash: "Colle le hash de la transaction de creation visible dans Auro ou l'explorateur.",
     hashSaved: "Hash de creation renseigne. La synchronisation on-chain va etre verifiee.",
+    resignCreationConfirm: "Avant de resigner, verifie Auro ou l'explorateur. Si la transaction existe deja, colle plutot son hash. Resigner maintenant ?",
+    creationMaterialMissing: "Les donnees locales de creation sont manquantes. Colle le hash si la transaction existe, ou cree un nouveau defi.",
+    creationResigned: "Transaction de creation signee a nouveau et indexee.",
     creatorOnlyFailed: "Seul le createur peut marquer cette creation comme echouee.",
     confirmFailed: "Marquer cette creation comme echouee ? A utiliser uniquement si la transaction create est failed sur l'explorateur.",
     optionalReason: "Raison optionnelle",
@@ -384,6 +392,37 @@ function formatDateTime(value: string | null | undefined, locale: Locale): strin
     dateStyle: "short",
     timeStyle: "medium"
   }).format(new Date(value));
+}
+
+type PendingCreationMaterial = {
+  zkappPrivateKey: string;
+  secret: string;
+  createdAt: string;
+};
+
+function pendingCreationStorageKey(gameId: string, creatorPublicKey: string) {
+  return `zkroll:pending-creation:${gameId}:${creatorPublicKey}`;
+}
+
+function loadPendingCreationMaterial(game: Game, publicKey: string): PendingCreationMaterial | null {
+  if (!publicKey || game.creatorPublicKey !== publicKey) return null;
+  try {
+    const value = localStorage.getItem(pendingCreationStorageKey(game.id, publicKey));
+    return value ? (JSON.parse(value) as PendingCreationMaterial) : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePendingCreationMaterial(game: Game, secret: string, zkappPrivateKey: string) {
+  localStorage.setItem(
+    pendingCreationStorageKey(game.id, game.creatorPublicKey),
+    JSON.stringify({ zkappPrivateKey, secret, createdAt: new Date().toISOString() } satisfies PendingCreationMaterial)
+  );
+}
+
+function removePendingCreationMaterial(game: Game) {
+  localStorage.removeItem(pendingCreationStorageKey(game.id, game.creatorPublicKey));
 }
 
 function App() {
@@ -882,8 +921,44 @@ function App() {
       const txHash = window.prompt(t("pasteCreationHash"));
       if (!txHash?.trim()) return;
       const reconciled = await reconcileCreationTx(game.id, requiredTransactionHash(txHash));
+      removePendingCreationMaterial(reconciled);
       setSelectedGameId(reconciled.id);
       setMessage(t("hashSaved"));
+    });
+  }
+
+  async function handleResignCreation(game: Game) {
+    await runAction(async () => {
+      if (game.creatorPublicKey !== publicKey) {
+        throw new Error(t("creatorOnlyHash"));
+      }
+      if (!onchainEnabled || !game.gameIdField || !game.refundDeadlineSlot) {
+        throw new Error(t("incompatibleOnchain"));
+      }
+      const material = loadPendingCreationMaterial(game, publicKey);
+      if (!material) {
+        throw new Error(t("creationMaterialMissing"));
+      }
+      const confirmed = window.confirm(t("resignCreationConfirm"));
+      if (!confirmed) return;
+      const result = await createGameOnchain({
+        provider: walletProvider(),
+        network: game.network,
+        senderPublicKey: publicKey,
+        zkappPrivateKey: material.zkappPrivateKey,
+        gameId: game.id,
+        pseudo: game.creatorPseudo,
+        secret: material.secret,
+        gameIdField: game.gameIdField,
+        stakeNanoMina: game.stakeNanoMina,
+        refundDeadlineSlot: game.refundDeadlineSlot,
+        onProgress: updateOnchainProgress
+      });
+      const reconciled = await reconcileCreationTx(game.id, result.txHash);
+      removePendingCreationMaterial(reconciled);
+      rememberSecret(reconciled.id, material.secret);
+      setSelectedGameId(reconciled.id);
+      setMessage(t("creationResigned"));
     });
   }
 
@@ -897,6 +972,7 @@ function App() {
       const reason =
         window.prompt(t("optionalReason"), t("failedReasonDefault")) ?? t("failedReasonDefault");
       const failed = await markCreationFailed(game.id, reason.trim() || undefined);
+      removePendingCreationMaterial(failed);
       setSelectedGameId(failed.id);
       setMessage(t("markedFailed"));
     });
@@ -941,6 +1017,9 @@ function App() {
         creationTxHash: onchainEnabled ? undefined : txHash
       });
       rememberSecret(created.id, secret);
+      if (onchainEnabled && gameKey) {
+        savePendingCreationMaterial(created, secret, gameKey.privateKey);
+      }
       setSelectedGameId(created.id);
 
       if (onchainEnabled) {
@@ -959,6 +1038,7 @@ function App() {
         });
         txHash = result.txHash;
         const reconciled = await reconcileCreationTx(created.id, txHash);
+        removePendingCreationMaterial(reconciled);
         setSelectedGameId(reconciled.id);
       }
 
@@ -1244,7 +1324,7 @@ function App() {
             {!provingCompatibility.ok && <p>{t("provingCompatibilityAdvice")}</p>}
             {!provingCompatibility.ok && provingCompatibility.isWalletWebView && (
               <div className="inlineActions">
-                <a className="primary actionLink" href={externalBrowserUrl()} rel="noreferrer">
+                <a className="primary actionLink" href={externalBrowserUrl()} rel="noreferrer" target="_blank">
                   {t("openInBrowser")}
                 </a>
                 <button
@@ -1521,6 +1601,12 @@ function App() {
                 <div className="actions">
                   <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
                     {t("enterHash")}
+                  </button>
+                  <button
+                    disabled={busy || selectedGame.creatorPublicKey !== publicKey || !loadPendingCreationMaterial(selectedGame, publicKey)}
+                    onClick={() => void handleResignCreation(selectedGame)}
+                  >
+                    {t("resignCreation")}
                   </button>
                   <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
                     {t("markFailed")}
