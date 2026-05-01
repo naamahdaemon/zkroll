@@ -1,18 +1,13 @@
 import { networks, type GameStatus, type NetworkId } from "@zkroll/shared";
 import type { MinaProvider } from "./types";
 
-const CONTRACT_ADDRESS = import.meta.env.VITE_ZKROLL_CONTRACT_ADDRESS as string | undefined;
 const FEE_NANOMINA = Number(import.meta.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const WALLET_RESPONSE_TIMEOUT_MS = Number(import.meta.env.VITE_WALLET_RESPONSE_TIMEOUT_MS ?? 120_000);
 const O1JS_BROWSER_CACHE_ENABLED = import.meta.env.VITE_O1JS_BROWSER_CACHE_ENABLED !== "false";
 
-type WitnessJson = {
-  isLefts: boolean[];
-  siblings: string[];
-};
-
 let compilePromise: Promise<unknown> | null = null;
 let compiled = false;
+let verificationKey: any = null;
 
 export type OnchainProgress = {
   label: string;
@@ -120,23 +115,20 @@ function browserCache() {
 }
 
 async function load() {
-  const [{ Bool, Encoding, fetchLastBlock, Field, MerkleMapWitness, Mina, Poseidon, PublicKey, UInt32, UInt64 }, contracts] =
+  const [{ AccountUpdate, Encoding, fetchLastBlock, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64 }, contracts] =
     await Promise.all([import("o1js"), import("@zkroll/contracts")]);
-  return { Bool, Encoding, fetchLastBlock, Field, MerkleMapWitness, Mina, Poseidon, PublicKey, UInt32, UInt64, ...contracts };
+  return { AccountUpdate, Encoding, fetchLastBlock, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64, ...contracts };
 }
 
 async function setup(network: NetworkId, onProgress?: ProgressCallback) {
-  if (!CONTRACT_ADDRESS) {
-    throw new Error("VITE_ZKROLL_CONTRACT_ADDRESS manquant.");
-  }
-
   const toolkit = await load();
   toolkit.Mina.setActiveInstance(toolkit.createMinaNetwork(network));
   if (!compiled) {
     report(onProgress, "Compilation du circuit ZK", 12);
   }
-  compilePromise ??= O1JS_BROWSER_CACHE_ENABLED ? toolkit.ZkRoll.compile({ cache: browserCache() }) : toolkit.ZkRoll.compile();
-  await compilePromise;
+  compilePromise ??= O1JS_BROWSER_CACHE_ENABLED ? toolkit.ZkDiceGame.compile({ cache: browserCache() }) : toolkit.ZkDiceGame.compile();
+  const result = (await compilePromise) as { verificationKey: unknown };
+  verificationKey = result.verificationKey;
   compiled = true;
   report(onProgress, "Circuit ZK pret", 38);
   return toolkit;
@@ -219,36 +211,40 @@ export async function nextRefundDeadlineSlot(network: NetworkId, timeoutSlots: n
   return (currentSlot + BigInt(timeoutSlots)).toString();
 }
 
-function witnessFromJson(toolkit: Awaited<ReturnType<typeof load>>, witness: WitnessJson) {
-  return new toolkit.MerkleMapWitness(
-    witness.isLefts.map((item) => toolkit.Bool(item)),
-    witness.siblings.map((item) => toolkit.Field(item))
-  );
+export async function generateGameZkappKey() {
+  const { PrivateKey } = await load();
+  const privateKey = PrivateKey.random();
+  return {
+    privateKey: privateKey.toBase58(),
+    address: privateKey.toPublicKey().toBase58()
+  };
 }
 
 export async function createGameOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
   senderPublicKey: string;
+  zkappPrivateKey: string;
   pseudo: string;
   secret: string;
   gameIdField: string;
   stakeNanoMina: string;
   refundDeadlineSlot: string;
-  witness: WitnessJson;
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
-  const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
-  const witness = witnessFromJson(toolkit, input.witness);
+  const zkappKey = toolkit.PrivateKey.fromBase58(input.zkappPrivateKey);
+  const zkappAddress = zkappKey.toPublicKey();
+  const contract = new toolkit.ZkDiceGame(zkappAddress);
 
   const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA }, async () => {
+    toolkit.AccountUpdate.fundNewAccount(sender);
+    await contract.deploy({ verificationKey });
     await contract.createGame(
       toolkit.Field(input.gameIdField),
-      witness,
       sender,
       toolkit.Poseidon.hash(toolkit.Encoding.stringToFields(input.pseudo)),
       toolkit.UInt64.from(input.stakeNanoMina),
@@ -258,8 +254,10 @@ export async function createGameOnchain(input: {
   });
   report(input.onProgress, "Generation de la preuve", 54);
   await tx.prove();
+  tx.sign([zkappKey]);
   report(input.onProgress, "Preuve generee", 82);
-  return sendWithWallet(provider, tx.toJSON(), "zkroll create", input.onProgress);
+  const txHash = await sendWithWallet(provider, tx.toJSON(), "zkroll create", input.onProgress);
+  return { txHash, zkappAddress: zkappAddress.toBase58() };
 }
 
 export async function joinGameOnchain(input: {
@@ -269,7 +267,7 @@ export async function joinGameOnchain(input: {
   pseudo: string;
   secret: string;
   gameIdField: string;
-  witness: WitnessJson;
+  zkappAddress: string;
   creatorPublicKey: string;
   creatorPseudoHash: string;
   stakeNanoMina: string;
@@ -282,21 +280,16 @@ export async function joinGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
-  const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
-  const witness = witnessFromJson(toolkit, input.witness);
+  const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
   const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA }, async () => {
     await contract.joinGame(
-      toolkit.Field(input.gameIdField),
-      witness,
-      toolkit.PublicKey.fromBase58(input.creatorPublicKey),
-      toolkit.Field(input.creatorPseudoHash),
-      toolkit.UInt64.from(input.stakeNanoMina),
-      toolkit.Field(input.creatorCommitment),
       sender,
+      toolkit.Field(input.creatorPseudoHash),
+      toolkit.Field(input.creatorCommitment),
+      toolkit.UInt32.from(input.currentRefundDeadlineSlot),
       toolkit.Poseidon.hash(toolkit.Encoding.stringToFields(input.pseudo)),
       toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField)),
-      toolkit.UInt32.from(input.currentRefundDeadlineSlot),
       toolkit.UInt32.from(input.nextRefundDeadlineSlot)
     );
   });
@@ -311,7 +304,7 @@ export async function settleGameOnchain(input: {
   network: NetworkId;
   senderPublicKey: string;
   gameIdField: string;
-  witness: WitnessJson;
+  zkappAddress: string;
   creatorPublicKey: string;
   creatorPseudoHash: string;
   joinerPublicKey: string;
@@ -329,21 +322,15 @@ export async function settleGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
-  const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
-  const witness = witnessFromJson(toolkit, input.witness);
+  const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
   const winner = input.winnerPublicKey
     ? toolkit.PublicKey.fromBase58(input.winnerPublicKey)
     : (toolkit.PublicKey.empty() as typeof sender);
 
   const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA }, async () => {
-    await contract.settleGame(
-      toolkit.Field(input.gameIdField),
-      witness,
-      toolkit.PublicKey.fromBase58(input.creatorPublicKey),
+    await contract.settle(
       toolkit.Field(input.creatorPseudoHash),
-      toolkit.PublicKey.fromBase58(input.joinerPublicKey),
       toolkit.Field(input.joinerPseudoHash),
-      toolkit.UInt64.from(input.stakeNanoMina),
       toolkit.Field(input.creatorCommitment),
       toolkit.Field(input.joinerCommitment),
       toolkit.Field(input.creatorSecret),
@@ -364,7 +351,7 @@ export async function refundGameOnchain(input: {
   senderPublicKey: string;
   status: GameStatus;
   gameIdField: string;
-  witness: WitnessJson;
+  zkappAddress: string;
   creatorPublicKey: string;
   creatorPseudoHash: string;
   joinerPublicKey: string | null;
@@ -379,17 +366,12 @@ export async function refundGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
-  const contract = new toolkit.ZkRoll(toolkit.PublicKey.fromBase58(CONTRACT_ADDRESS!));
-  const witness = witnessFromJson(toolkit, input.witness);
+  const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
   const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA }, async () => {
     if (input.status === "created") {
       await contract.refundCreatedGame(
-        toolkit.Field(input.gameIdField),
-        witness,
-        toolkit.PublicKey.fromBase58(input.creatorPublicKey),
         toolkit.Field(input.creatorPseudoHash),
-        toolkit.UInt64.from(input.stakeNanoMina),
         toolkit.Field(input.creatorCommitment),
         toolkit.UInt32.from(input.refundDeadlineSlot)
       );
@@ -401,13 +383,8 @@ export async function refundGameOnchain(input: {
     }
 
     await contract.refundJoinedGame(
-      toolkit.Field(input.gameIdField),
-      witness,
-      toolkit.PublicKey.fromBase58(input.creatorPublicKey),
       toolkit.Field(input.creatorPseudoHash),
-      toolkit.PublicKey.fromBase58(input.joinerPublicKey),
       toolkit.Field(input.joinerPseudoHash),
-      toolkit.UInt64.from(input.stakeNanoMina),
       toolkit.Field(input.creatorCommitment),
       toolkit.Field(input.joinerCommitment),
       toolkit.UInt32.from(input.refundDeadlineSlot)

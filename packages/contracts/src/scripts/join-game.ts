@@ -10,6 +10,7 @@ import {
   readField,
   readPrivateKey,
   readPublicKey,
+  readUInt32,
   useNetwork
 } from "./env.js";
 
@@ -22,6 +23,10 @@ const zkappAddress = readPublicKey("ZKAPP_ADDRESS");
 const joinerPseudo = readEnv("JOINER_PSEUDO");
 const joinerSecret = Field(readEnv("JOINER_SECRET"));
 const gameId = readField("GAME_ID_FIELD");
+const creatorPseudoHash = readField("CREATOR_PSEUDO_HASH");
+const creatorCommitment = readField("CREATOR_COMMITMENT");
+const currentRefundDeadlineSlot = readUInt32("CURRENT_REFUND_DEADLINE_SLOT");
+const refundDeadlineSlot = readUInt32("REFUND_DEADLINE_SLOT");
 const zkapp = new ZkDiceGame(zkappAddress);
 
 console.log("Compiling ZkDiceGame...");
@@ -29,7 +34,15 @@ await ZkDiceGame.compile();
 
 console.log("Building joinGame transaction...");
 const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async () => {
-  await zkapp.joinGame(joiner, pseudoHash(joinerPseudo), commitment(joinerSecret, joiner, gameId));
+  await zkapp.joinGame(
+    joiner,
+    creatorPseudoHash,
+    creatorCommitment,
+    currentRefundDeadlineSlot,
+    pseudoHash(joinerPseudo),
+    commitment(joinerSecret, joiner, gameId),
+    refundDeadlineSlot
+  );
 });
 
 await tx.prove();
@@ -44,7 +57,8 @@ const output = {
   joinerPublicKey: joiner.toBase58(),
   joinerPseudo,
   joinerPseudoHash: pseudoHash(joinerPseudo).toString(),
-  joinerCommitment: commitment(joinerSecret, joiner, gameId).toString()
+  joinerCommitment: commitment(joinerSecret, joiner, gameId).toString(),
+  refundDeadlineSlot: refundDeadlineSlot.toString()
 };
 
 const backendGameId = process.env.BACKEND_GAME_ID;
@@ -54,6 +68,7 @@ const indexedGame = backendGameId
       joinerPublicKey: output.joinerPublicKey,
       joinerPseudoHash: output.joinerPseudoHash,
       joinerCommitment: output.joinerCommitment,
+      refundDeadlineSlot: output.refundDeadlineSlot,
       joinTxHash: output.txHash
     })
   : null;

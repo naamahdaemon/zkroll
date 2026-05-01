@@ -1,13 +1,16 @@
 import {
   AccountUpdate,
+  Bool,
+  declareMethods,
+  declareState,
   Field,
-  method,
   Permissions,
+  Poseidon,
   Provable,
   PublicKey,
   SmartContract,
-  state,
   State,
+  UInt32,
   UInt64
 } from "o1js";
 import { commitmentFor, diceOutcome, type DiceOutcome } from "./dice.js";
@@ -16,90 +19,192 @@ const NOT_STARTED = Field(0);
 const CREATED = Field(1);
 const JOINED = Field(2);
 const SETTLED = Field(3);
+const REFUNDED = Field(4);
+const EMPTY = Field(0);
 
 export { commitmentFor, diceOutcome, type DiceOutcome } from "./dice.js";
 
+export function createdDataHash(input: {
+  creatorPseudoHash: Field;
+  creatorCommitment: Field;
+  refundDeadlineSlot: UInt32;
+}): Field {
+  return Poseidon.hash([CREATED, input.creatorPseudoHash, input.creatorCommitment, input.refundDeadlineSlot.value]);
+}
+
+export function joinedDataHash(input: {
+  creatorPseudoHash: Field;
+  creatorCommitment: Field;
+  joinerPseudoHash: Field;
+  joinerCommitment: Field;
+  refundDeadlineSlot: UInt32;
+}): Field {
+  return Poseidon.hash([
+    JOINED,
+    input.creatorPseudoHash,
+    input.creatorCommitment,
+    input.joinerPseudoHash,
+    input.joinerCommitment,
+    input.refundDeadlineSlot.value
+  ]);
+}
+
+export function settledDataHash(input: {
+  creatorPseudoHash: Field;
+  creatorCommitment: Field;
+  joinerPseudoHash: Field;
+  joinerCommitment: Field;
+  creatorDie: Field;
+  joinerDie: Field;
+  winner: PublicKey;
+  refundDeadlineSlot: UInt32;
+}): Field {
+  return Poseidon.hash([
+    SETTLED,
+    input.creatorPseudoHash,
+    input.creatorCommitment,
+    input.joinerPseudoHash,
+    input.joinerCommitment,
+    input.creatorDie,
+    input.joinerDie,
+    ...input.winner.toFields(),
+    input.refundDeadlineSlot.value
+  ]);
+}
+
+export function refundedDataHash(input: {
+  previousDataHash: Field;
+  refundDeadlineSlot: UInt32;
+}): Field {
+  return Poseidon.hash([REFUNDED, input.previousDataHash, input.refundDeadlineSlot.value]);
+}
+
 export class ZkDiceGame extends SmartContract {
-  @state(Field) gameId: State<Field> = State<Field>();
-  @state(Field) status: State<Field> = State<Field>();
-  @state(PublicKey) creator: State<PublicKey> = State<PublicKey>();
-  @state(PublicKey) joiner: State<PublicKey> = State<PublicKey>();
-  @state(Field) creatorPseudoHash: State<Field> = State<Field>();
-  @state(Field) joinerPseudoHash: State<Field> = State<Field>();
-  @state(UInt64) stake: State<UInt64> = State<UInt64>();
-  @state(Field) creatorCommitment: State<Field> = State<Field>();
-  @state(Field) joinerCommitment: State<Field> = State<Field>();
-  @state(Field) creatorDie: State<Field> = State<Field>();
-  @state(Field) joinerDie: State<Field> = State<Field>();
-  @state(PublicKey) winner: State<PublicKey> = State<PublicKey>();
+  declare gameId: State<Field>;
+  declare status: State<Field>;
+  declare creator: State<PublicKey>;
+  declare joiner: State<PublicKey>;
+  declare stake: State<UInt64>;
+  declare dataHash: State<Field>;
+
+  constructor(address: PublicKey, tokenId?: Field) {
+    super(address, tokenId);
+    this.gameId = State<Field>();
+    this.status = State<Field>();
+    this.creator = State<PublicKey>();
+    this.joiner = State<PublicKey>();
+    this.stake = State<UInt64>();
+    this.dataHash = State<Field>();
+  }
 
   init() {
     super.init();
     this.account.permissions.set({
       ...Permissions.default(),
-      editState: Permissions.proofOrSignature(),
+      editState: Permissions.proof(),
       send: Permissions.proof()
     });
     this.status.set(NOT_STARTED);
-    this.creatorDie.set(Field(0));
-    this.joinerDie.set(Field(0));
+    this.stake.set(UInt64.zero);
+    this.dataHash.set(EMPTY);
   }
 
-  @method async createGame(
+  async createGame(
     gameId: Field,
     creator: PublicKey,
     creatorPseudoHash: Field,
     stake: UInt64,
-    creatorCommitment: Field
+    creatorCommitment: Field,
+    refundDeadlineSlot: UInt32
   ) {
-    const status = this.status.getAndRequireEquals();
-    status.assertEquals(NOT_STARTED);
+    this.account.provedState.requireEquals(Bool(false));
     stake.assertGreaterThan(UInt64.zero);
+    this.currentSlot.requireBetween(UInt32.zero, refundDeadlineSlot);
 
-    const creatorPayment = AccountUpdate.createSigned(creator);
-    creatorPayment.send({ to: this.address, amount: stake });
+    AccountUpdate.createSigned(creator).send({ to: this.address, amount: stake });
 
     this.gameId.set(gameId);
     this.creator.set(creator);
-    this.creatorPseudoHash.set(creatorPseudoHash);
+    this.joiner.set(PublicKey.empty() as PublicKey);
     this.stake.set(stake);
-    this.creatorCommitment.set(creatorCommitment);
+    this.dataHash.set(createdDataHash({ creatorPseudoHash, creatorCommitment, refundDeadlineSlot }));
     this.status.set(CREATED);
   }
 
-  @method async joinGame(joiner: PublicKey, joinerPseudoHash: Field, joinerCommitment: Field) {
+  async joinGame(
+    joiner: PublicKey,
+    creatorPseudoHash: Field,
+    creatorCommitment: Field,
+    currentRefundDeadlineSlot: UInt32,
+    joinerPseudoHash: Field,
+    joinerCommitment: Field,
+    nextRefundDeadlineSlot: UInt32
+  ) {
     const status = this.status.getAndRequireEquals();
     const creator = this.creator.getAndRequireEquals();
     const stake = this.stake.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
 
     status.assertEquals(CREATED);
+    dataHash.assertEquals(
+      createdDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        refundDeadlineSlot: currentRefundDeadlineSlot
+      })
+    );
     joiner.equals(creator).assertFalse();
+    this.currentSlot.requireBetween(UInt32.zero, currentRefundDeadlineSlot);
+    nextRefundDeadlineSlot.assertGreaterThan(currentRefundDeadlineSlot);
 
-    const joinerPayment = AccountUpdate.createSigned(joiner);
-    joinerPayment.send({ to: this.address, amount: stake });
+    AccountUpdate.createSigned(joiner).send({ to: this.address, amount: stake });
 
     this.joiner.set(joiner);
-    this.joinerPseudoHash.set(joinerPseudoHash);
-    this.joinerCommitment.set(joinerCommitment);
+    this.dataHash.set(
+      joinedDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        refundDeadlineSlot: nextRefundDeadlineSlot
+      })
+    );
     this.status.set(JOINED);
   }
 
-  @method async settle(creatorSecret: Field, joinerSecret: Field, expectedWinner: PublicKey) {
+  async settle(
+    creatorPseudoHash: Field,
+    joinerPseudoHash: Field,
+    creatorCommitment: Field,
+    joinerCommitment: Field,
+    creatorSecret: Field,
+    joinerSecret: Field,
+    expectedWinner: PublicKey,
+    refundDeadlineSlot: UInt32
+  ) {
     const status = this.status.getAndRequireEquals();
     const gameId = this.gameId.getAndRequireEquals();
     const creator = this.creator.getAndRequireEquals();
     const joiner = this.joiner.getAndRequireEquals();
     const stake = this.stake.getAndRequireEquals();
-    const creatorCommitment = this.creatorCommitment.getAndRequireEquals();
-    const joinerCommitment = this.joinerCommitment.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
 
     status.assertEquals(JOINED);
+    dataHash.assertEquals(
+      joinedDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        refundDeadlineSlot
+      })
+    );
     commitmentFor(creatorSecret, creator, gameId).assertEquals(creatorCommitment);
     commitmentFor(joinerSecret, joiner, gameId).assertEquals(joinerCommitment);
 
     const outcome = diceOutcome(creatorSecret, joinerSecret, gameId);
     const pot = stake.add(stake);
-    const empty = PublicKey.empty();
+    const empty = PublicKey.empty() as PublicKey;
 
     expectedWinner.equals(creator).assertEquals(outcome.creatorWins);
     expectedWinner.equals(joiner).assertEquals(outcome.joinerWins);
@@ -110,9 +215,83 @@ export class ZkDiceGame extends SmartContract {
     this.send({ to: creator, amount: Provable.if(outcome.joinerWins, UInt64, UInt64.zero, creatorPayout) });
     this.send({ to: joiner, amount: Provable.if(outcome.creatorWins, UInt64, UInt64.zero, joinerPayout) });
 
-    this.creatorDie.set(outcome.creatorDie);
-    this.joinerDie.set(outcome.joinerDie);
-    this.winner.set(expectedWinner);
+    this.dataHash.set(
+      settledDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        creatorDie: outcome.creatorDie,
+        joinerDie: outcome.joinerDie,
+        winner: expectedWinner,
+        refundDeadlineSlot
+      })
+    );
     this.status.set(SETTLED);
   }
+
+  async refundCreatedGame(creatorPseudoHash: Field, creatorCommitment: Field, refundDeadlineSlot: UInt32) {
+    const status = this.status.getAndRequireEquals();
+    const creator = this.creator.getAndRequireEquals();
+    const stake = this.stake.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
+    const currentDataHash = createdDataHash({ creatorPseudoHash, creatorCommitment, refundDeadlineSlot });
+
+    status.assertEquals(CREATED);
+    dataHash.assertEquals(currentDataHash);
+    stake.assertGreaterThan(UInt64.zero);
+    this.currentSlot.requireBetween(refundDeadlineSlot, UInt32.MAXINT());
+
+    this.send({ to: creator, amount: stake });
+    this.dataHash.set(refundedDataHash({ previousDataHash: currentDataHash, refundDeadlineSlot }));
+    this.status.set(REFUNDED);
+  }
+
+  async refundJoinedGame(
+    creatorPseudoHash: Field,
+    joinerPseudoHash: Field,
+    creatorCommitment: Field,
+    joinerCommitment: Field,
+    refundDeadlineSlot: UInt32
+  ) {
+    const status = this.status.getAndRequireEquals();
+    const creator = this.creator.getAndRequireEquals();
+    const joiner = this.joiner.getAndRequireEquals();
+    const stake = this.stake.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
+    const currentDataHash = joinedDataHash({
+      creatorPseudoHash,
+      creatorCommitment,
+      joinerPseudoHash,
+      joinerCommitment,
+      refundDeadlineSlot
+    });
+
+    status.assertEquals(JOINED);
+    dataHash.assertEquals(currentDataHash);
+    stake.assertGreaterThan(UInt64.zero);
+    this.currentSlot.requireBetween(refundDeadlineSlot, UInt32.MAXINT());
+
+    this.send({ to: creator, amount: stake });
+    this.send({ to: joiner, amount: stake });
+    this.dataHash.set(refundedDataHash({ previousDataHash: currentDataHash, refundDeadlineSlot }));
+    this.status.set(REFUNDED);
+  }
 }
+
+declareState(ZkDiceGame, {
+  gameId: Field,
+  status: Field,
+  creator: PublicKey,
+  joiner: PublicKey,
+  stake: UInt64,
+  dataHash: Field
+});
+
+declareMethods(ZkDiceGame, {
+  createGame: [Field, PublicKey, Field, UInt64, Field, UInt32] as any,
+  joinGame: [PublicKey, Field, Field, UInt32, Field, Field, UInt32] as any,
+  settle: [Field, Field, Field, Field, Field, Field, PublicKey, UInt32] as any,
+  refundCreatedGame: [Field, Field, UInt32] as any,
+  refundJoinedGame: [Field, Field, Field, Field, UInt32] as any
+});

@@ -11,8 +11,8 @@ The first implementation uses a commit-reveal flow:
 5. The zk circuit derives deterministic dice from both secrets and the game id.
 6. The contract settles the pot.
 7. If a game is abandoned, either player can trigger an on-chain refund after the configured deadline slot.
-8. If a creation transaction fails before changing contract state, the local game can be marked `failed` and is excluded from the indexed Merkle root.
-9. A join transaction is indexed as `join_pending` until the on-chain root confirms it, which prevents competing local joins without changing the contract.
+8. Each challenge is its own zkApp account, created and funded by the creator transaction.
+9. A join transaction is indexed as `join_pending` until it is marked included, which prevents competing local joins.
 
 ## Packages
 
@@ -31,4 +31,4 @@ npm run dev:web
 
 The API listens on `http://127.0.0.1:4000` and the web app uses `http://127.0.0.1:5174`.
 
-See `INSTALL.md` for deployment, `.env.local`, wallet, and refund timeout configuration. The refund update changes the contract verification key, so use a fresh zkApp deployment and a fresh SQLite database for this version.
+See `INSTALL.md` for deployment, `.env.local`, wallet, and refund timeout configuration. This branch uses one zkApp per game, so use a fresh SQLite database while testing it.

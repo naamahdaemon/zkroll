@@ -17,6 +17,7 @@ build/
 
 # Local databases / indexer state
 *.db
+*.db.backup
 *.db-shm
 *.db-wal
 *.sqlite

@@ -93,15 +93,14 @@ Create `/opt/zkroll/.env.production`:
 DOMAIN=zkroll.naamahdaemon.eu
 LETSENCRYPT_EMAIL=you@example.com
 
-ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 ZKROLL_DB_PATH=/data/zkroll-mainnet.db
-ZKROLL_ONCHAIN_ROOT_CACHE_MS=60000
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
+ZKROLL_ZKAPP_STATE_CACHE_MS=60000
+ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 
 VITE_API_URL=https://zkroll.naamahdaemon.eu/api
 VITE_ONCHAIN_ENABLED=true
-VITE_ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
@@ -112,9 +111,8 @@ VITE_SLOT_POLL_INTERVAL_MS=120000
 
 Important:
 
-- `ZKROLL_CONTRACT_ADDRESS` and `VITE_ZKROLL_CONTRACT_ADDRESS` must be the same.
-- Use a SQLite DB that matches the deployed contract root.
-- For a fresh contract, use a fresh DB.
+- This branch creates one zkApp account per game, so no global contract address is required.
+- Use a fresh SQLite DB when switching from the old global-root branch to this branch.
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
 
 ## 6. Required Directories
@@ -420,7 +418,8 @@ VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
-ZKROLL_ONCHAIN_ROOT_CACHE_MS=60000
+ZKROLL_ZKAPP_STATE_CACHE_MS=60000
+ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ```
 
 Then rebuild `api` and `web`.
@@ -444,15 +443,15 @@ Recreate nginx:
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --force-recreate nginx
 ```
 
-### Local Root Differs From On-chain Root
+### Local Transaction Status Is Wrong
 
-The SQLite DB and the contract state are out of sync. With the current contract design, the DB must match the contract Merkle root.
+This branch uses one zkApp account per game, so there is no global Merkle root to resync. If the explorer shows a transaction as included but the UI still shows it as pending, use the manual transaction status control in the UI.
 
 Options:
 
 - restore the matching SQLite backup;
-- reimport exact game rows;
-- deploy a fresh contract with a fresh DB.
+- manually mark the transaction as included after checking the explorer;
+- use a fresh DB when switching from the old global-root architecture to this branch.
 
 ---
 
@@ -543,15 +542,14 @@ Cree `/opt/zkroll/.env.production` :
 DOMAIN=zkroll.naamahdaemon.eu
 LETSENCRYPT_EMAIL=you@example.com
 
-ZKROLL_CONTRACT_ADDRESS=B62_REMPLACER_PAR_ADRESSE_ZKROLL_DEPLOYEE
 ZKROLL_DB_PATH=/data/zkroll-mainnet.db
-ZKROLL_ONCHAIN_ROOT_CACHE_MS=60000
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
+ZKROLL_ZKAPP_STATE_CACHE_MS=60000
+ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 
 VITE_API_URL=https://zkroll.naamahdaemon.eu/api
 VITE_ONCHAIN_ENABLED=true
-VITE_ZKROLL_CONTRACT_ADDRESS=B62_REMPLACER_PAR_ADRESSE_ZKROLL_DEPLOYEE
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
@@ -562,9 +560,8 @@ VITE_SLOT_POLL_INTERVAL_MS=120000
 
 Important :
 
-- `ZKROLL_CONTRACT_ADDRESS` et `VITE_ZKROLL_CONTRACT_ADDRESS` doivent etre identiques.
-- La base SQLite doit correspondre a la racine du contrat deploye.
-- Pour un contrat neuf, utilise une base neuve.
+- Cette branche cree un compte zkApp par partie, donc aucune adresse de contrat global n'est requise.
+- Utilise une base SQLite neuve en passant de l'ancienne branche a racine globale vers cette branche.
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
 
 ## 6. Dossiers Persistants
@@ -870,7 +867,8 @@ VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
-ZKROLL_ONCHAIN_ROOT_CACHE_MS=60000
+ZKROLL_ZKAPP_STATE_CACHE_MS=60000
+ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ```
 
 Puis rebuild `api` et `web`.
@@ -894,12 +892,12 @@ Recree nginx :
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --force-recreate nginx
 ```
 
-### Racine Locale Differente De La Racine On-chain
+### Statut Local De Transaction Incorrect
 
-La base SQLite et l'etat du contrat sont desynchronises. Avec le contrat actuel, la base doit correspondre a la racine Merkle du contrat.
+Cette branche utilise un compte zkApp par partie, donc il n'y a plus de racine Merkle globale a resynchroniser. Si l'explorateur montre une transaction incluse mais que l'UI l'affiche encore en pending, utilise le controle manuel de statut dans l'UI.
 
 Options :
 
 - restaurer la sauvegarde SQLite correspondante ;
-- reimporter exactement les lignes des jeux ;
-- deployer un nouveau contrat avec une base neuve.
+- marquer manuellement la transaction comme incluse apres verification dans l'explorateur ;
+- utiliser une base neuve en passant de l'ancienne architecture a racine globale vers cette branche.

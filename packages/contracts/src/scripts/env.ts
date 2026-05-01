@@ -1,4 +1,4 @@
-import { Encoding, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt64 } from "o1js";
+import { Encoding, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64 } from "o1js";
 import { assertNetworkId, type NetworkId } from "@zkroll/shared";
 import { createMinaNetwork } from "../network.js";
 
@@ -32,6 +32,10 @@ export function readField(name: string): Field {
 
 export function readUInt64(name: string): UInt64 {
   return UInt64.from(readEnv(name));
+}
+
+export function readUInt32(name: string): UInt32 {
+  return UInt32.from(readEnv(name));
 }
 
 export function readFee(): number {

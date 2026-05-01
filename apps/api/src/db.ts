@@ -239,7 +239,8 @@ export function createGame(input: {
   const now = new Date().toISOString();
   const creationTxHash = input.creationTxHash ?? `pending:${input.id}`;
   const status: GameStatus = input.creationTxHash ? "created" : "pending_signature";
-  const creationTxStatus: TransactionStatus = input.creationTxHash ? "INCLUDED" : "PENDING";
+  const creationTxStatus: TransactionStatus =
+    input.creationTxHash?.startsWith("fake") || input.creationTxHash?.startsWith("create_") ? "INCLUDED" : "PENDING";
   db.prepare(
     `
     insert into games (
@@ -349,6 +350,45 @@ export function getStoredTransactionStatus(network: NetworkId, hash: string): Tr
   return row?.status ?? null;
 }
 
+export function getStoredTransaction(network: NetworkId, hash: string): { status: TransactionStatus | null; zkappAddress: string | null } | null {
+  const row = db
+    .prepare(
+      `
+      select
+        case
+          when creation_tx_hash = ? then creation_tx_status
+          when join_tx_hash = ? then join_tx_status
+          when settlement_tx_hash = ? then settlement_tx_status
+          when refund_tx_hash = ? then refund_tx_status
+        end as status,
+        zkapp_address as zkappAddress
+      from games
+      where network = ?
+        and ? in (creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash)
+      limit 1
+    `
+    )
+    .get(hash, hash, hash, hash, network, hash) as
+    | { status: TransactionStatus | null; zkappAddress: string | null }
+    | undefined;
+  return row ?? null;
+}
+
+export function getGameByTransaction(network: NetworkId, hash: string): Game | null {
+  const row = db
+    .prepare(
+      `
+      select *
+      from games
+      where network = ?
+        and ? in (creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash)
+      limit 1
+    `
+    )
+    .get(network, hash) as GameRow | undefined;
+  return row ? gameFromRow(row) : null;
+}
+
 export function updateStoredTransactionStatus(network: NetworkId, hash: string, status: TransactionStatus) {
   const now = new Date().toISOString();
   db.prepare(
@@ -363,6 +403,87 @@ export function updateStoredTransactionStatus(network: NetworkId, hash: string, 
       and ? in (creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash)
   `
   ).run(hash, status, hash, status, hash, status, hash, status, now, network, hash);
+}
+
+function revealedStatus(creatorReveal: string | null, joinerReveal: string | null): GameStatus {
+  if (creatorReveal && joinerReveal) return "player_two_revealed";
+  if (creatorReveal) return "player_one_revealed";
+  if (joinerReveal) return "player_two_revealed";
+  return "joined";
+}
+
+export function markTransactionFailed(network: NetworkId, hash: string, reason?: string): Game | null {
+  const game = getGameByTransaction(network, hash);
+  if (!game) return null;
+
+  const now = new Date().toISOString();
+  if (hash === game.creationTxHash) {
+    db.prepare(
+      `
+      update games
+      set creation_tx_status = 'FAILED',
+          status = case when join_tx_hash is null then 'failed' else status end,
+          failure_reason = ?,
+          updated_at = ?
+      where id = ?
+    `
+    ).run(reason ?? null, now, game.id);
+    return getGame(game.id);
+  }
+
+  if (hash === game.joinTxHash) {
+    db.prepare(
+      `
+      update games
+      set joiner_pseudo = null,
+          joiner_public_key = null,
+          joiner_pseudo_hash = null,
+          joiner_commitment = null,
+          pending_join_refund_deadline_slot = null,
+          join_tx_status = 'FAILED',
+          failure_reason = ?,
+          status = 'created',
+          updated_at = ?
+      where id = ?
+    `
+    ).run(reason ?? null, now, game.id);
+    return getGame(game.id);
+  }
+
+  if (hash === game.settlementTxHash) {
+    db.prepare(
+      `
+      update games
+      set creator_die = null,
+          joiner_die = null,
+          winner_public_key = null,
+          settlement_tx_status = 'FAILED',
+          failure_reason = ?,
+          status = ?,
+          updated_at = ?
+      where id = ?
+    `
+    ).run(reason ?? null, revealedStatus(game.creatorReveal, game.joinerReveal), now, game.id);
+    return getGame(game.id);
+  }
+
+  if (hash === game.refundTxHash) {
+    const nextStatus =
+      game.joinerPublicKey === null ? "created" : revealedStatus(game.creatorReveal, game.joinerReveal);
+    db.prepare(
+      `
+      update games
+      set refund_tx_status = 'FAILED',
+          failure_reason = ?,
+          status = ?,
+          updated_at = ?
+      where id = ?
+    `
+    ).run(reason ?? null, nextStatus, now, game.id);
+    return getGame(game.id);
+  }
+
+  return getGame(game.id);
 }
 
 export function joinGame(
@@ -464,19 +585,21 @@ export function failPendingJoin(id: string, reason?: string): Game {
 
 export function refundGame(id: string, input: { refundTxHash: string }): Game {
   const now = new Date().toISOString();
+  const refundTxStatus: TransactionStatus =
+    input.refundTxHash.startsWith("fake") || input.refundTxHash.startsWith("refund_") ? "INCLUDED" : "PENDING";
   const result = db
     .prepare(
       `
       update games
       set refund_tx_hash = ?,
-          refund_tx_status = 'INCLUDED',
+          refund_tx_status = ?,
           status = 'refunded',
           updated_at = ?
       where id = ?
         and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed')
     `
     )
-    .run(input.refundTxHash, now, id);
+    .run(input.refundTxHash, refundTxStatus, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Game cannot be refunded");
@@ -532,6 +655,8 @@ export function settleGame(
   }
 ): Game {
   const now = new Date().toISOString();
+  const settlementTxStatus: TransactionStatus =
+    input.settlementTxHash.startsWith("fake") || input.settlementTxHash.startsWith("settle_") ? "INCLUDED" : "PENDING";
   const result = db
     .prepare(
       `
@@ -540,13 +665,13 @@ export function settleGame(
           joiner_die = ?,
           winner_public_key = ?,
           settlement_tx_hash = ?,
-          settlement_tx_status = 'INCLUDED',
+          settlement_tx_status = ?,
           status = 'settled',
           updated_at = ?
       where id = ? and creator_reveal is not null and joiner_reveal is not null
     `
     )
-    .run(input.creatorDie, input.joinerDie, input.winnerPublicKey, input.settlementTxHash, now, id);
+    .run(input.creatorDie, input.joinerDie, input.winnerPublicKey, input.settlementTxHash, settlementTxStatus, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Game cannot be settled");

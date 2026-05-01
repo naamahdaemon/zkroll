@@ -9,6 +9,7 @@ import {
   readEnv,
   readFee,
   readPrivateKey,
+  readUInt32,
   readUInt64,
   useNetwork
 } from "./env.js";
@@ -23,6 +24,7 @@ const zkappAddress = zkappKey.toPublicKey();
 const creatorPseudo = readEnv("CREATOR_PSEUDO");
 const creatorSecret = Field(readEnv("CREATOR_SECRET"));
 const stake = readUInt64("STAKE_NANOMINA");
+const refundDeadlineSlot = readUInt32("REFUND_DEADLINE_SLOT");
 const gameId = process.env.GAME_ID_FIELD ? Field(process.env.GAME_ID_FIELD) : gameIdFromZkapp(zkappAddress);
 const zkapp = new ZkDiceGame(zkappAddress);
 
@@ -33,7 +35,14 @@ console.log("Building deploy + createGame transaction...");
 const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async () => {
   AccountUpdate.fundNewAccount(feePayer);
   await zkapp.deploy({ verificationKey });
-  await zkapp.createGame(gameId, creator, pseudoHash(creatorPseudo), stake, commitment(creatorSecret, creator, gameId));
+  await zkapp.createGame(
+    gameId,
+    creator,
+    pseudoHash(creatorPseudo),
+    stake,
+    commitment(creatorSecret, creator, gameId),
+    refundDeadlineSlot
+  );
 });
 
 await tx.prove();
@@ -49,7 +58,8 @@ const output = {
   creatorPseudo,
   creatorPseudoHash: pseudoHash(creatorPseudo).toString(),
   creatorCommitment: commitment(creatorSecret, creator, gameId).toString(),
-  stakeNanoMina: stake.toString()
+  stakeNanoMina: stake.toString(),
+  refundDeadlineSlot: refundDeadlineSlot.toString()
 };
 
 const indexedGame = await postIndexer("/games", {
@@ -61,6 +71,8 @@ const indexedGame = await postIndexer("/games", {
   creatorPseudoHash: output.creatorPseudoHash,
   stakeNanoMina: output.stakeNanoMina,
   creatorCommitment: output.creatorCommitment,
+  refundTimeoutSlots: Number(process.env.REFUND_TIMEOUT_SLOTS ?? 120),
+  refundDeadlineSlot: output.refundDeadlineSlot,
   creationTxHash: output.txHash
 });
 

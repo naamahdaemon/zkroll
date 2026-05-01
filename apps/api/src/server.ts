@@ -1,19 +1,22 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { nanoid } from "nanoid";
-import { fetchLastBlock } from "o1js";
-import { assertNetworkId, networks, type NetworkId, type TransactionStatus } from "@zkroll/shared";
+import { fetchAccount, fetchLastBlock } from "o1js";
+import { assertNetworkId, networks, type Game, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
   createGame,
   confirmJoinGame,
   failPendingJoin,
+  getGameByTransaction,
   getGame,
   getPlayerByPublicKey,
   getPlayerByPseudo,
+  getStoredTransaction,
   getStoredTransactionStatus,
   joinGame,
   listGames,
   markCreationFailed,
+  markTransactionFailed,
   reconcileCreationTx,
   refundGame,
   revealSecret,
@@ -39,8 +42,14 @@ const app = Fastify({
 
 const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 12_000);
 const currentSlotCacheMs = Number(process.env.ZKROLL_CURRENT_SLOT_CACHE_MS ?? 15_000);
+const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_000);
+const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
 const currentSlotRequests = new Map<NetworkId, Promise<string>>();
+const zkappStateCache = new Map<string, { expiresAt: number; result: { status: number | null; error: string | null } }>();
+const zkappStateRequests = new Map<string, Promise<{ status: number | null; error: string | null }>>();
+const transactionStatusCache = new Map<string, { expiresAt: number; result: { status: TransactionStatus; failureReason: string | null } }>();
+const transactionStatusRequests = new Map<string, Promise<{ status: TransactionStatus; failureReason: string | null }>>();
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -87,21 +96,194 @@ function isLocalTransactionHash(hash: string) {
   );
 }
 
-function terminalStoredStatus(status: TransactionStatus | null) {
-  return status === "INCLUDED" || status === "FAILED";
+function cacheKey(network: NetworkId, zkappAddress: string) {
+  return `${network}:${zkappAddress}`;
+}
+
+async function zkappStatusFor(network: NetworkId, zkappAddress: string) {
+  const key = cacheKey(network, zkappAddress);
+  const cached = zkappStateCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+  const running = zkappStateRequests.get(key);
+  if (running) return running;
+
+  const request = withTimeout(
+    fetchAccount({ publicKey: zkappAddress }, networks[network].minaEndpoint, { timeout: chainRequestTimeoutMs }),
+    chainRequestTimeoutMs,
+    `${network} zkapp account fetch`
+  )
+    .then((result) => {
+      if (result.error || !result.account) {
+        return { status: null, error: result.error?.statusText ?? "zkApp account not found" };
+      }
+      const status = result.account.zkapp?.appState?.[1]?.toString();
+      return { status: status === undefined ? null : Number(status), error: null };
+    })
+    .catch((error) => ({ status: null, error: (error as Error).message }))
+    .then((result) => {
+      zkappStateCache.set(key, { expiresAt: Date.now() + zkappStateCacheMs, result });
+      return result;
+    })
+    .finally(() => {
+      zkappStateRequests.delete(key);
+    });
+  zkappStateRequests.set(key, request);
+  return request;
+}
+
+type RecentZkappCommand = {
+  hash: string;
+  failureReason: { failures: string[]; index: string }[] | null;
+};
+
+async function chainTransactionStatusFor(network: NetworkId, hash: string) {
+  const key = `${network}:${hash}`;
+  const cached = transactionStatusCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+  const running = transactionStatusRequests.get(key);
+  if (running) return running;
+
+  const query = `
+    query RecentZkappCommands($count: Int) {
+      bestChain(maxLength: $count) {
+        transactions {
+          zkappCommands {
+            hash
+            failureReason {
+              failures
+              index
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const request = withTimeout(
+    fetch(networks[network].minaEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query, variables: { count: txScanBlockCount } })
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(`GraphQL ${response.status}`);
+      return (await response.json()) as {
+        data?: { bestChain?: { transactions?: { zkappCommands?: RecentZkappCommand[] } }[] };
+      };
+    }),
+    chainRequestTimeoutMs,
+    `${network} recent zkapp tx scan`
+  )
+    .then((payload) => {
+      const commands = payload.data?.bestChain?.flatMap((block) => block.transactions?.zkappCommands ?? []) ?? [];
+      const command = commands.find((item) => item.hash === hash);
+      const failureReason = command?.failureReason
+        ?.flatMap((item) => item.failures.map((failure) => `${item.index}:${failure}`))
+        .join("; ");
+      return {
+        status: command ? (failureReason ? "FAILED" : "INCLUDED") : "UNKNOWN",
+        failureReason: failureReason || null
+      } satisfies { status: TransactionStatus; failureReason: string | null };
+    })
+    .catch(() => ({ status: "UNKNOWN" as TransactionStatus, failureReason: null }))
+    .then((result) => {
+      transactionStatusCache.set(key, { expiresAt: Date.now() + zkappStateCacheMs, result });
+      return result;
+    })
+    .finally(() => {
+      transactionStatusRequests.delete(key);
+    });
+  transactionStatusRequests.set(key, request);
+  return request;
+}
+
+function targetStatusForTransaction(game: Game, hash: string): number | null {
+  if (hash === game.creationTxHash) return 1;
+  if (hash === game.joinTxHash) return 2;
+  if (hash === game.settlementTxHash) return 3;
+  if (hash === game.refundTxHash) return 4;
+  return null;
+}
+
+async function syncTransactionFromZkappState(network: NetworkId, hash: string, game: Game) {
+  if (!game.zkappAddress) return null;
+  const targetStatus = targetStatusForTransaction(game, hash);
+  if (targetStatus === null) return null;
+
+  const chain = await zkappStatusFor(network, game.zkappAddress);
+  const chainTransactionStatus = await chainTransactionStatusFor(network, hash);
+  const included =
+    chain.status !== null &&
+    (hash === game.settlementTxHash || hash === game.refundTxHash ? chain.status === targetStatus : chain.status >= targetStatus);
+  if (chainTransactionStatus.status === "FAILED") {
+    markTransactionFailed(network, hash, chainTransactionStatus.failureReason ?? chain.error ?? undefined);
+    return {
+      status: "FAILED" as TransactionStatus,
+      chainStatus: chain.status,
+      chainStatusError: chainTransactionStatus.failureReason ?? chain.error
+    };
+  }
+
+  if (!included && chainTransactionStatus.status === "INCLUDED") {
+    markTransactionFailed(network, hash, chain.error ?? "Transaction was included but zkApp state did not reach the expected status");
+    return {
+      status: "FAILED" as TransactionStatus,
+      chainStatus: chain.status,
+      chainStatusError: chain.error ?? "Transaction was included but zkApp state did not reach the expected status"
+    };
+  }
+
+  if (!included) {
+    return {
+      status: chainTransactionStatus.status === "UNKNOWN" ? ("UNKNOWN" as TransactionStatus) : ("PENDING" as TransactionStatus),
+      chainStatus: chain.status,
+      chainStatusError: chain.error
+    };
+  }
+
+  updateStoredTransactionStatus(network, hash, "INCLUDED");
+  if (hash === game.joinTxHash && game.status === "join_pending") {
+    confirmJoinGame(game.id);
+  }
+
+  return {
+    status: "INCLUDED" as TransactionStatus,
+    chainStatus: chain.status,
+    chainStatusError: chain.error
+  };
 }
 
 async function resolveTransactionStatus(network: NetworkId, hash: string) {
-  const storedStatus = getStoredTransactionStatus(network, hash);
-  if (terminalStoredStatus(storedStatus)) {
+  const game = getGameByTransaction(network, hash);
+  const storedTransaction = game ? getStoredTransaction(network, hash) : null;
+
+  if (game && storedTransaction?.status !== "INCLUDED" && storedTransaction?.status !== "FAILED" && !isLocalTransactionHash(hash)) {
+    const synced = await syncTransactionFromZkappState(network, hash, game);
+    if (synced) {
+      return {
+        hash,
+        network,
+        status: synced.status,
+        backendRoot: null,
+        chainRoot: null,
+        chainRootError: synced.chainStatusError,
+        contractAddress: game.zkappAddress,
+        chainStatus: synced.chainStatus,
+        source: "zkapp-state"
+      };
+    }
+  }
+
+  if (storedTransaction?.status) {
     return {
       hash,
       network,
-      status: storedStatus,
+      status: storedTransaction.status,
       backendRoot: null,
       chainRoot: null,
       chainRootError: null,
-      contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null,
+      contractAddress: storedTransaction.zkappAddress,
       source: "db"
     };
   }
@@ -110,18 +292,22 @@ async function resolveTransactionStatus(network: NetworkId, hash: string) {
     return {
       hash,
       network,
-      status: storedStatus ?? "UNKNOWN",
+      status: storedTransaction?.status ?? "UNKNOWN",
       backendRoot: null,
       chainRoot: null,
       chainRootError: "Local transaction placeholder; no on-chain lookup performed.",
-      contractAddress: process.env.ZKROLL_CONTRACT_ADDRESS ?? null,
+      contractAddress: storedTransaction?.zkappAddress ?? null,
       source: "db"
     };
   }
 
   const backendRoot = backendGamesRootForTransaction(network, hash);
   const chain = await onchainGamesRoot(network);
-  const status: TransactionStatus = chain.root ? (chain.root === backendRoot ? "INCLUDED" : (storedStatus ?? "PENDING")) : "UNKNOWN";
+  const status: TransactionStatus = chain.root
+    ? chain.root === backendRoot
+      ? "INCLUDED"
+      : (storedTransaction?.status ?? "PENDING")
+    : "UNKNOWN";
   if (status === "INCLUDED") {
     updateStoredTransactionStatus(network, hash, status);
   }
@@ -326,10 +512,8 @@ app.patch("/games/:id/join-confirmed", async (request, reply) => {
     const { id } = request.params as { id: string };
     const game = getGame(id);
     if (!game?.joinTxHash) throw new Error("Pending join not found");
-    const backendRoot = backendGamesRootForTransaction(game.network, game.joinTxHash);
-    const chain = await onchainGamesRoot(game.network);
-    if (!chain.root || chain.root !== backendRoot) {
-      throw new Error("Join transaction is not included in the contract root yet");
+    if (getStoredTransactionStatus(game.network, game.joinTxHash) !== "INCLUDED") {
+      throw new Error("Join transaction must be marked as included before confirmation");
     }
     return confirmJoinGame(id);
   } catch (error) {

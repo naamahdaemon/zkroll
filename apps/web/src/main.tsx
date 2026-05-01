@@ -8,7 +8,6 @@ import {
   confirmJoinGame,
   failPendingJoin,
   getCurrentSlot,
-  getMerkleWitness,
   getPlayerByPublicKey,
   getTransactionStatuses,
   joinGame,
@@ -26,6 +25,7 @@ import {
   createGameOnchain,
   diceOutcomeOnchain,
   ensureWalletNetwork,
+  generateGameZkappKey,
   joinGameOnchain,
   nextRefundDeadlineSlot,
   pseudoHash,
@@ -38,7 +38,6 @@ import "./types";
 
 const nanoMina = 1_000_000_000;
 const onchainEnabled = import.meta.env.VITE_ONCHAIN_ENABLED === "true";
-const globalContractAddress = import.meta.env.VITE_ZKROLL_CONTRACT_ADDRESS as string | undefined;
 const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
@@ -561,7 +560,13 @@ function App() {
       }
 
       if (!cancelled) {
+        const hasNewTerminal = Object.entries(nextStatuses).some(
+          ([hash, status]) => isTerminalTxStatus(status) && txStatusesRef.current[hash] !== status
+        );
         setTxStatuses((current) => ({ ...current, ...nextStatuses }));
+        if (hasNewTerminal) {
+          void refreshGames();
+        }
       }
     };
 
@@ -786,10 +791,11 @@ function App() {
       const refundTimeout = normalizedRefundTimeout();
       const refundDeadlineSlot = onchainEnabled ? await nextRefundDeadlineSlot(network, refundTimeout) : "0";
       let txHash = fakeTxHash("create");
+      const gameKey = onchainEnabled ? await generateGameZkappKey() : null;
       const created = await createGame({
         id: gameIdField.slice(0, 12),
         network,
-        zkappAddress: onchainEnabled ? globalContractAddress : undefined,
+        zkappAddress: gameKey?.address,
         gameIdField,
         creatorPseudo: pseudo,
         creatorPublicKey: publicKey,
@@ -804,19 +810,19 @@ function App() {
       setSelectedGameId(created.id);
 
       if (onchainEnabled) {
-        const witness = await getMerkleWitness(network, gameIdField);
-        txHash = await createGameOnchain({
+        const result = await createGameOnchain({
           provider: window.mina,
           network,
           senderPublicKey: publicKey,
+          zkappPrivateKey: gameKey!.privateKey,
           pseudo,
           secret,
           gameIdField,
           stakeNanoMina,
           refundDeadlineSlot,
-          witness: witness.witness,
           onProgress: updateOnchainProgress
         });
+        txHash = result.txHash;
         const reconciled = await reconcileCreationTx(created.id, txHash);
         setSelectedGameId(reconciled.id);
       }
@@ -839,8 +845,7 @@ function App() {
       let txHash = fakeTxHash("join");
 
       if (onchainEnabled) {
-        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) throw new Error(t("incompatibleOnchain"));
-        const witness = await getMerkleWitness(game.network, game.gameIdField);
+        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot || !game.zkappAddress) throw new Error(t("incompatibleOnchain"));
         txHash = await joinGameOnchain({
           provider: window.mina,
           network: game.network,
@@ -848,7 +853,7 @@ function App() {
           pseudo,
           secret,
           gameIdField: game.gameIdField,
-          witness: witness.witness,
+          zkappAddress: game.zkappAddress,
           creatorPublicKey: game.creatorPublicKey,
           creatorPseudoHash: game.creatorPseudoHash,
           stakeNanoMina: game.stakeNanoMina,
@@ -926,6 +931,7 @@ function App() {
       if (onchainEnabled) {
         if (
           !game.gameIdField ||
+          !game.zkappAddress ||
           !game.creatorPseudoHash ||
           !game.joinerPseudoHash ||
           !game.joinerPublicKey ||
@@ -934,13 +940,12 @@ function App() {
         ) {
           throw new Error(t("incompleteSettlement"));
         }
-        const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await settleGameOnchain({
           provider: window.mina,
           network: game.network,
           senderPublicKey: publicKey,
           gameIdField: game.gameIdField,
-          witness: witness.witness,
+          zkappAddress: game.zkappAddress,
           creatorPublicKey: game.creatorPublicKey,
           creatorPseudoHash: game.creatorPseudoHash,
           joinerPublicKey: game.joinerPublicKey,
@@ -976,17 +981,16 @@ function App() {
 
       let txHash = fakeTxHash("refund");
       if (onchainEnabled) {
-        if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
+        if (!game.gameIdField || !game.zkappAddress || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
           throw new Error(t("incompleteRefund"));
         }
-        const witness = await getMerkleWitness(game.network, game.gameIdField);
         txHash = await refundGameOnchain({
           provider: window.mina,
           network: game.network,
           senderPublicKey: publicKey,
           status: game.status,
           gameIdField: game.gameIdField,
-          witness: witness.witness,
+          zkappAddress: game.zkappAddress,
           creatorPublicKey: game.creatorPublicKey,
           creatorPseudoHash: game.creatorPseudoHash,
           joinerPublicKey: game.joinerPublicKey,

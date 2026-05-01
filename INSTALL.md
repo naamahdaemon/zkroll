@@ -36,14 +36,15 @@ Network endpoints live in `packages/shared/src/index.ts`.
 
 For the current tested flow, use `devnet` first.
 
-## 4. Create The Global zkApp Address
+## 4. zkApp Addresses
 
-A zkApp address is a Mina keypair:
+This branch uses one zkApp account per game. The web app generates a fresh zkApp keypair in the browser when a player creates a challenge, and the creator wallet pays:
 
-- private key: signs deployment of the smart contract account;
-- public key: the on-chain smart contract address.
+- the transaction fee;
+- the zkApp account creation fee;
+- the initial stake.
 
-Generate it:
+A zkApp address is still just a Mina keypair. For manual script testing you can generate one:
 
 ```bash
 npm run contracts:keygen
@@ -51,22 +52,24 @@ npm run contracts:keygen
 
 The command prints:
 
-- `privateKey`: use as `ZKAPP_PRIVATE_KEY`;
-- `publicKey`: use as `VITE_ZKROLL_CONTRACT_ADDRESS` and `ZKROLL_CONTRACT_ADDRESS`;
+- `privateKey`: use as `ZKAPP_PRIVATE_KEY` for manual scripts;
+- `publicKey`: the per-game smart contract address;
 - `randomFieldSecret`: useful only for manual tests.
 
 Keep private keys out of Git.
 
-## 5. Deploy The Global Contract
+## 5. Deploy Manually For Script Tests
 
-The app uses one global `ZkRoll` contract per network.
+The UI deploys a game zkApp inside the create-game transaction, so there is no global deployment step for normal app usage.
+
+For script-based testing, `contracts:deploy-game` deploys one game account and creates the game in the same transaction.
 
 `FEE_PAYER_PRIVATE_KEY` is the private key of a funded Mina account that pays:
 
-- the deployment transaction fee;
-- the account creation fee for the zkApp account.
+- the transaction fee;
+- the account creation fee for this game zkApp.
 
-`ZKAPP_PRIVATE_KEY` is the new key generated for the contract address. Prefer using a different funded account as fee payer.
+`ZKAPP_PRIVATE_KEY` is the generated key for that one game account. `CREATOR_PRIVATE_KEY` is optional; if omitted, the fee payer is also the creator.
 
 PowerShell:
 
@@ -74,8 +77,12 @@ PowerShell:
 $env:NETWORK="devnet"
 $env:FEE_PAYER_PRIVATE_KEY="EK..."
 $env:ZKAPP_PRIVATE_KEY="EK..."
+$env:CREATOR_PSEUDO="alice"
+$env:CREATOR_SECRET="123456"
+$env:STAKE_NANOMINA="1000000000"
+$env:REFUND_DEADLINE_SLOT="900000"
 $env:FEE_NANOMINA="100000000"
-npm run contracts:deploy-roll
+npm run contracts:deploy-game
 ```
 
 Bash:
@@ -84,20 +91,25 @@ Bash:
 export NETWORK="devnet"
 export FEE_PAYER_PRIVATE_KEY="EK..."
 export ZKAPP_PRIVATE_KEY="EK..."
+export CREATOR_PSEUDO="alice"
+export CREATOR_SECRET="123456"
+export STAKE_NANOMINA="1000000000"
+export REFUND_DEADLINE_SLOT="900000"
 export FEE_NANOMINA="100000000"
-npm run contracts:deploy-roll
+npm run contracts:deploy-game
 ```
 
 The output includes:
 
 - `txHash`
 - `zkappAddress`
+- `gameIdField`
 
-Wait until the deployment transaction is included in a Devnet block before using the UI.
+For normal UI usage, skip this step.
 
 ## 6. Configure The API
 
-The API stores the UX/indexer mirror in SQLite and must know the deployed global contract address.
+The API stores the UX/indexer mirror in SQLite. In the per-game zkApp architecture it no longer needs a global contract address for normal game status.
 
 Template file:
 
@@ -109,9 +121,9 @@ Exact content:
 
 ```env
 ZKROLL_DB_PATH=zkroll-devnet.db
-ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 ZKROLL_WEB_ORIGIN=http://127.0.0.1:5174
-ZKROLL_ONCHAIN_ROOT_CACHE_MS=15000
+ZKROLL_ZKAPP_STATE_CACHE_MS=15000
+ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ```
 
 For local development, you can either export the variables in your shell or create your own `.env` loading mechanism. The current API reads environment variables directly.
@@ -120,9 +132,9 @@ PowerShell:
 
 ```powershell
 $env:ZKROLL_DB_PATH="zkroll-devnet.db"
-$env:ZKROLL_CONTRACT_ADDRESS="B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS"
 $env:ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
-$env:ZKROLL_ONCHAIN_ROOT_CACHE_MS="15000"
+$env:ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
+$env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 npm run dev:api
 ```
 
@@ -130,15 +142,17 @@ Bash:
 
 ```bash
 export ZKROLL_DB_PATH="zkroll-devnet.db"
-export ZKROLL_CONTRACT_ADDRESS="B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS"
 export ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
-export ZKROLL_ONCHAIN_ROOT_CACHE_MS="15000"
+export ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
+export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 npm run dev:api
 ```
 
-Use a fresh SQLite file for each fresh contract deployment. The contract starts with an empty Merkle root, so an old DB containing games from another contract will not match the on-chain root.
+Use a fresh SQLite file when switching to this branch. Old global-root games are legacy data and should not be mixed with per-game zkApp tests.
 
-`ZKROLL_ONCHAIN_ROOT_CACHE_MS` caches the fetched zkApp root per network for a short period. This reduces repeated node calls when the UI polls several transaction statuses.
+`ZKROLL_ZKAPP_STATE_CACHE_MS` caches each per-game zkApp state lookup. The API uses this state to automatically mark known transaction hashes as included when the game contract reaches the expected status.
+
+`ZKROLL_TX_STATUS_SCAN_BLOCKS` controls how many recent blocks the API scans to detect included failed zkApp transactions by hash. This is used to mark failed creations or failed joins automatically when the zkApp state never advances.
 
 ## 7. Configure The Web App
 
@@ -159,7 +173,6 @@ Exact content:
 ```env
 VITE_API_URL=http://127.0.0.1:4000
 VITE_ONCHAIN_ENABLED=true
-VITE_ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
@@ -182,15 +195,15 @@ The Vite server is configured with COOP/COEP headers because o1js browser provin
 
 `VITE_WALLET_RESPONSE_TIMEOUT_MS` controls the fallback when the wallet sends a transaction but does not return a hash to the page. After this timeout, the UI asks you to paste the hash shown by Auro or the explorer so the backend can index the game.
 
-`VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the on-chain Merkle leaf.
+`VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the game zkApp state hash.
 
 `VITE_O1JS_BROWSER_CACHE_ENABLED=false` disables the best-effort o1js browser cache stored in `localStorage`. Use it if circuit compilation hangs after previous runs or after changing o1js/contract versions. With the cache disabled, the first compile can be slower but avoids stale or corrupted local proving data.
 
 `VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction/root sync status for active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
 
-For game creation, the UI now creates a local `pending_signature` game before opening Auro. This protects the deterministic data needed to rebuild the Merkle leaf if Auro signs and broadcasts the transaction but does not return the hash to the web page.
+For game creation, the UI now creates a local `pending_signature` game before opening Auro. This stores the generated per-game zkApp address and the deterministic game data if Auro signs and broadcasts the transaction but does not return the hash to the web page.
 
-Make sure the browser wallet is on the same network as the deployed contract.
+Make sure the browser wallet is on the selected network before signing.
 
 ## 8. Run The App
 
@@ -220,11 +233,11 @@ http://127.0.0.1:5174
 4. Create a small challenge, for example `0.1` MINA.
 5. Confirm the wallet transaction. The creator pays the fee and locks the stake.
 6. If Auro does not return to the page, select the `pending_signature` game and click `Renseigner le hash`, then paste the transaction hash from Auro or Minascan.
-7. Wait until the UI shows the creation as included/synced. If the explorer shows the create transaction as failed, click `Marquer echouee`; no funds were locked and the local game is excluded from the Merkle root.
+7. Wait until the create transaction is included on the explorer, then use the UI status controls if the local status has not updated.
 8. Connect a second funded Devnet wallet.
 9. Join the challenge. The joiner pays the fee and locks the matching stake.
-10. The local game moves to `join_pending`. This blocks competing local joins while keeping the Merkle root in the original `created` state until the join transaction is included.
-11. Wait until the UI shows the join as included/synced, then click `Confirm join` if it is not confirmed automatically by your workflow.
+10. The local game moves to `join_pending`. This blocks competing local joins while the transaction is being included.
+11. Wait until the join transaction is included, then click `Confirm join` if it is not confirmed automatically by your workflow.
 12. Reveal from both players.
 13. Click `Regler`. The wallet that clicks pays the settlement fee.
 
@@ -239,23 +252,26 @@ If a challenge gets stuck:
 
 ## 10. How Sync Status Works
 
-The backend does not trust transaction hashes directly. It:
+In the per-game zkApp branch, the backend does not rebuild one global Merkle root anymore. Each game has its own zkApp account and its own compact on-chain state hash.
 
-1. reconstructs the game Merkle root from SQLite for the selected network only;
-2. fetches `gamesRoot` from the global zkApp account on that same network;
-3. treats the indexed state as included/synced when both roots match.
+For normal UI flow:
 
-This is why `ZKROLL_CONTRACT_ADDRESS` is required for the API.
+1. the browser builds and proves the transaction;
+2. Auro signs and broadcasts it;
+3. the backend stores the transaction hash and a local transaction status;
+4. the backend polls the per-game zkApp account state, cached by `ZKROLL_ZKAPP_STATE_CACHE_MS`;
+5. when the zkApp status reaches the expected step, the API marks the transaction as `INCLUDED`;
+6. the UI refreshes the game list and unlocks the next local action.
 
-Because this status is root-based, an older transaction can appear as `PENDING` while SQLite has already advanced beyond the corresponding on-chain root. When the newest local transition is included and the contract root catches up, those older transactions usually become `INCLUDED` at the same time. The hash itself may already be valid on the explorer; the UI status means "the whole indexed state is synced with the contract".
+This deliberately avoids global root reconstruction and limits public GraphQL calls to the selected game's zkApp account. The manual transaction status control is now only a fallback/debug tool for explorer-verified transactions that the public GraphQL endpoint does not reflect yet.
 
-SQLite can contain games for several networks at the same time. Witnesses and sync checks are network-scoped, so Devnet games do not affect Mainnet roots, even if the zkApp address is the same on both networks.
+SQLite can contain games for several networks at the same time. Transaction statuses are network-scoped.
 
-`pending_signature` games are deliberately excluded from the backend Merkle root. They become part of the root only after the creation hash is reconciled and the game moves to `created`. If the browser loses the wallet response, use `Renseigner le hash` on the pending game instead of creating another game with the same transaction.
+`pending_signature` games are local recovery records. If the browser loses the wallet response, use `Renseigner le hash` on the pending game instead of creating another game.
 
-`failed` games are also excluded from the backend Merkle root. Use this status when a creation transaction exists on the explorer but failed on-chain, for example with `Valid_while_precondition_unsatisfied`. This is a local/indexer cleanup only and does not require a contract redeploy.
+`failed` games are local/indexer cleanup records. Use this status when a creation transaction failed on-chain, for example with `Valid_while_precondition_unsatisfied`.
 
-`join_pending` games keep the joiner data and transaction hash locally, but the current backend Merkle root still treats the game as `created`. For the pending join transaction hash, the API compares a prospective root where that one join is applied. Once that prospective root matches the contract root, `join_pending` can be confirmed to `joined`. If the join transaction fails, use `Release join` to return the game to `created`.
+`join_pending` games keep the joiner data and transaction hash locally. This prevents two browser sessions from locally joining the same open game at the same time. If the join transaction fails, use `Release join` to return the game to `created`.
 
 ## 11. ZK Compilation UX
 
@@ -291,7 +307,8 @@ This prevents a player from choosing a better roll after seeing the opponent's d
 npm run typecheck
 npm run build
 npm run contracts:keygen
-npm run contracts:deploy-roll
+npm run compile-game --workspace @zkroll/contracts
+npm run contracts:deploy-game
 ```
 
 ## 14. Production Notes
@@ -300,7 +317,7 @@ The current backend is suitable for local testing, Devnet testing, and controlle
 
 - The backend is not trusted for payouts.
 - The chain is the source of truth for stake locking, commitments, dice rolls, and payout.
-- The backend stores pseudos, lists games, provides Merkle witnesses, and mirrors the current Merkle state.
+- The backend stores pseudos, lists games, and mirrors local workflow state.
 - Browser proving with o1js is heavy. The production build warns about the large o1js chunk; this is expected for now.
 - A production indexer should rebuild SQLite from chain events/actions instead of relying only on local writes.
 
@@ -309,7 +326,7 @@ The current backend is suitable for local testing, Devnet testing, and controlle
 Before opening the app publicly, address these points:
 
 - API writes are not authenticated. Anyone who can reach the API can currently call endpoints such as player registration, reveal, failed creation, join release, and settlement indexing.
-- The backend is a local mirror, not a chain-derived indexer. If a transaction is sent outside this UI or the API is down when a transaction confirms, SQLite can miss state.
+- The backend is a local mirror, not a chain-derived indexer. If a transaction is sent outside this UI or the API is down when a transaction confirms, SQLite can miss local status updates.
 - SQLite works for a small deployment, but public traffic is better served by Postgres plus migrations and backups.
 - There is no rate limiting yet.
 - There is no observability beyond Fastify logs.
@@ -322,7 +339,6 @@ Do not require authentication just to read:
 - `GET /games`
 - `GET /games/:id`
 - `GET /players/by-public-key/:publicKey`
-- `GET /merkle/witness/:network/:gameIdField`
 - `GET /transactions/:network/:hash/status`
 - `GET /networks/:network/current-slot`
 
@@ -436,9 +452,7 @@ API:
 HOST=127.0.0.1
 PORT=4000
 ZKROLL_DB_PATH=/var/lib/zkroll/zkroll-mainnet.db
-ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 ZKROLL_WEB_ORIGIN=https://zkroll.example.com
-ZKROLL_ONCHAIN_ROOT_CACHE_MS=15000
 ```
 
 Web:
@@ -446,7 +460,6 @@ Web:
 ```env
 VITE_API_URL=https://api.zkroll.example.com
 VITE_ONCHAIN_ENABLED=true
-VITE_ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
@@ -481,9 +494,9 @@ Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=4000
 Environment=ZKROLL_DB_PATH=/var/lib/zkroll/zkroll-mainnet.db
-Environment=ZKROLL_CONTRACT_ADDRESS=B62_REPLACE_WITH_DEPLOYED_ZKROLL_ADDRESS
 Environment=ZKROLL_WEB_ORIGIN=https://zkroll.example.com
-Environment=ZKROLL_ONCHAIN_ROOT_CACHE_MS=15000
+Environment=ZKROLL_ZKAPP_STATE_CACHE_MS=15000
+Environment=ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 
 [Install]
 WantedBy=multi-user.target
@@ -543,7 +556,7 @@ GameSettled
 GameRefunded
 ```
 
-Then run an indexer against an archive node to rebuild the database from chain history. This would require a contract upgrade because the current contract stores a Merkle root but does not emit enough public event/action data to reconstruct every game from chain alone.
+Then run an indexer against an archive node to rebuild the database from chain history. The current per-game contract keeps the game state compact, but it does not yet emit enough public event/action data to reconstruct every local API field from chain alone.
 
 ### Production Readiness Summary
 
@@ -559,14 +572,16 @@ Recommended before public Mainnet launch:
 
 ## 15. Contract Upgrade Notes
 
-Adding or changing the refund logic changes the contract method set and verification key. Deploy a fresh global contract address and use a fresh SQLite database after this update:
+Changing contract methods changes the verification key for newly created games. With one zkApp per game, there is no global contract to redeploy; new games deploy with the new verification key automatically.
+
+Existing games keep the verification key they were deployed with. Finish or refund existing games before switching users to a UI that no longer contains the old proving code.
+
+Use a fresh SQLite database when switching from the old global-root architecture to this per-game zkApp branch:
 
 ```powershell
-$env:ZKROLL_DB_PATH="zkroll-devnet-refund.db"
+$env:ZKROLL_DB_PATH="zkroll-devnet-per-game.db"
 ```
 
 ```bash
-export ZKROLL_DB_PATH="zkroll-devnet-refund.db"
+export ZKROLL_DB_PATH="zkroll-devnet-per-game.db"
 ```
-
-Old games created with a previous contract cannot be refunded by the new refund methods because their Merkle leaves do not contain `refundDeadlineSlot`.

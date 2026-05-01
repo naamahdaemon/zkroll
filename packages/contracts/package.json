@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "keygen": "npm run build && node dist/scripts/keygen.js",
+    "compile-game": "npm run build && node dist/scripts/compile-game.js",
     "deploy-roll": "npm run build && node dist/scripts/deploy-roll.js",
     "deploy-game": "npm run build && node dist/scripts/deploy-game.js",
     "join-game": "npm run build && node dist/scripts/join-game.js",

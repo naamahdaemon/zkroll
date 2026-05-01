@@ -1,6 +1,6 @@
 import { Field, Mina, PublicKey } from "o1js";
 import { diceOutcome, ZkDiceGame } from "../ZkDiceGame.js";
-import { logJson, postIndexer, readFee, readField, readPrivateKey, readPublicKey, useNetwork } from "./env.js";
+import { logJson, postIndexer, readFee, readField, readPrivateKey, readPublicKey, readUInt32, useNetwork } from "./env.js";
 
 const network = useNetwork();
 const feePayerKey = readPrivateKey("FEE_PAYER_PRIVATE_KEY");
@@ -11,6 +11,11 @@ const joiner = readPublicKey("JOINER_PUBLIC_KEY");
 const creatorSecret = Field(process.env.CREATOR_SECRET ?? readField("CREATOR_SECRET").toString());
 const joinerSecret = Field(process.env.JOINER_SECRET ?? readField("JOINER_SECRET").toString());
 const gameId = readField("GAME_ID_FIELD");
+const creatorPseudoHash = readField("CREATOR_PSEUDO_HASH");
+const joinerPseudoHash = readField("JOINER_PSEUDO_HASH");
+const creatorCommitment = readField("CREATOR_COMMITMENT");
+const joinerCommitment = readField("JOINER_COMMITMENT");
+const refundDeadlineSlot = readUInt32("REFUND_DEADLINE_SLOT");
 const outcome = diceOutcome(creatorSecret, joinerSecret, gameId);
 const creatorDie = Number(outcome.creatorDie.toString());
 const joinerDie = Number(outcome.joinerDie.toString());
@@ -23,7 +28,16 @@ await ZkDiceGame.compile();
 
 console.log("Building settle transaction...");
 const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async () => {
-  await zkapp.settle(creatorSecret, joinerSecret, expectedWinner);
+  await zkapp.settle(
+    creatorPseudoHash,
+    joinerPseudoHash,
+    creatorCommitment,
+    joinerCommitment,
+    creatorSecret,
+    joinerSecret,
+    expectedWinner,
+    refundDeadlineSlot
+  );
 });
 
 await tx.prove();
