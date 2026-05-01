@@ -1,6 +1,20 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CircleEqual, Dices, Languages, Moon, Pencil, RefreshCw, RotateCcw, Search, ShieldCheck, Sun, Trophy, Wallet } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleEqual,
+  Dices,
+  Languages,
+  Moon,
+  Pencil,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  Sun,
+  Trophy,
+  Wallet
+} from "lucide-react";
 import { networks, type Game, type GameStatus, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
   createGame,
@@ -26,12 +40,15 @@ import {
   diceOutcomeOnchain,
   ensureWalletNetwork,
   generateGameZkappKey,
+  getProvingCompatibility,
   joinGameOnchain,
   nextRefundDeadlineSlot,
   pseudoHash,
   refundGameOnchain,
   settleGameOnchain,
-  type OnchainProgress
+  type OnchainProgress,
+  type ProvingCompatibility,
+  type ProvingCompatibilityIssueCode
 } from "./onchain";
 import "./styles.css";
 import "./types";
@@ -158,7 +175,16 @@ const copy: Record<Locale, Record<string, string>> = {
     refundMock: "Game refunded in simulation mode.",
     invalidRefundTimeout: "Refund timeout must be a positive integer.",
     activeAfterSlot: "active after slot",
-    minaZkDice: "Mina / Zeko zk dice"
+    minaZkDice: "Mina / Zeko zk dice",
+    provingCompatibilityTitle: "ZK proving may not work in this browser",
+    provingCompatibilityIntro: "This device cannot safely compile the circuit here.",
+    provingCompatibilityAdvice: "Open zkroll in a full browser with COOP/COEP support, or use desktop.",
+    issueNoWebAssembly: "WebAssembly is not available.",
+    issueNoWorker: "Web workers or blob workers are not available.",
+    issueNotCrossOriginIsolated: "The page is not cross-origin isolated, so SharedArrayBuffer cannot be used.",
+    issueNoSharedArrayBuffer: "SharedArrayBuffer is not available.",
+    issueWalletWebView: "The wallet web view may block the isolation required by o1js.",
+    issueMobileLimitedMemory: "This mobile device may have limited memory/CPU for proving."
   },
   fr: {
     walletPrompt: "Connecte ton wallet pour commencer.",
@@ -257,8 +283,26 @@ const copy: Record<Locale, Record<string, string>> = {
     refundMock: "Partie remboursee en mode simulation.",
     invalidRefundTimeout: "Le timeout de refund doit etre un nombre entier positif.",
     activeAfterSlot: "actif apres le slot",
-    minaZkDice: "Mina / Zeko zk dice"
+    minaZkDice: "Mina / Zeko zk dice",
+    provingCompatibilityTitle: "La preuve ZK risque de ne pas fonctionner dans ce navigateur",
+    provingCompatibilityIntro: "Cet environnement ne peut pas compiler le circuit de maniere fiable.",
+    provingCompatibilityAdvice: "Ouvre zkroll dans un navigateur complet compatible COOP/COEP, ou utilise desktop.",
+    issueNoWebAssembly: "WebAssembly n'est pas disponible.",
+    issueNoWorker: "Les web workers ou blob workers ne sont pas disponibles.",
+    issueNotCrossOriginIsolated: "La page n'est pas cross-origin isolated, donc SharedArrayBuffer ne peut pas etre utilise.",
+    issueNoSharedArrayBuffer: "SharedArrayBuffer n'est pas disponible.",
+    issueWalletWebView: "La web view du wallet peut bloquer l'isolation requise par o1js.",
+    issueMobileLimitedMemory: "Cet appareil mobile peut manquer de memoire/CPU pour generer une preuve."
   }
+};
+
+const provingIssueCopyKey: Record<ProvingCompatibilityIssueCode, string> = {
+  noWebAssembly: "issueNoWebAssembly",
+  noWorker: "issueNoWorker",
+  notCrossOriginIsolated: "issueNotCrossOriginIsolated",
+  noSharedArrayBuffer: "issueNoSharedArrayBuffer",
+  walletWebView: "issueWalletWebView",
+  mobileLimitedMemory: "issueMobileLimitedMemory"
 };
 
 function DiceFace({ value }: { value: number | "?" }) {
@@ -321,6 +365,7 @@ function App() {
     devnet: null,
     zeko: null
   });
+  const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
   const [message, setMessage] = useState(() => copy.en.walletPrompt);
 
@@ -536,6 +581,10 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("zkroll:theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    setProvingCompatibility(getProvingCompatibility());
+  }, []);
 
   useEffect(() => {
     txStatusesRef.current = txStatuses;
@@ -1072,6 +1121,22 @@ function App() {
           </button>
         </div>
       </section>
+
+      {onchainEnabled && provingCompatibility && provingCompatibility.issues.length > 0 && (
+        <section className={`compatibilityWarning ${provingCompatibility.ok ? "soft" : "hard"}`}>
+          <AlertTriangle size={20} />
+          <div>
+            <strong>{t("provingCompatibilityTitle")}</strong>
+            <p>{provingCompatibility.ok ? t("zkWorkNotice") : t("provingCompatibilityIntro")}</p>
+            <ul>
+              {provingCompatibility.issues.map((issue) => (
+                <li key={issue.code}>{t(provingIssueCopyKey[issue.code])}</li>
+              ))}
+            </ul>
+            {!provingCompatibility.ok && <p>{t("provingCompatibilityAdvice")}</p>}
+          </div>
+        </section>
+      )}
 
       <section className="layout">
         <aside className="panel">

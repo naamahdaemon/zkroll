@@ -14,10 +14,84 @@ export type OnchainProgress = {
   progress: number;
 };
 
+export type ProvingCompatibilityIssueCode =
+  | "noWebAssembly"
+  | "noWorker"
+  | "notCrossOriginIsolated"
+  | "noSharedArrayBuffer"
+  | "walletWebView"
+  | "mobileLimitedMemory";
+
+export type ProvingCompatibilityIssue = {
+  code: ProvingCompatibilityIssueCode;
+  severity: "error" | "warning";
+};
+
+export type ProvingCompatibility = {
+  ok: boolean;
+  isMobile: boolean;
+  isWalletWebView: boolean;
+  issues: ProvingCompatibilityIssue[];
+};
+
 type ProgressCallback = (progress: OnchainProgress) => void;
 
 function report(callback: ProgressCallback | undefined, label: string, progress: number) {
   callback?.({ label, progress });
+}
+
+function userAgent() {
+  return navigator.userAgent || "";
+}
+
+export function getProvingCompatibility(): ProvingCompatibility {
+  const ua = userAgent();
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  const isWalletWebView = /Auro|Wallet|wv\)|; wv|WebView/i.test(ua);
+  const issues: ProvingCompatibilityIssue[] = [];
+
+  if (typeof WebAssembly === "undefined") {
+    issues.push({ code: "noWebAssembly", severity: "error" });
+  }
+
+  if (typeof Worker === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") {
+    issues.push({ code: "noWorker", severity: "error" });
+  }
+
+  if (!window.crossOriginIsolated) {
+    issues.push({ code: "notCrossOriginIsolated", severity: "error" });
+  }
+
+  if (typeof SharedArrayBuffer === "undefined") {
+    issues.push({ code: "noSharedArrayBuffer", severity: "error" });
+  }
+
+  if (isWalletWebView) {
+    issues.push({ code: "walletWebView", severity: window.crossOriginIsolated ? "warning" : "error" });
+  }
+
+  if (isMobile && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) {
+    issues.push({ code: "mobileLimitedMemory", severity: "warning" });
+  }
+
+  return {
+    ok: !issues.some((issue) => issue.severity === "error"),
+    isMobile,
+    isWalletWebView,
+    issues
+  };
+}
+
+function provingCompatibilityError(compatibility: ProvingCompatibility) {
+  const codes = compatibility.issues.filter((issue) => issue.severity === "error").map((issue) => issue.code);
+  return `Compilation ZK impossible dans ce navigateur (${codes.join(", ")}). Ouvre zkroll dans un navigateur complet compatible COOP/COEP, par exemple Chrome/Safari, ou utilise desktop.`;
+}
+
+function assertProvingCompatibility() {
+  const compatibility = getProvingCompatibility();
+  if (!compatibility.ok) {
+    throw new Error(provingCompatibilityError(compatibility));
+  }
 }
 
 const auroNetworkIds: Record<NetworkId, string> = {
@@ -121,6 +195,7 @@ async function load() {
 }
 
 async function setup(network: NetworkId, onProgress?: ProgressCallback) {
+  assertProvingCompatibility();
   const toolkit = await load();
   toolkit.Mina.setActiveInstance(toolkit.createMinaNetwork(network));
   if (!compiled) {

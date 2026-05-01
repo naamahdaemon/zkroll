@@ -128,6 +128,36 @@ h1 {
   gap: 10px;
 }
 
+.compatibilityWarning {
+  align-items: flex-start;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px;
+}
+
+.compatibilityWarning.hard {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.compatibilityWarning.soft {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  color: var(--text);
+}
+
+.compatibilityWarning p,
+.compatibilityWarning ul {
+  margin: 6px 0 0;
+}
+
+.compatibilityWarning ul {
+  padding-left: 18px;
+}
+
 .compactSelect {
   align-items: center;
   border: 1px solid var(--border-strong);
