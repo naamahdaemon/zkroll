@@ -53,9 +53,11 @@ import {
   type ProvingCompatibilityIssueCode
 } from "./onchain";
 import {
+  cancelWalletConnectPrompt,
   disconnectWalletConnect,
   mobileBrowserCanUseWalletConnect,
   setWalletConnectPromptHandler,
+  setWalletConnectNetwork,
   walletConnectConfigured,
   walletConnectProvider,
   type WalletConnectPrompt
@@ -197,6 +199,7 @@ const copy: Record<Locale, Record<string, string>> = {
     openInBrowser: "Open in browser",
     copyPageUrl: "Copy page URL",
     openAuro: "Open Auro",
+    cancel: "Cancel",
     copyWalletConnectUri: "Copy WalletConnect URI",
     walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here.",
     walletConnectNotConfigured: "Mobile WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID.",
@@ -326,6 +329,7 @@ const copy: Record<Locale, Record<string, string>> = {
     openInBrowser: "Ouvrir dans le navigateur",
     copyPageUrl: "Copier l'URL",
     openAuro: "Ouvrir Auro",
+    cancel: "Annuler",
     copyWalletConnectUri: "Copier l'URI WalletConnect",
     walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici.",
     walletConnectNotConfigured: "WalletConnect mobile n'est pas configure. Renseigne VITE_WALLETCONNECT_PROJECT_ID.",
@@ -819,6 +823,9 @@ function App() {
   }
 
   async function connectWallet() {
+    if (!window.mina && walletConnectConfigured()) {
+      setWalletConnectNetwork(network);
+    }
     const provider = window.mina ?? (mobileBrowserCanUseWalletConnect() ? walletConnectProvider() : undefined);
     if (!provider) {
       if (!window.mina && !walletConnectConfigured()) {
@@ -829,7 +836,14 @@ function App() {
       return;
     }
 
-    const accounts = await provider.requestAccounts();
+    let accounts: string[];
+    try {
+      accounts = await provider.requestAccounts();
+    } catch (error) {
+      const errorMessage = (error as Error).message;
+      setMessage(errorMessage === "WalletConnect cancelled." ? t("walletPrompt") : errorMessage);
+      return;
+    }
     const account = accounts[0] ?? "";
     setPublicKey(account);
     if (!account) {
@@ -910,6 +924,9 @@ function App() {
   }
 
   function walletProvider() {
+    if (!window.mina && walletConnectConfigured()) {
+      setWalletConnectNetwork(network);
+    }
     return window.mina ?? (mobileBrowserCanUseWalletConnect() ? walletConnectProvider() : undefined);
   }
 
@@ -1264,6 +1281,15 @@ function App() {
                 {t("copyWalletConnectUri")}
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                cancelWalletConnectPrompt();
+                setMessage(t("walletPrompt"));
+              }}
+            >
+              {t("cancel")}
+            </button>
           </div>
         </div>
       )}

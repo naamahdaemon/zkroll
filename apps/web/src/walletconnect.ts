@@ -26,6 +26,9 @@ let promptHandler: PromptHandler | null = null;
 let clientPromise: Promise<any> | null = null;
 let session: any = null;
 let currentChainId: string | null = null;
+let preferredChainId: string | null = null;
+let pendingCancel: (() => void) | null = null;
+let listenersRegistered = false;
 
 export function setWalletConnectPromptHandler(handler: PromptHandler | null) {
   promptHandler = handler;
@@ -35,14 +38,27 @@ export function walletConnectConfigured() {
   return Boolean(projectId?.trim());
 }
 
+export function setWalletConnectNetwork(network: NetworkId) {
+  preferredChainId = chainIds[network];
+}
+
 export function mobileBrowserCanUseWalletConnect() {
   return walletConnectConfigured() && typeof window !== "undefined" && !window.mina;
+}
+
+export function cancelWalletConnectPrompt() {
+  const cancel = pendingCancel;
+  pendingCancel = null;
+  promptHandler?.(null);
+  cancel?.();
 }
 
 export async function disconnectWalletConnect() {
   const activeSession = session;
   session = null;
   currentChainId = null;
+  pendingCancel?.();
+  pendingCancel = null;
   promptHandler?.(null);
   if (!activeSession) return;
 
@@ -97,11 +113,19 @@ async function client() {
   });
 
   const nextClient = await clientPromise;
-  nextClient.on?.("session_request_sent", (event: any) => {
-    if (methods.includes(event?.request?.method)) {
-      openAuroForRequest();
-    }
-  });
+  if (!listenersRegistered) {
+    listenersRegistered = true;
+    nextClient.on?.("session_request_sent", (event: any) => {
+      if (methods.includes(event?.request?.method)) {
+        openAuroForRequest();
+      }
+    });
+    nextClient.on?.("session_delete", () => {
+      session = null;
+      currentChainId = null;
+      promptHandler?.(null);
+    });
+  }
   return nextClient;
 }
 
@@ -138,15 +162,48 @@ async function restoreSession() {
   return session;
 }
 
-async function connectSession() {
+async function disconnectCurrentSession() {
+  const activeSession = session;
+  session = null;
+  currentChainId = null;
+  if (!activeSession) return;
+  const nextClient = await client();
+  await nextClient.disconnect({
+    topic: activeSession.topic,
+    reason: {
+      code: 6000,
+      message: "Network switch"
+    }
+  });
+}
+
+function cancellableApproval<T>(approval: () => Promise<T>) {
+  pendingCancel?.();
+  return Promise.race([
+    approval(),
+    new Promise<T>((_resolve, reject) => {
+      pendingCancel = () => {
+        pendingCancel = null;
+        reject(new Error("WalletConnect cancelled."));
+      };
+    })
+  ]).finally(() => {
+    pendingCancel = null;
+  });
+}
+
+async function connectSession(targetChainId = preferredChainId) {
   const nextClient = await client();
   const restored = await restoreSession();
-  if (restored) return restored;
+  if (restored) {
+    if (!targetChainId || accountForChain(targetChainId)) return restored;
+    await disconnectCurrentSession();
+  }
 
   const { uri, approval } = await nextClient.connect({
     requiredNamespaces: {
       mina: {
-        chains,
+        chains: targetChainId ? [targetChainId] : chains,
         methods,
         events: ["accountsChanged", "chainChanged"]
       }
@@ -157,9 +214,9 @@ async function connectSession() {
     promptHandler?.({ kind: "connect", uri, openUrl: connectOpenUrl(uri) });
   }
 
-  session = await approval();
+  session = await cancellableApproval(approval);
   promptHandler?.(null);
-  const account = firstAccount();
+  const account = targetChainId ? { chainId: targetChainId, publicKey: accountForChain(targetChainId) ?? "" } : firstAccount();
   if (account) currentChainId = account.chainId;
   return session;
 }
@@ -184,9 +241,10 @@ function normalizeResult(result: unknown) {
 export function walletConnectProvider(): MinaProvider {
   return {
     async requestAccounts() {
-      await connectSession();
-      const account = firstAccount();
-      if (!account) throw new Error("No Mina account returned by WalletConnect.");
+      const targetChainId = preferredChainId;
+      await connectSession(targetChainId);
+      const account = targetChainId ? { chainId: targetChainId, publicKey: accountForChain(targetChainId) } : firstAccount();
+      if (!account?.publicKey) throw new Error("No Mina account returned by WalletConnect.");
       currentChainId = account.chainId;
       return [account.publicKey];
     },
@@ -197,10 +255,16 @@ export function walletConnectProvider(): MinaProvider {
     },
 
     async switchChain(args: { networkID: string }) {
-      await connectSession();
-      const publicKey = accountForChain(args.networkID);
+      preferredChainId = args.networkID;
+      await connectSession(args.networkID);
+      let publicKey = accountForChain(args.networkID);
       if (!publicKey) {
-        throw new Error(`No WalletConnect account available for ${args.networkID}. Reconnect Auro on this network.`);
+        await disconnectCurrentSession();
+        await connectSession(args.networkID);
+        publicKey = accountForChain(args.networkID);
+      }
+      if (!publicKey) {
+        throw new Error(`No WalletConnect account available for ${args.networkID}. Select this network in Auro, then reconnect.`);
       }
       currentChainId = args.networkID;
       return { networkID: args.networkID };
