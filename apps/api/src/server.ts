@@ -46,6 +46,8 @@ const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_0
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
 const currentSlotRequests = new Map<NetworkId, Promise<string>>();
+const accountBalanceCache = new Map<string, { expiresAt: number; balance: string | null; error: string | null }>();
+const accountBalanceRequests = new Map<string, Promise<{ balance: string | null; error: string | null }>>();
 const zkappStateCache = new Map<string, { expiresAt: number; result: { status: number | null; error: string | null } }>();
 const zkappStateRequests = new Map<string, Promise<{ status: number | null; error: string | null }>>();
 const transactionStatusCache = new Map<string, { expiresAt: number; result: { status: TransactionStatus; failureReason: string | null } }>();
@@ -98,6 +100,37 @@ function isLocalTransactionHash(hash: string) {
 
 function cacheKey(network: NetworkId, zkappAddress: string) {
   return `${network}:${zkappAddress}`;
+}
+
+async function accountBalanceFor(network: NetworkId, publicKey: string) {
+  const key = cacheKey(network, publicKey);
+  const cached = accountBalanceCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+
+  const running = accountBalanceRequests.get(key);
+  if (running) return running;
+
+  const request = withTimeout(
+    fetchAccount({ publicKey }, networks[network].minaEndpoint, { timeout: chainRequestTimeoutMs }),
+    chainRequestTimeoutMs,
+    `${network} account balance fetch`
+  )
+    .then((result) => {
+      if (result.error || !result.account) {
+        return { balance: null, error: result.error?.statusText ?? "account not found" };
+      }
+      return { balance: result.account.balance.toString(), error: null };
+    })
+    .catch((error) => ({ balance: null, error: (error as Error).message }))
+    .then((result) => {
+      accountBalanceCache.set(key, { expiresAt: Date.now() + currentSlotCacheMs, ...result });
+      return result;
+    })
+    .finally(() => {
+      accountBalanceRequests.delete(key);
+    });
+  accountBalanceRequests.set(key, request);
+  return request;
 }
 
 async function zkappStatusFor(network: NetworkId, zkappAddress: string) {
@@ -414,6 +447,22 @@ app.get("/networks/:network/current-slot", async (request, reply) => {
     return {
       network: networkId,
       currentSlot: await currentSlotFor(networkId)
+    };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/networks/:network/accounts/:publicKey/balance", async (request, reply) => {
+  try {
+    const { network, publicKey } = request.params as { network: string; publicKey: string };
+    const networkId = assertNetworkId(network);
+    const result = await accountBalanceFor(networkId, publicKey);
+    return {
+      network: networkId,
+      publicKey,
+      balanceNanoMina: result.balance,
+      error: result.error
     };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

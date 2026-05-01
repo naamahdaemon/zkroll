@@ -75,6 +75,12 @@ export function getCurrentSlot(network: NetworkId) {
   return request<{ network: NetworkId; currentSlot: string }>(`/networks/${network}/current-slot`);
 }
 
+export function getWalletBalance(network: NetworkId, publicKey: string) {
+  return request<{ network: NetworkId; publicKey: string; balanceNanoMina: string | null; error: string | null }>(
+    `/networks/${network}/accounts/${encodeURIComponent(publicKey)}/balance`
+  );
+}
+
 export function createGame(input: {
   id?: string;
   network: NetworkId;

@@ -18,6 +18,7 @@ export type WalletConnectPrompt = {
   kind: "connect" | "request";
   uri?: string;
   openUrl: string;
+  fallbackOpenUrl?: string;
 };
 
 type PromptHandler = (prompt: WalletConnectPrompt | null) => void;
@@ -203,7 +204,7 @@ async function connectSession(targetChainId = preferredChainId) {
   const { uri, approval } = await nextClient.connect({
     requiredNamespaces: {
       mina: {
-        chains: targetChainId ? [targetChainId] : chains,
+        chains,
         methods,
         events: ["accountsChanged", "chainChanged"]
       }
@@ -211,7 +212,7 @@ async function connectSession(targetChainId = preferredChainId) {
   });
 
   if (uri) {
-    promptHandler?.({ kind: "connect", uri, openUrl: connectOpenUrl(uri) });
+    promptHandler?.({ kind: "connect", uri, openUrl: connectOpenUrl(uri), fallbackOpenUrl: requestOpenUrl() });
   }
 
   session = await cancellableApproval(approval);

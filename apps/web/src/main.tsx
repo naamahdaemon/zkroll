@@ -24,6 +24,7 @@ import {
   getCurrentSlot,
   getPlayerByPublicKey,
   getTransactionStatuses,
+  getWalletBalance,
   joinGame,
   listGames,
   markTransactionIncluded,
@@ -95,6 +96,9 @@ const copy: Record<Locale, Record<string, string>> = {
     player: "Player",
     pseudo: "Pseudo",
     network: "Network",
+    balance: "Balance",
+    loading: "Loading",
+    unavailable: "Unavailable",
     connectWallet: "Connect wallet",
     disconnectWallet: "Disconnect",
     walletConnected: "Wallet connected",
@@ -198,9 +202,10 @@ const copy: Record<Locale, Record<string, string>> = {
     openInBrowser: "Open in browser",
     copyPageUrl: "Copy page URL",
     openAuro: "Open Auro",
+    openAuroFallback: "Open Auro directly",
     cancel: "Cancel",
     copyWalletConnectUri: "Copy WalletConnect URI",
-    walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here.",
+    walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here. If Auro opens without a connection screen, use the direct open button and the copied URI from Auro WalletConnect.",
     walletConnectNotConfigured: "Mobile WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID.",
     createdAt: "Created",
     updatedAt: "Updated",
@@ -225,6 +230,9 @@ const copy: Record<Locale, Record<string, string>> = {
     player: "Joueur",
     pseudo: "Pseudo",
     network: "Reseau",
+    balance: "Solde",
+    loading: "Chargement",
+    unavailable: "Indisponible",
     connectWallet: "Connecter wallet",
     disconnectWallet: "Deconnecter",
     walletConnected: "Wallet connecte",
@@ -328,9 +336,10 @@ const copy: Record<Locale, Record<string, string>> = {
     openInBrowser: "Ouvrir dans le navigateur",
     copyPageUrl: "Copier l'URL",
     openAuro: "Ouvrir Auro",
+    openAuroFallback: "Ouvrir Auro directement",
     cancel: "Annuler",
     copyWalletConnectUri: "Copier l'URI WalletConnect",
-    walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici.",
+    walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici. Si Auro s'ouvre sans mire de connexion, utilise l'ouverture directe et l'URI copiee depuis WalletConnect dans Auro.",
     walletConnectNotConfigured: "WalletConnect mobile n'est pas configure. Renseigne VITE_WALLETCONNECT_PROJECT_ID.",
     createdAt: "Creee",
     updatedAt: "Mise a jour",
@@ -387,6 +396,13 @@ function formatMina(value: string): string {
   return (Number(value) / nanoMina).toLocaleString("fr-FR", {
     maximumFractionDigits: 3
   });
+}
+
+function formatBalance(value: string | null, locale: Locale): string {
+  if (!value) return "-";
+  return `${(Number(value) / nanoMina).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", {
+    maximumFractionDigits: 6
+  })} MINA`;
 }
 
 function formatDateTime(value: string | null | undefined, locale: Locale): string {
@@ -457,6 +473,11 @@ function App() {
     mainnet: null,
     devnet: null,
     zeko: null
+  });
+  const [walletBalance, setWalletBalance] = useState<{ value: string | null; loading: boolean; error: string | null }>({
+    value: null,
+    loading: false,
+    error: null
   });
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
@@ -682,6 +703,31 @@ function App() {
   useEffect(() => {
     setProvingCompatibility(getProvingCompatibility());
   }, []);
+
+  useEffect(() => {
+    if (!publicKey) {
+      setWalletBalance({ value: null, loading: false, error: null });
+      return;
+    }
+
+    let cancelled = false;
+    setWalletBalance({ value: null, loading: true, error: null });
+    getWalletBalance(network, publicKey)
+      .then((result) => {
+        if (!cancelled) {
+          setWalletBalance({ value: result.balanceNanoMina, loading: false, error: result.error });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setWalletBalance({ value: null, loading: false, error: (error as Error).message });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [network, publicKey]);
 
   useEffect(() => {
     setWalletConnectPromptHandler(setWalletConnectPrompt);
@@ -1270,6 +1316,11 @@ function App() {
             <a className="primary actionLink" href={walletConnectPrompt.openUrl} rel="noreferrer">
               {t("openAuro")}
             </a>
+            {walletConnectPrompt.fallbackOpenUrl && (
+              <a className="actionLink" href={walletConnectPrompt.fallbackOpenUrl} rel="noreferrer">
+                {t("openAuroFallback")}
+              </a>
+            )}
             {walletConnectPrompt.uri && (
               <button
                 type="button"
@@ -1394,6 +1445,11 @@ function App() {
               ))}
             </select>
           </label>
+          <div className="balanceBox">
+            <span>{t("balance")}</span>
+            <strong>{walletBalance.loading ? `${t("loading")}...` : formatBalance(walletBalance.value, locale)}</strong>
+            {walletBalance.error && <small>{t("unavailable")}: {walletBalance.error}</small>}
+          </div>
           <div className="walletActions">
             <button onClick={() => void connectWallet()} className="primary">
               <Wallet size={18} />
