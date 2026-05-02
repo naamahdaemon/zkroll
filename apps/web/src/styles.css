@@ -385,12 +385,27 @@ select {
 }
 
 .gameCard {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
   display: grid;
   gap: 6px;
   min-height: 96px;
   padding: 14px;
   text-align: left;
+}
+
+.gameCard:hover {
+  border-color: var(--primary);
+}
+
+.gameCardHead {
+  align-items: start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
 }
 
 .gameCard.selected {
@@ -404,6 +419,32 @@ select {
 
 .gameCard small {
   color: var(--muted);
+}
+
+.notificationButton {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0;
+  width: 30px;
+}
+
+.notificationButton.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
+.detailTools {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
 }
 
 .playersLine {

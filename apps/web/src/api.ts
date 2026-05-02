@@ -174,3 +174,29 @@ export function refundGame(id: string, input: { refundTxHash: string }) {
     body: JSON.stringify(input)
   });
 }
+
+export type GameNotificationSubscription = {
+  gameId: string;
+  publicKey: string;
+  fcmToken: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function listNotificationSubscriptions(publicKey: string) {
+  return request<{ items: GameNotificationSubscription[] }>(`/notifications/${encodeURIComponent(publicKey)}`);
+}
+
+export function subscribeGameNotifications(id: string, input: { publicKey: string; fcmToken: string }) {
+  return request<GameNotificationSubscription>(`/games/${id}/notifications`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function unsubscribeGameNotifications(id: string, input: { publicKey: string; fcmToken?: string }) {
+  return request<{ ok: true }>(`/games/${id}/notifications`, {
+    method: "DELETE",
+    body: JSON.stringify(input)
+  });
+}

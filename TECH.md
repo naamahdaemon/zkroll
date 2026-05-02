@@ -102,6 +102,33 @@ VITE_WALLETCONNECT_PROJECT_ID=your-reown-project-id
 
 Desktop/laptop keeps using the injected `window.mina` provider when the Auro extension is available. WalletConnect is only used when `window.mina` is absent and `VITE_WALLETCONNECT_PROJECT_ID` is configured.
 
+## PWA And Notifications
+
+The web app ships a manifest and a Firebase Messaging service worker, so it can be installed as a PWA on supported browsers.
+
+Per-game notifications are stored in SQLite by `game_id`, wallet public key, and FCM token. The backend sends a Firebase Cloud Messaging push whenever a game mutation changes `updated_at`; when a game reaches `settled`, `refunded`, `failed`, or `cancelled`, the backend removes the subscriptions for that game.
+
+Frontend configuration:
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_VAPID_KEY=
+```
+
+API configuration:
+
+```env
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
+If Firebase is not configured, the bell controls fail gracefully and the rest of the app is unchanged.
+
 ## Upgrade Rule
 
 Changing contract methods changes the verification key for newly created games.

@@ -13,6 +13,7 @@ The first implementation uses a commit-reveal flow:
 7. If a game is abandoned, either player can trigger an on-chain refund after the configured deadline slot.
 8. Each challenge is its own zkApp account, created and funded by the creator transaction.
 9. A join transaction is indexed as `join_pending` until it is marked included, which prevents competing local joins.
+10. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
 
 ## Packages
 
@@ -36,3 +37,5 @@ See `INSTALL.md` for deployment, `.env.local`, wallet, network, and refund timeo
 See `TECH.md` for the current technical architecture. This version uses one zkApp account per game, so it does not require a global contract address. Use a fresh SQLite database when switching from the old global-root prototype.
 
 The current implementation has been tested on Mina Devnet and Zeko Testnet. Zeko uses the public `https://testnet.zeko.io/graphql` endpoint, but it does not expose every Mina GraphQL field used by Devnet/Mainnet, so the API has dedicated Zeko fallbacks for current slot and transaction status.
+
+Firebase Cloud Messaging is optional. When configured, each active game displays a bell icon in the list and in the detail panel. Subscribed users receive a push notification whenever the game `updated_at` changes, and notifications are removed automatically once the game reaches a terminal state.

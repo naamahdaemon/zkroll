@@ -15,12 +15,15 @@ import {
   getStoredTransactionStatus,
   joinGame,
   listGames,
+  listNotificationSubscriptionsForPublicKey,
   markCreationFailed,
   markTransactionFailed,
   reconcileCreationTx,
   refundGame,
   revealSecret,
   settleGame,
+  subscribeGameNotification,
+  unsubscribeGameNotification,
   updateStoredTransactionStatus,
   upsertPlayer
 } from "./db.js";
@@ -35,6 +38,7 @@ import {
   requiredString
 } from "./validation.js";
 import { witnessForGameId } from "./merkle.js";
+import { notifyGameUpdated } from "./notifications.js";
 
 const app = Fastify({
   logger: true
@@ -311,7 +315,8 @@ async function syncTransactionFromZkappState(network: NetworkId, hash: string, g
     chain.status !== null &&
     (hash === game.settlementTxHash || hash === game.refundTxHash ? chain.status === targetStatus : chain.status >= targetStatus);
   if (chainTransactionStatus.status === "FAILED") {
-    markTransactionFailed(network, hash, chainTransactionStatus.failureReason ?? chain.error ?? undefined);
+    const failedGame = markTransactionFailed(network, hash, chainTransactionStatus.failureReason ?? chain.error ?? undefined);
+    if (failedGame) await notifyGameUpdated(failedGame);
     return {
       status: "FAILED" as TransactionStatus,
       chainStatus: chain.status,
@@ -320,7 +325,12 @@ async function syncTransactionFromZkappState(network: NetworkId, hash: string, g
   }
 
   if (!included && chainTransactionStatus.status === "INCLUDED") {
-    markTransactionFailed(network, hash, chain.error ?? "Transaction was included but zkApp state did not reach the expected status");
+    const failedGame = markTransactionFailed(
+      network,
+      hash,
+      chain.error ?? "Transaction was included but zkApp state did not reach the expected status"
+    );
+    if (failedGame) await notifyGameUpdated(failedGame);
     return {
       status: "FAILED" as TransactionStatus,
       chainStatus: chain.status,
@@ -338,7 +348,7 @@ async function syncTransactionFromZkappState(network: NetworkId, hash: string, g
 
   updateStoredTransactionStatus(network, hash, "INCLUDED");
   if (hash === game.joinTxHash && game.status === "join_pending") {
-    confirmJoinGame(game.id);
+    await notifyGameUpdated(confirmJoinGame(game.id));
   }
 
   return {
@@ -346,6 +356,11 @@ async function syncTransactionFromZkappState(network: NetworkId, hash: string, g
     chainStatus: chain.status,
     chainStatusError: chain.error
   };
+}
+
+async function sendUpdatedGame(game: Game) {
+  await notifyGameUpdated(game);
+  return game;
 }
 
 async function resolveTransactionStatus(network: NetworkId, hash: string) {
@@ -434,6 +449,32 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
   const player = getPlayerByPublicKey(publicKey);
   if (!player) return reply.code(404).send({ error: "Player not found" });
   return player;
+});
+
+app.get("/notifications/:publicKey", async (request) => {
+  const { publicKey } = request.params as { publicKey: string };
+  return { items: listNotificationSubscriptionsForPublicKey(publicKey) };
+});
+
+app.post("/games/:id/notifications", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return subscribeGameNotification(id, requiredString(body, "publicKey"), requiredString(body, "fcmToken"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/games/:id/notifications", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    unsubscribeGameNotification(id, requiredString(body, "publicKey"), optionalString(body, "fcmToken"));
+    return { ok: true };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
 });
 
 app.get("/games", async (request, reply) => {
@@ -544,8 +585,7 @@ app.post("/games", async (request, reply) => {
     const creatorPublicKey = requiredString(body, "creatorPublicKey");
     upsertPlayer(creatorPseudo, creatorPublicKey);
 
-    return reply.code(201).send(
-      createGame({
+    const game = createGame({
         id: optionalString(body, "id") ?? nanoid(12),
         network: requiredNetwork(body),
         zkappAddress: optionalString(body, "zkappAddress"),
@@ -558,8 +598,8 @@ app.post("/games", async (request, reply) => {
         refundTimeoutSlots: requiredPositiveIntegerNumber(body, "refundTimeoutSlots"),
         refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
         creationTxHash: optionalString(body, "creationTxHash")
-      })
-    );
+      });
+    return reply.code(201).send(await sendUpdatedGame(game));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -569,7 +609,7 @@ app.patch("/games/:id/creation-tx", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    return reconcileCreationTx(id, requiredString(body, "creationTxHash"));
+    return sendUpdatedGame(reconcileCreationTx(id, requiredString(body, "creationTxHash")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -579,7 +619,7 @@ app.patch("/games/:id/creation-failed", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    return markCreationFailed(id, optionalString(body, "reason"));
+    return sendUpdatedGame(markCreationFailed(id, optionalString(body, "reason")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -593,14 +633,14 @@ app.post("/games/:id/join", async (request, reply) => {
     const joinerPublicKey = requiredString(body, "joinerPublicKey");
     upsertPlayer(joinerPseudo, joinerPublicKey);
 
-    return joinGame(id, {
+    return sendUpdatedGame(joinGame(id, {
       joinerPseudo,
       joinerPublicKey,
       joinerPseudoHash: optionalString(body, "joinerPseudoHash"),
       joinerCommitment: requiredString(body, "joinerCommitment"),
       refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
       joinTxHash: requiredString(body, "joinTxHash")
-    });
+    }));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -614,7 +654,7 @@ app.patch("/games/:id/join-confirmed", async (request, reply) => {
     if (getStoredTransactionStatus(game.network, game.joinTxHash) !== "INCLUDED") {
       throw new Error("Join transaction must be marked as included before confirmation");
     }
-    return confirmJoinGame(id);
+    return sendUpdatedGame(confirmJoinGame(id));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -624,7 +664,7 @@ app.patch("/games/:id/join-failed", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    return failPendingJoin(id, optionalString(body, "reason"));
+    return sendUpdatedGame(failPendingJoin(id, optionalString(body, "reason")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -634,7 +674,7 @@ app.post("/games/:id/reveal", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    return revealSecret(id, requiredString(body, "publicKey"), requiredString(body, "secret"));
+    return sendUpdatedGame(revealSecret(id, requiredString(body, "publicKey"), requiredString(body, "secret")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -646,12 +686,12 @@ app.post("/games/:id/settle", async (request, reply) => {
     const body = asBody(request.body);
     const winnerPublicKey = body.winnerPublicKey === null ? null : requiredString(body, "winnerPublicKey");
 
-    return settleGame(id, {
+    return sendUpdatedGame(settleGame(id, {
       creatorDie: requiredDie(body, "creatorDie"),
       joinerDie: requiredDie(body, "joinerDie"),
       winnerPublicKey,
       settlementTxHash: requiredString(body, "settlementTxHash")
-    });
+    }));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -661,9 +701,9 @@ app.post("/games/:id/refund", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    return refundGame(id, {
+    return sendUpdatedGame(refundGame(id, {
       refundTxHash: requiredString(body, "refundTxHash")
-    });
+    }));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

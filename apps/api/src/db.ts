@@ -58,6 +58,16 @@ db.exec(`
     foreign key (creator_pseudo) references players(pseudo),
     foreign key (joiner_pseudo) references players(pseudo)
   );
+
+  create table if not exists game_notification_subscriptions (
+    game_id text not null,
+    public_key text not null,
+    fcm_token text not null,
+    created_at text not null,
+    updated_at text not null,
+    primary key (game_id, public_key, fcm_token),
+    foreign key (game_id) references games(id) on delete cascade
+  );
 `);
 
 for (const statement of [
@@ -169,6 +179,22 @@ type GameRow = {
   cancelled_at: string | null;
 };
 
+export type GameNotificationSubscription = {
+  gameId: string;
+  publicKey: string;
+  fcmToken: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type GameNotificationSubscriptionRow = {
+  game_id: string;
+  public_key: string;
+  fcm_token: string;
+  created_at: string;
+  updated_at: string;
+};
+
 function playerFromRow(row: PlayerRow): Player {
   return {
     pseudo: row.pseudo,
@@ -222,6 +248,16 @@ function gameFromRow(row: GameRow): Game {
   };
 }
 
+function subscriptionFromRow(row: GameNotificationSubscriptionRow): GameNotificationSubscription {
+  return {
+    gameId: row.game_id,
+    publicKey: row.public_key,
+    fcmToken: row.fcm_token,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 export function upsertPlayer(pseudo: string, publicKey: string): Player {
   const now = new Date().toISOString();
   const existingPseudoOwner = getPlayerByPseudo(pseudo);
@@ -248,6 +284,63 @@ export function getPlayerByPseudo(pseudo: string): Player | null {
 export function getPlayerByPublicKey(publicKey: string): Player | null {
   const row = db.prepare("select * from players where public_key = ?").get(publicKey) as PlayerRow | undefined;
   return row ? playerFromRow(row) : null;
+}
+
+export function listGameNotificationSubscriptions(gameId: string): GameNotificationSubscription[] {
+  const rows = db
+    .prepare("select * from game_notification_subscriptions where game_id = ? order by updated_at desc")
+    .all(gameId) as GameNotificationSubscriptionRow[];
+  return rows.map(subscriptionFromRow);
+}
+
+export function listNotificationSubscriptionsForPublicKey(publicKey: string): GameNotificationSubscription[] {
+  const rows = db
+    .prepare("select * from game_notification_subscriptions where public_key = ? order by updated_at desc")
+    .all(publicKey) as GameNotificationSubscriptionRow[];
+  return rows.map(subscriptionFromRow);
+}
+
+export function subscribeGameNotification(gameId: string, publicKey: string, fcmToken: string): GameNotificationSubscription {
+  const game = getGame(gameId);
+  if (!game) throw new Error("Game not found");
+  if (game.status === "settled" || game.status === "refunded" || game.status === "failed" || game.status === "cancelled") {
+    throw new Error("Notifications are only available for active games");
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    insert into game_notification_subscriptions (game_id, public_key, fcm_token, created_at, updated_at)
+    values (?, ?, ?, ?, ?)
+    on conflict(game_id, public_key, fcm_token) do update set updated_at = excluded.updated_at
+  `
+  ).run(gameId, publicKey, fcmToken, now, now);
+
+  const row = db
+    .prepare("select * from game_notification_subscriptions where game_id = ? and public_key = ? and fcm_token = ?")
+    .get(gameId, publicKey, fcmToken) as GameNotificationSubscriptionRow;
+  return subscriptionFromRow(row);
+}
+
+export function unsubscribeGameNotification(gameId: string, publicKey: string, fcmToken?: string): void {
+  if (fcmToken) {
+    db.prepare("delete from game_notification_subscriptions where game_id = ? and public_key = ? and fcm_token = ?").run(
+      gameId,
+      publicKey,
+      fcmToken
+    );
+    return;
+  }
+
+  db.prepare("delete from game_notification_subscriptions where game_id = ? and public_key = ?").run(gameId, publicKey);
+}
+
+export function deleteNotificationSubscriptionToken(fcmToken: string): void {
+  db.prepare("delete from game_notification_subscriptions where fcm_token = ?").run(fcmToken);
+}
+
+export function disableGameNotifications(gameId: string): void {
+  db.prepare("delete from game_notification_subscriptions where game_id = ?").run(gameId);
 }
 
 export function createGame(input: {

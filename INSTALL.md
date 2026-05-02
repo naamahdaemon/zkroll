@@ -140,6 +140,9 @@ ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 For local development, you can either export the variables in your shell or create your own `.env` loading mechanism. The current API reads environment variables directly.
@@ -169,6 +172,15 @@ npm run dev:api
 ```
 
 Use a fresh SQLite file when switching to this branch. Old global-root games are legacy data and should not be mixed with per-game zkApp tests.
+
+Firebase variables are optional. Without them, zkroll remains installable as a PWA, but server-side push notifications are skipped. To enable Firebase Cloud Messaging:
+
+- create a Firebase project;
+- enable Cloud Messaging for the web app;
+- copy the web app config to `apps/web/.env.local`;
+- create a service account key and set `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY` on the API.
+
+Keep the Firebase private key out of Git. In `.env` files, keep newline characters escaped as `\n`.
 
 `ZKROLL_ZKAPP_STATE_CACHE_MS` caches each per-game zkApp state lookup. The API uses this state to automatically mark known transaction hashes as included when the game contract reaches the expected status.
 
@@ -204,6 +216,12 @@ VITE_O1JS_BROWSER_CACHE_ENABLED=true
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000
 VITE_WALLETCONNECT_PROJECT_ID=
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_VAPID_KEY=
 ```
 
 Without `VITE_ONCHAIN_ENABLED=true`, the UI stays in simulation mode.
@@ -217,6 +235,8 @@ npm run dev:web
 ```
 
 The Vite server is configured with COOP/COEP headers because o1js browser proving uses WebAssembly features that require `crossOriginIsolated`. If you see an error mentioning `WebAssembly.Memory object cannot be serialized`, restart `npm run dev:web`.
+
+The web app is installable as a PWA. Firebase push notifications require all `VITE_FIREBASE_*` variables plus a public web push certificate key in `VITE_FIREBASE_VAPID_KEY`. After changing any `VITE_*` variable, restart or rebuild the web app because Vite bakes these values into the bundle.
 
 `VITE_WALLET_RESPONSE_TIMEOUT_MS` controls the fallback when the wallet sends a transaction but does not return a hash to the page. After this timeout, the UI asks you to paste the hash shown by Auro or the explorer so the backend can index the game.
 

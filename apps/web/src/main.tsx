@@ -2,6 +2,7 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
+  Bell,
   CircleEqual,
   Dices,
   Languages,
@@ -32,7 +33,10 @@ import {
   reconcileCreationTx,
   refundGame,
   revealGame,
-  settleGame
+  settleGame,
+  subscribeGameNotifications,
+  unsubscribeGameNotifications,
+  listNotificationSubscriptions
 } from "./api";
 import { fakeTxHash, randomFieldString, temporaryCommitment, temporaryDie } from "./crypto";
 import {
@@ -66,6 +70,12 @@ import {
   walletConnectProvider,
   type WalletConnectPrompt
 } from "./walletconnect";
+import {
+  browserNotificationsSupported,
+  firebaseNotificationsConfigured,
+  listenForGameNotifications,
+  requestFirebaseNotificationToken
+} from "./notifications";
 import "./styles.css";
 import "./types";
 
@@ -168,6 +178,14 @@ const copy: Record<Locale, Record<string, string>> = {
     progressGenerateProof: "Generating proof",
     progressProofGenerated: "Proof generated",
     refresh: "Refresh",
+    enableNotifications: "Enable notifications for this game",
+    disableNotifications: "Disable notifications for this game",
+    notificationsEnabled: "Notifications enabled for this game.",
+    notificationsDisabled: "Notifications disabled for this game.",
+    notificationsUnsupported: "Push notifications are not supported by this browser.",
+    notificationsNotConfigured: "Firebase notifications are not configured.",
+    notificationsPermissionDenied: "Notification permission was not granted.",
+    gameUpdatedNotification: "Game updated",
     walletMissing: "Mina wallet not found. Install Auro or enable the extension.",
     noWalletAccount: "No account returned by the wallet.",
     walletFound: "Wallet connected. Pseudo found:",
@@ -323,6 +341,14 @@ const copy: Record<Locale, Record<string, string>> = {
     progressGenerateProof: "Generation de la preuve",
     progressProofGenerated: "Preuve generee",
     refresh: "Rafraichir",
+    enableNotifications: "Activer les notifications pour cette partie",
+    disableNotifications: "Desactiver les notifications pour cette partie",
+    notificationsEnabled: "Notifications activees pour cette partie.",
+    notificationsDisabled: "Notifications desactivees pour cette partie.",
+    notificationsUnsupported: "Les notifications push ne sont pas supportees par ce navigateur.",
+    notificationsNotConfigured: "Les notifications Firebase ne sont pas configurees.",
+    notificationsPermissionDenied: "La permission de notification n'a pas ete accordee.",
+    gameUpdatedNotification: "Partie mise a jour",
     walletMissing: "Wallet Mina introuvable. Installe Auro ou active l'extension.",
     noWalletAccount: "Aucun compte retourne par le wallet.",
     walletFound: "Wallet connecte. Pseudo retrouve :",
@@ -545,6 +571,8 @@ function App() {
     loading: false,
     error: null
   });
+  const [notificationGameIds, setNotificationGameIds] = useState<Set<string>>(new Set());
+  const [firebaseToken, setFirebaseToken] = useState<string | null>(null);
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
   const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
@@ -596,6 +624,13 @@ function App() {
   async function refreshGames() {
     const nextGames = await listGames();
     setGames(nextGames);
+    setNotificationGameIds((current) => {
+      const next = new Set(current);
+      for (const game of nextGames) {
+        if (terminalGameStatuses.has(game.status)) next.delete(game.id);
+      }
+      return next;
+    });
     setTxStatuses((current) => {
       const fromGames = Object.fromEntries(
         nextGames.flatMap((game) =>
@@ -696,6 +731,10 @@ function App() {
     return game.status !== "settled" && game.status !== "refunded" && game.status !== "failed";
   }
 
+  function isActiveGame(game: Game) {
+    return !terminalGameStatuses.has(game.status);
+  }
+
   function creationStatusFor(game: Game): TxStatus {
     return game.status === "failed" ? "FAILED" : statusFor(game.creationTxHash);
   }
@@ -744,7 +783,60 @@ function App() {
     return value;
   }
 
+  async function handleToggleGameNotifications(game: Game) {
+    if (!publicKey) {
+      setMessage(t("walletRequired"));
+      return;
+    }
+    if (!isActiveGame(game)) return;
+
+    try {
+      if (notificationGameIds.has(game.id)) {
+        await unsubscribeGameNotifications(game.id, { publicKey, fcmToken: firebaseToken ?? undefined });
+        setNotificationGameIds((current) => {
+          const next = new Set(current);
+          next.delete(game.id);
+          return next;
+        });
+        setMessage(t("notificationsDisabled"));
+        return;
+      }
+
+      if (!firebaseNotificationsConfigured()) throw new Error(t("notificationsNotConfigured"));
+      if (!browserNotificationsSupported()) throw new Error(t("notificationsUnsupported"));
+      const token = await requestFirebaseNotificationToken();
+      setFirebaseToken(token);
+      await subscribeGameNotifications(game.id, { publicKey, fcmToken: token });
+      setNotificationGameIds((current) => new Set(current).add(game.id));
+      setMessage(t("notificationsEnabled"));
+    } catch (error) {
+      const errorMessage = (error as Error).message;
+      setMessage(errorMessage.includes("permission") ? t("notificationsPermissionDenied") : errorMessage);
+    }
+  }
+
+  function notificationButton(game: Game) {
+    if (!isActiveGame(game)) return null;
+    const enabled = notificationGameIds.has(game.id);
+    return (
+      <button
+        type="button"
+        className={enabled ? "notificationButton active" : "notificationButton"}
+        title={enabled ? t("disableNotifications") : t("enableNotifications")}
+        aria-label={enabled ? t("disableNotifications") : t("enableNotifications")}
+        onClick={(event) => {
+          event.stopPropagation();
+          void handleToggleGameNotifications(game);
+        }}
+      >
+        <Bell size={16} />
+      </button>
+    );
+  }
+
   useEffect(() => {
+    const gameFromUrl = new URLSearchParams(window.location.search).get("game");
+    if (gameFromUrl) setSelectedGameId(gameFromUrl);
     void refreshGames();
     const savedVault = localStorage.getItem("zkroll:secrets");
     if (savedVault) {
@@ -797,6 +889,61 @@ function App() {
       cancelled = true;
     };
   }, [network, publicKey]);
+
+  useEffect(() => {
+    if (!publicKey) {
+      setNotificationGameIds(new Set());
+      return;
+    }
+
+    let cancelled = false;
+    listNotificationSubscriptions(publicKey)
+      .then((result) => {
+        if (!cancelled) {
+          setNotificationGameIds(new Set(result.items.map((item) => item.gameId)));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setNotificationGameIds(new Set());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [publicKey]);
+
+  useEffect(() => {
+    if (!firebaseNotificationsConfigured() || !browserNotificationsSupported()) return;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
+    listenForGameNotifications((update) => {
+      if (cancelled || !notificationGameIds.has(update.gameId)) return;
+      void refreshGames();
+      if (Notification.permission === "granted") {
+        const notification = new Notification("zkroll", {
+          body: `${t("gameUpdatedNotification")}: ${update.gameId}${update.status ? ` (${update.status})` : ""}`,
+          icon: "/zkroll-logo.svg",
+          tag: `zkroll-game-${update.gameId}`
+        });
+        notification.onclick = () => {
+          window.focus();
+          setSelectedGameId(update.gameId);
+          history.replaceState(null, "", `?game=${encodeURIComponent(update.gameId)}`);
+          notification.close();
+        };
+      }
+    })
+      .then((nextUnsubscribe) => {
+        unsubscribe = nextUnsubscribe;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [notificationGameIds, locale]);
 
   useEffect(() => {
     setWalletConnectPromptHandler(setWalletConnectPrompt);
@@ -1674,12 +1821,20 @@ function App() {
           </div>
           <div className="gameList">
             {paginatedGames.map((game) => (
-              <button
+              <div
                 key={game.id}
                 className={game.id === selectedGame?.id ? "gameCard selected" : "gameCard"}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedGameId(game.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") setSelectedGameId(game.id);
+                }}
               >
-                <span className={`status ${game.status}`}>{game.status}</span>
+                <div className="gameCardHead">
+                  <span className={`status ${game.status}`}>{game.status}</span>
+                  {notificationButton(game)}
+                </div>
                 <div className="playersLine">
                   <strong>
                     {game.creatorPseudo}
@@ -1698,7 +1853,7 @@ function App() {
                 <span>{formatMina(game.stakeNanoMina)} MINA</span>
                 <small>{networks[game.network].label}</small>
                 <small>{t("updatedAt")}: {formatDateTime(game.updatedAt, locale)}</small>
-              </button>
+              </div>
             ))}
             {filteredGames.length === 0 && <p className="empty">{t("emptyGames")}</p>}
           </div>
@@ -1725,7 +1880,10 @@ function App() {
             <>
               <div className="sectionHead">
                 <h2>{t("challenge")} {selectedGame.id}</h2>
-                <ShieldCheck size={20} />
+                <span className="detailTools">
+                  {notificationButton(selectedGame)}
+                  <ShieldCheck size={20} />
+                </span>
               </div>
               <dl>
                 <div>
