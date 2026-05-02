@@ -31,6 +31,8 @@ npm run dev:web
 
 The API listens on `http://127.0.0.1:4000` and the web app uses `http://127.0.0.1:5174`.
 
-See `INSTALL.md` for deployment, `.env.local`, wallet, and refund timeout configuration.
+See `INSTALL.md` for deployment, `.env.local`, wallet, network, and refund timeout configuration.
 
 See `TECH.md` for the current technical architecture. This version uses one zkApp account per game, so it does not require a global contract address. Use a fresh SQLite database when switching from the old global-root prototype.
+
+The current implementation has been tested on Mina Devnet and Zeko Testnet. Zeko uses the public `https://testnet.zeko.io/graphql` endpoint, but it does not expose every Mina GraphQL field used by Devnet/Mainnet, so the API has dedicated Zeko fallbacks for current slot and transaction status.

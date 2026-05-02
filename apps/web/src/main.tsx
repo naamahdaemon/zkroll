@@ -43,11 +43,14 @@ import {
   externalBrowserUrl,
   generateGameZkappKey,
   getProvingCompatibility,
+  hasPendingWalletSignature,
   joinGameOnchain,
   nextRefundDeadlineSlot,
   pseudoHash,
+  rejectPendingWalletSignature,
   refundGameOnchain,
   requiredTransactionHash,
+  resolvePendingWalletSignatureWithHash,
   settleGameOnchain,
   type OnchainProgress,
   type ProvingCompatibility,
@@ -72,10 +75,12 @@ const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLO
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
+const zekoCreatedRefundDeadlineSlot = "4294967294";
+const zekoJoinedRefundDeadlineSlot = "4294967295";
 type TxStatus = TransactionStatus;
 type Locale = "en" | "fr";
 type Theme = "light" | "dark";
-type StatusFilter = "all" | GameStatus;
+type StatusFilter = "active" | "all" | GameStatus;
 const gameStatuses: GameStatus[] = [
   "pending_signature",
   "created",
@@ -88,6 +93,7 @@ const gameStatuses: GameStatus[] = [
   "failed",
   "cancelled"
 ];
+const terminalGameStatuses = new Set<GameStatus>(["settled", "refunded", "failed", "cancelled"]);
 
 const copy: Record<Locale, Record<string, string>> = {
   en: {
@@ -107,6 +113,7 @@ const copy: Record<Locale, Record<string, string>> = {
     refundTimeout: "Refund timeout (slots)",
     create: "Create",
     games: "Games",
+    activeStatuses: "Active games",
     allStatuses: "All statuses",
     allNetworks: "All networks",
     searchPlayer: "Search player",
@@ -168,7 +175,18 @@ const copy: Record<Locale, Record<string, string>> = {
     confirmFailed: "Mark this creation as failed? Use only if the create transaction failed on the explorer.",
     optionalReason: "Optional reason",
     failedReasonDefault: "Create transaction failed on-chain",
-    markedFailed: "Creation marked as failed. The game is excluded from the local Merkle root.",
+    failedReasonLocalSignature: "Local signature failed in Auro",
+    failedReasonOnchainCreation: "Create transaction failed on-chain",
+    failedReasonOther: "Other",
+    failedReasonCustomPlaceholder: "Describe the failure",
+    markedFailed: "Creation marked as failed. The game is kept as a local recovery record.",
+    manualSignatureTitle: "Wallet signature recovery",
+    manualSignatureHash: "Transaction hash",
+    manualSignatureHashPlaceholder: "Paste the hash shown in Auro or the explorer",
+    manualSignatureUseHash: "Use this hash",
+    manualSignatureFailed: "Signature failed in Auro",
+    manualSignatureFailedMessage: "Signature marked as failed locally. You can re-sign this game later.",
+    manualSignatureHint: "Use these options if Auro accepted or rejected the transaction without returning control to the page.",
     walletAndPseudoRequired: "Pseudo and wallet required.",
     createdOnchain: "Challenge created on-chain and indexed.",
     createdMock: "Challenge created in simulation mode.",
@@ -241,6 +259,7 @@ const copy: Record<Locale, Record<string, string>> = {
     refundTimeout: "Timeout refund (slots)",
     create: "Creer",
     games: "Parties",
+    activeStatuses: "Parties actives",
     allStatuses: "Tous les etats",
     allNetworks: "Tous les reseaux",
     searchPlayer: "Rechercher joueur",
@@ -302,7 +321,18 @@ const copy: Record<Locale, Record<string, string>> = {
     confirmFailed: "Marquer cette creation comme echouee ? A utiliser uniquement si la transaction create est failed sur l'explorateur.",
     optionalReason: "Raison optionnelle",
     failedReasonDefault: "Create transaction failed on-chain",
-    markedFailed: "Creation marquee comme echouee. La partie est exclue de la racine Merkle locale.",
+    failedReasonLocalSignature: "Echec local de signature dans Auro",
+    failedReasonOnchainCreation: "Echec de creation de la transaction on-chain",
+    failedReasonOther: "Autre",
+    failedReasonCustomPlaceholder: "Precise la raison",
+    markedFailed: "Creation marquee comme echouee. La partie reste conservee comme trace locale de reprise.",
+    manualSignatureTitle: "Reprise de signature wallet",
+    manualSignatureHash: "Hash de transaction",
+    manualSignatureHashPlaceholder: "Colle le hash visible dans Auro ou l'explorateur",
+    manualSignatureUseHash: "Utiliser ce hash",
+    manualSignatureFailed: "Signature echouee dans Auro",
+    manualSignatureFailedMessage: "Signature marquee comme echouee localement. Tu pourras resigner cette partie plus tard.",
+    manualSignatureHint: "Utilise ces options si Auro a accepte ou rejete la transaction sans rendre la main a la page.",
     walletAndPseudoRequired: "Pseudo et wallet requis.",
     createdOnchain: "Defi cree on-chain et indexe.",
     createdMock: "Defi cree en mode simulation.",
@@ -413,6 +443,20 @@ function formatDateTime(value: string | null | undefined, locale: Locale): strin
   }).format(new Date(value));
 }
 
+async function refundDeadlineForCreate(network: NetworkId, timeoutSlots: number) {
+  // Zeko does not currently expose a reliable Mina-style current slot in its GraphQL API.
+  // Use high deadlines so create/join remain usable there; Devnet/Mainnet keep slot timeouts.
+  if (network === "zeko") return zekoCreatedRefundDeadlineSlot;
+  const currentSlot = (await getCurrentSlot(network)).currentSlot;
+  return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
+}
+
+async function refundDeadlineForJoin(network: NetworkId, timeoutSlots: number) {
+  if (network === "zeko") return zekoJoinedRefundDeadlineSlot;
+  const currentSlot = (await getCurrentSlot(network)).currentSlot;
+  return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
+}
+
 type PendingCreationMaterial = {
   zkappPrivateKey: string;
   secret: string;
@@ -456,7 +500,7 @@ function App() {
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [playerSearch, setPlayerSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
@@ -467,6 +511,10 @@ function App() {
   const [onchainProgress, setOnchainProgress] = useState<OnchainProgress | null>(null);
   const [onchainStartedAt, setOnchainStartedAt] = useState<number | null>(null);
   const [onchainElapsedSeconds, setOnchainElapsedSeconds] = useState(0);
+  const [manualSignatureHash, setManualSignatureHash] = useState("");
+  const [failureDialogGame, setFailureDialogGame] = useState<Game | null>(null);
+  const [failureReasonKind, setFailureReasonKind] = useState<"localSignature" | "onchainCreation" | "other">("onchainCreation");
+  const [failureReasonText, setFailureReasonText] = useState("");
   const [txStatuses, setTxStatuses] = useState<Record<string, TxStatus>>({});
   const txStatusesRef = useRef(txStatuses);
   const [currentSlots, setCurrentSlots] = useState<Record<NetworkId, string | null>>({
@@ -493,7 +541,10 @@ function App() {
     const needle = playerSearch.trim().toLowerCase();
     return visibleGames
       .filter((game) => {
-        const statusMatches = statusFilter === "all" || game.status === statusFilter;
+        const statusMatches =
+          statusFilter === "active"
+            ? !terminalGameStatuses.has(game.status)
+            : statusFilter === "all" || game.status === statusFilter;
         const searchMatches =
           !needle ||
           game.creatorPseudo.toLowerCase().includes(needle) ||
@@ -968,6 +1019,18 @@ function App() {
     setOnchainProgress(progress);
   }
 
+  function handleManualSignatureHash() {
+    const hash = manualSignatureHash.trim();
+    if (!hash) return;
+    resolvePendingWalletSignatureWithHash(hash);
+    setManualSignatureHash("");
+  }
+
+  function handleManualSignatureFailed() {
+    rejectPendingWalletSignature(t("manualSignatureFailedMessage"));
+    setManualSignatureHash("");
+  }
+
   function walletProvider() {
     if (!window.mina && walletConnectConfigured()) {
       setWalletConnectNetwork(network);
@@ -1025,18 +1088,30 @@ function App() {
   }
 
   async function handleMarkCreationFailed(game: Game) {
+    if (game.creatorPublicKey !== publicKey) {
+      setMessage(t("creatorOnlyFailed"));
+      return;
+    }
+    setFailureDialogGame(game);
+    setFailureReasonKind(game.status === "pending_signature" ? "localSignature" : "onchainCreation");
+    setFailureReasonText("");
+  }
+
+  async function submitMarkCreationFailed(event: FormEvent) {
+    event.preventDefault();
+    if (!failureDialogGame) return;
     await runAction(async () => {
-      if (game.creatorPublicKey !== publicKey) {
-        throw new Error(t("creatorOnlyFailed"));
-      }
-      const confirmed = window.confirm(t("confirmFailed"));
-      if (!confirmed) return;
-      const reason =
-        window.prompt(t("optionalReason"), t("failedReasonDefault")) ?? t("failedReasonDefault");
-      const failed = await markCreationFailed(game.id, reason.trim() || undefined);
+      const selectedReason =
+        failureReasonKind === "localSignature"
+          ? t("failedReasonLocalSignature")
+          : failureReasonKind === "onchainCreation"
+            ? t("failedReasonOnchainCreation")
+            : failureReasonText.trim() || t("failedReasonOther");
+      const failed = await markCreationFailed(failureDialogGame.id, selectedReason);
       removePendingCreationMaterial(failed);
       setSelectedGameId(failed.id);
       setMessage(t("markedFailed"));
+      setFailureDialogGame(null);
     });
   }
 
@@ -1061,7 +1136,7 @@ function App() {
         : await temporaryCommitment(secret, publicKey, `${pseudo}:${Date.now()}`);
       const stakeNanoMina = String(Math.round(Number(stake) * nanoMina));
       const refundTimeout = normalizedRefundTimeout();
-      const refundDeadlineSlot = onchainEnabled ? await nextRefundDeadlineSlot(network, refundTimeout) : "0";
+      const refundDeadlineSlot = onchainEnabled ? await refundDeadlineForCreate(network, refundTimeout) : "0";
       let txHash = fakeTxHash("create");
       const gameKey = onchainEnabled ? await generateGameZkappKey() : null;
       const created = await createGame({
@@ -1118,7 +1193,7 @@ function App() {
       const joinerCommitment = onchainEnabled
         ? await onchainCommitment(secret, publicKey, gameIdField)
         : await temporaryCommitment(secret, publicKey, game.id);
-      const refundDeadlineSlot = onchainEnabled ? await nextRefundDeadlineSlot(game.network, game.refundTimeoutSlots) : "0";
+      const refundDeadlineSlot = onchainEnabled ? await refundDeadlineForJoin(game.network, game.refundTimeoutSlots) : "0";
       let txHash = fakeTxHash("join");
 
       if (onchainEnabled) {
@@ -1344,6 +1419,48 @@ function App() {
         </div>
       )}
 
+      {failureDialogGame && (
+        <div className="modalBackdrop">
+          <form className="modal" onSubmit={(event) => void submitMarkCreationFailed(event)}>
+            <h2>{t("markFailed")}</h2>
+            <p className="notice">{t("confirmFailed")}</p>
+            <label>
+              {t("optionalReason")}
+              <select
+                value={failureReasonKind}
+                onChange={(event) => setFailureReasonKind(event.target.value as "localSignature" | "onchainCreation" | "other")}
+              >
+                <option value="localSignature">{t("failedReasonLocalSignature")}</option>
+                <option value="onchainCreation">{t("failedReasonOnchainCreation")}</option>
+                <option value="other">{t("failedReasonOther")}</option>
+              </select>
+            </label>
+            {failureReasonKind === "other" && (
+              <label>
+                {t("optionalReason")}
+                <input
+                  onChange={(event) => setFailureReasonText(event.target.value)}
+                  placeholder={t("failedReasonCustomPlaceholder")}
+                  value={failureReasonText}
+                />
+              </label>
+            )}
+            <div className="modalActions">
+              <button type="submit">{t("markFailed")}</button>
+              <button
+                onClick={() => {
+                  setFailureDialogGame(null);
+                  setFailureReasonText("");
+                }}
+                type="button"
+              >
+                {t("cancel")}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {onchainProgress && (
         <div className="workOverlay">
           <div className="workPanel">
@@ -1353,6 +1470,28 @@ function App() {
             </div>
             <p className="notice">{t("zkWorkNotice")}</p>
             <p className="timer">{t("elapsed")}: {onchainElapsedSeconds}s</p>
+            {hasPendingWalletSignature() && (
+              <div className="manualSignatureBox">
+                <strong>{t("manualSignatureTitle")}</strong>
+                <p className="notice">{t("manualSignatureHint")}</p>
+                <label>
+                  {t("manualSignatureHash")}
+                  <input
+                    onChange={(event) => setManualSignatureHash(event.target.value)}
+                    placeholder={t("manualSignatureHashPlaceholder")}
+                    value={manualSignatureHash}
+                  />
+                </label>
+                <div className="modalActions">
+                  <button disabled={!manualSignatureHash.trim()} onClick={handleManualSignatureHash} type="button">
+                    {t("manualSignatureUseHash")}
+                  </button>
+                  <button onClick={handleManualSignatureFailed} type="button">
+                    {t("manualSignatureFailed")}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1494,6 +1633,7 @@ function App() {
             <label>
               {t("onchainState")}
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+                <option value="active">{t("activeStatuses")}</option>
                 <option value="all">{t("allStatuses")}</option>
                 {gameStatuses.map((item) => (
                   <option key={item} value={item}>

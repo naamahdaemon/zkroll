@@ -17,6 +17,8 @@ The join transaction updates the same per-game zkApp and locks the joiner stake.
 
 There is no global zkroll contract address in the normal UI flow.
 
+This design is intentionally more robust than the previous global Merkle-root prototype: one corrupted or missing local game row no longer makes every future game fail against a shared on-chain root.
+
 ## Local State
 
 SQLite is an indexer and UX cache. It stores:
@@ -56,6 +58,24 @@ ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
 ```
+
+Manual status forcing is kept as an operational fallback, not as the normal sync path. Normal inclusion should be inferred from the per-game zkApp state.
+
+## Zeko Testnet
+
+Zeko Testnet uses a Mina-compatible zkApp transaction flow, but its public GraphQL API is not a perfect drop-in replacement for Mina Devnet/Mainnet.
+
+Current compatibility rules:
+
+- `minaEndpoint`: `https://testnet.zeko.io/graphql`
+- `archiveEndpoint`: `https://archive.testnet.zeko.io/graphql`
+- Auro chain id: `zeko:testnet`
+- o1js transaction signing domain: `testnet`
+- account creation funding: explicit `0.1 MINA`
+
+The `testnet` signing domain is a current Auro/Zeko Testnet compatibility requirement. If Zeko later exposes a production network with a distinct signing domain, update `packages/shared/src/index.ts` and retest Auro signatures before changing it.
+
+The backend does not use Mina-only `bestChain` transaction scans on Zeko. Zeko transaction status is inferred from the game zkApp state when possible, and otherwise returned as `UNKNOWN`. Current-slot support is also limited, so Zeko refund deadlines are treated as experimental placeholders.
 
 ## Browser Proving
 

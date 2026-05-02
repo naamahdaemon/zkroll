@@ -36,6 +36,20 @@ Network endpoints live in `packages/shared/src/index.ts`.
 
 For the current tested flow, use `devnet` first.
 
+Zeko Testnet is supported through:
+
+```text
+https://testnet.zeko.io/graphql
+https://archive.testnet.zeko.io/graphql
+```
+
+Important Zeko notes:
+
+- Auro identifies the mobile wallet chain as `zeko:testnet`, but the o1js transaction `networkId` currently uses the Mina `testnet` signing domain for Zeko Testnet compatibility.
+- Zeko Testnet account creation currently uses a `0.1 MINA` fee. The app funds that explicitly for Zeko instead of using the default Mina `fundNewAccount` helper.
+- Zeko does not expose the same `bestChain` and current-slot GraphQL fields as Mina Devnet/Mainnet. The backend therefore infers known transaction inclusion from the per-game zkApp state and treats direct transaction lookup as `UNKNOWN` on Zeko.
+- Refund deadlines on Zeko Testnet use high placeholder slots because the public endpoint does not provide a reliable Mina-style current slot. Treat refunds on Zeko Testnet as experimental until a reliable slot source is available.
+
 ## 4. zkApp Addresses
 
 This branch uses one zkApp account per game. The web app generates a fresh zkApp keypair in the browser when a player creates a challenge, and the creator wallet pays:
@@ -216,6 +230,11 @@ The Vite server is configured with COOP/COEP headers because o1js browser provin
 
 For game creation, the UI now creates a local `pending_signature` game before opening Auro. This stores the generated per-game zkApp address and the deterministic game data if Auro signs and broadcasts the transaction but does not return the hash to the web page.
 
+During the wallet signature step, the overlay provides recovery controls:
+
+- paste the transaction hash immediately if Auro signed and broadcast the transaction but did not return control to the page;
+- mark the local signature as failed if Auro failed before broadcasting, then re-sign the pending game later.
+
 Make sure the browser wallet is on the selected network before signing.
 
 ## 8. Run The App
@@ -246,7 +265,7 @@ http://127.0.0.1:5174
 4. Create a small challenge, for example `0.1` MINA.
 5. Confirm the wallet transaction. The creator pays the fee and locks the stake.
 6. If Auro does not return to the page, select the `pending_signature` game and click `Renseigner le hash`, then paste the transaction hash from Auro or Minascan.
-7. Wait until the create transaction is included on the explorer, then use the UI status controls if the local status has not updated.
+7. Wait until the create transaction is included on the explorer. The API should infer inclusion from the per-game zkApp state; use the UI status controls only as a fallback after checking the explorer.
 8. Connect a second funded Devnet wallet.
 9. Join the challenge. The joiner pays the fee and locks the matching stake.
 10. The local game moves to `join_pending`. This blocks competing local joins while the transaction is being included.
@@ -276,13 +295,13 @@ For normal UI flow:
 5. when the zkApp status reaches the expected step, the API marks the transaction as `INCLUDED`;
 6. the UI refreshes the game list and unlocks the next local action.
 
-This deliberately avoids global root reconstruction and limits public GraphQL calls to the selected game's zkApp account. The manual transaction status control is now only a fallback/debug tool for explorer-verified transactions that the public GraphQL endpoint does not reflect yet.
+This deliberately avoids global root reconstruction and limits public GraphQL calls to the selected game's zkApp account. The manual transaction status control is now only a fallback/debug tool for explorer-verified transactions that the public GraphQL endpoint does not reflect yet. It is less important than in the old global-root architecture because each game has its own zkApp state.
 
 SQLite can contain games for several networks at the same time. Transaction statuses are network-scoped.
 
 `pending_signature` games are local recovery records. If the browser loses the wallet response, use `Renseigner le hash` on the pending game instead of creating another game.
 
-`failed` games are local/indexer cleanup records. Use this status when a creation transaction failed on-chain, for example with `Valid_while_precondition_unsatisfied`.
+`failed` games are local/indexer cleanup records. Use this status when a signature failed before broadcast or when a creation transaction failed on-chain, for example with `Valid_while_precondition_unsatisfied`. The UI asks for a failure reason so later debugging can distinguish local wallet failures from on-chain failures.
 
 `join_pending` games keep the joiner data and transaction hash locally. This prevents two browser sessions from locally joining the same open game at the same time. If the join transaction fails, use `Release join` to return the game to `created`.
 
@@ -296,6 +315,16 @@ The first on-chain action in a browser session compiles the ZK circuit and can t
 - transaction submission.
 
 The frontend uses an in-session compile promise and, by default, a best-effort browser cache. Browser storage can be too small for all proving keys, so the first compile after a reload can still be slow. Set `VITE_O1JS_BROWSER_CACHE_ENABLED=false` to disable persistent browser cache while keeping the in-session compile promise.
+
+On mobile, Auro's in-app browser does not expose the isolation needed by o1js proving. Use a native mobile browser with `window.crossOriginIsolated === true`, then connect/sign through Auro Mobile WalletConnect:
+
+```env
+VITE_WALLETCONNECT_PROJECT_ID=your-reown-project-id
+```
+
+Desktop/laptop keeps using the injected `window.mina` provider when the Auro extension is available. WalletConnect is only used when `window.mina` is absent and `VITE_WALLETCONNECT_PROJECT_ID` is configured.
+
+If mobile signing opens Auro but the web page does not receive the transaction hash, return to the browser and use the signature recovery box to paste the hash shown by Auro or the explorer.
 
 ## 12. Deterministic Dice Rule
 

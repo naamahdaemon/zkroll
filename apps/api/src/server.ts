@@ -74,9 +74,8 @@ async function currentSlotFor(network: NetworkId) {
   const running = currentSlotRequests.get(network);
   if (running) return running;
 
-  const request = withTimeout(fetchLastBlock(networks[network].minaEndpoint), chainRequestTimeoutMs, `${network} latest block fetch`)
-    .then((latest) => {
-      const currentSlot = latest.globalSlotSinceGenesis.toString();
+  const request = (network === "zeko" ? zekoCurrentSlotFor(network) : minaCurrentSlotFor(network))
+    .then((currentSlot) => {
       currentSlotCache.set(network, { expiresAt: Date.now() + currentSlotCacheMs, currentSlot });
       return currentSlot;
     })
@@ -85,6 +84,64 @@ async function currentSlotFor(network: NetworkId) {
     });
   currentSlotRequests.set(network, request);
   return request;
+}
+
+async function minaCurrentSlotFor(network: NetworkId) {
+  const latest = await withTimeout(
+    fetchLastBlock(networks[network].minaEndpoint),
+    chainRequestTimeoutMs,
+    `${network} latest block fetch`
+  );
+  return latest.globalSlotSinceGenesis.toString();
+}
+
+async function zekoCurrentSlotFor(network: NetworkId) {
+  // Zeko exposes a Mina-compatible transaction/account API, but not Mina node fields like
+  // bestChain or current slot. Query only stable Zeko fields here and let callers treat 0
+  // as "slot unavailable" for UI purposes.
+  const query = `
+    query ZekoNetworkTiming {
+      genesisConstants {
+        genesisTimestamp
+      }
+      daemonStatus {
+        consensusConfiguration {
+          slotDuration
+        }
+      }
+    }
+  `;
+
+  const payload = await withTimeout(
+    fetch(networks[network].minaEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query })
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(`GraphQL ${response.status}`);
+      return (await response.json()) as {
+        data?: {
+          genesisConstants?: { genesisTimestamp?: string };
+          daemonStatus?: { consensusConfiguration?: { slotDuration?: number | string } };
+        };
+        errors?: { message: string }[];
+      };
+    }),
+    chainRequestTimeoutMs,
+    `${network} current slot fetch`
+  );
+
+  if (payload.errors?.length) {
+    throw new Error(payload.errors.map((error) => error.message).join("; "));
+  }
+
+  const slotDuration = Number(payload.data?.daemonStatus?.consensusConfiguration?.slotDuration ?? 0);
+  const genesisTimestamp = payload.data?.genesisConstants?.genesisTimestamp;
+  if (!slotDuration || slotDuration < 1 || !genesisTimestamp) {
+    return "0";
+  }
+
+  return Math.max(0, Math.floor((Date.now() - new Date(genesisTimestamp).getTime()) / slotDuration)).toString();
 }
 
 function isLocalTransactionHash(hash: string) {
@@ -171,6 +228,10 @@ type RecentZkappCommand = {
 };
 
 async function chainTransactionStatusFor(network: NetworkId, hash: string) {
+  if (network === "zeko") {
+    return { status: "UNKNOWN" as TransactionStatus, failureReason: null };
+  }
+
   const key = `${network}:${hash}`;
   const cached = transactionStatusCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.result;

@@ -116,6 +116,8 @@ Important:
 - Use a fresh SQLite DB when switching from the old global-root branch to this branch.
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
 - Set `VITE_WALLETCONNECT_PROJECT_ID` to a Reown Cloud project id to enable Auro Mobile from Chrome/Safari. Leave it empty if you only want desktop extension support.
+- Zeko Testnet is supported, but its public GraphQL API is not identical to Mina Devnet/Mainnet. The backend avoids Mina-only `bestChain` transaction scans on Zeko and relies on per-game zkApp state instead.
+- Zeko Testnet uses the Mina `testnet` signing domain for current Auro compatibility and a `0.1 MINA` account creation funding workaround. Rebuild `web` after pulling changes that affect network config.
 - Remove old compose references to `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS`, and `VITE_ZKROLL_CONTRACT_ADDRESS`. They are obsolete and will produce Docker Compose warnings if left in `docker-compose.prod.yml`.
 
 Check your production compose file:
@@ -478,6 +480,24 @@ Options:
 - manually mark the transaction as included after checking the explorer;
 - use a fresh DB when switching from the old global-root architecture to this branch.
 
+### Zeko `Invalid_signature` Or `Invalid_fee_excess`
+
+Make sure you rebuilt the web image after pulling the latest network config:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build web
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --force-recreate nginx
+```
+
+For Zeko Testnet, the app must use:
+
+- the `https://testnet.zeko.io/graphql` endpoint;
+- Auro chain `zeko:testnet`;
+- o1js transaction signing domain `testnet`;
+- explicit `0.1 MINA` account creation funding.
+
+If any of these values are stale in the built web bundle, Auro can reject the transaction before broadcast.
+
 ---
 
 # Francais
@@ -590,6 +610,8 @@ Important :
 - Utilise une base SQLite neuve en passant de l'ancienne branche a racine globale vers cette branche.
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
 - Renseigne `VITE_WALLETCONNECT_PROJECT_ID` avec un project id Reown Cloud pour activer Auro Mobile depuis Chrome/Safari. Laisse vide si tu veux uniquement le support extension desktop.
+- Zeko Testnet est supporte, mais son API GraphQL publique n'est pas identique a Mina Devnet/Mainnet. Le backend evite les scans `bestChain` propres a Mina sur Zeko et s'appuie plutot sur l'etat zkApp de chaque partie.
+- Zeko Testnet utilise actuellement le domaine de signature Mina `testnet` pour compatibilite Auro, ainsi qu'un financement explicite de creation de compte a `0.1 MINA`. Rebuild `web` apres tout changement de configuration reseau.
 - Supprime les anciennes references compose a `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS` et `VITE_ZKROLL_CONTRACT_ADDRESS`. Elles sont obsoletes et provoquent des warnings Docker Compose si elles restent dans `docker-compose.prod.yml`.
 
 Verifie ton fichier compose de production :
@@ -951,3 +973,21 @@ Options :
 - restaurer la sauvegarde SQLite correspondante ;
 - marquer manuellement la transaction comme incluse apres verification dans l'explorateur ;
 - utiliser une base neuve en passant de l'ancienne architecture a racine globale vers cette branche.
+
+### Zeko `Invalid_signature` Ou `Invalid_fee_excess`
+
+Verifie que l'image web a bien ete reconstruite apres recuperation de la derniere configuration reseau :
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build web
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --force-recreate nginx
+```
+
+Pour Zeko Testnet, l'application doit utiliser :
+
+- l'endpoint `https://testnet.zeko.io/graphql` ;
+- la chaine Auro `zeko:testnet` ;
+- le domaine de signature o1js `testnet` ;
+- le financement explicite de creation de compte a `0.1 MINA`.
+
+Si l'une de ces valeurs est obsolete dans le bundle web, Auro peut rejeter la transaction avant diffusion.

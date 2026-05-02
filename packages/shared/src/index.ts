@@ -119,10 +119,11 @@ export type RefundGameRequest = {
 export type NetworkConfig = {
   id: NetworkId;
   label: string;
-  networkId: "mainnet" | "testnet" | "zeko" | "zeko_testnet";
+  networkId: "mainnet" | "testnet";
   minaEndpoint: string;
   archiveEndpoint: string;
   explorerBaseUrl: string;
+  accountCreationFeeNanoMina?: string;
 };
 
 export const networks: Record<NetworkId, NetworkConfig> = {
@@ -145,10 +146,11 @@ export const networks: Record<NetworkId, NetworkConfig> = {
   zeko: {
     id: "zeko",
     label: "Zeko",
-    networkId: "zeko_testnet",
+    networkId: "testnet",
     minaEndpoint: "https://testnet.zeko.io/graphql",
     archiveEndpoint: "https://archive.testnet.zeko.io/graphql",
-    explorerBaseUrl: "https://zekoscan.io/tx"
+    explorerBaseUrl: "https://zekoscan.io/tx",
+    accountCreationFeeNanoMina: "100000000"
   }
 };
 
