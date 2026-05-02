@@ -157,7 +157,7 @@ export async function ensureWalletNetwork(
     throw new Error(`Auro n'est pas sur ${expectedNetworkId}. Change le reseau dans le wallet puis reessaie.`);
   }
 
-  report(onProgress, "Changement de reseau wallet", 4);
+  report(onProgress, "progressSwitchNetwork", 4);
   const switched = await provider.switchChain({ networkID: expectedNetworkId });
   const switchError = providerErrorMessage(switched);
   if (switchError) {
@@ -218,13 +218,13 @@ async function setup(network: NetworkId, onProgress?: ProgressCallback) {
   const toolkit = await load();
   toolkit.Mina.setActiveInstance(toolkit.createMinaNetwork(network));
   if (!compiled) {
-    report(onProgress, "Compilation du circuit ZK", 12);
+    report(onProgress, "progressCompileCircuit", 12);
   }
   compilePromise ??= O1JS_BROWSER_CACHE_ENABLED ? toolkit.ZkDiceGame.compile({ cache: browserCache() }) : toolkit.ZkDiceGame.compile();
   const result = (await compilePromise) as { verificationKey: unknown };
   verificationKey = result.verificationKey;
   compiled = true;
-  report(onProgress, "Circuit ZK pret", 38);
+  report(onProgress, "progressCircuitReady", 38);
   return toolkit;
 }
 
@@ -262,7 +262,7 @@ function compactGameMemo(action: string, gameId?: string) {
 }
 
 async function sendWithWallet(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback) {
-  report(onProgress, "Signature dans le wallet", 86);
+  report(onProgress, "progressWalletSignature", 86);
   let localManualResolver: ((resolution: ManualWalletResolution) => void) | null = null;
   const manualResolutionPromise = new Promise<ManualWalletResolution>((resolve) => {
     localManualResolver = resolve;
@@ -286,19 +286,19 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
     if (result.kind === "failed") {
       throw new Error(result.reason);
     }
-    report(onProgress, "Transaction renseignee", 100);
+    report(onProgress, "progressTransactionProvided", 100);
     return requiredTransactionHash(result.hash);
   }
 
   if (result === "timeout") {
-    report(onProgress, "Wallet sans retour automatique", 92);
+    report(onProgress, "progressWalletNoAutoReturn", 92);
     const manualHash = window.prompt(
       "Auro n'a pas renvoye le hash a l'application. Si la transaction est visible dans le wallet ou l'explorateur, colle son hash ici pour indexer la partie."
     );
     if (!manualHash?.trim()) {
       throw new Error("Transaction envoyee possible, mais hash non renseigne. Colle le hash pour indexer la partie.");
     }
-    report(onProgress, "Transaction renseignee", 100);
+    report(onProgress, "progressTransactionProvided", 100);
     return requiredTransactionHash(manualHash);
   }
 
@@ -310,11 +310,11 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
     if (!manualHash?.trim()) {
       throw new Error("Le wallet n'a pas renvoye de hash exploitable.");
     }
-    report(onProgress, "Transaction renseignee", 100);
+    report(onProgress, "progressTransactionProvided", 100);
     return requiredTransactionHash(manualHash);
   }
 
-  report(onProgress, "Transaction envoyee", 100);
+  report(onProgress, "progressTransactionSent", 100);
   return hash;
 }
 
@@ -381,10 +381,10 @@ export async function createGameOnchain(input: {
       toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
-  report(input.onProgress, "Generation de la preuve", 54);
+  report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
   tx.sign([zkappKey]);
-  report(input.onProgress, "Preuve generee", 82);
+  report(input.onProgress, "progressProofGenerated", 82);
   const txHash = await sendWithWallet(provider, tx.toJSON(), input.onProgress);
   return { txHash, zkappAddress: zkappAddress.toBase58() };
 }
@@ -422,9 +422,9 @@ export async function joinGameOnchain(input: {
       toolkit.UInt32.from(input.nextRefundDeadlineSlot)
     );
   });
-  report(input.onProgress, "Generation de la preuve", 54);
+  report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
-  report(input.onProgress, "Preuve generee", 82);
+  report(input.onProgress, "progressProofGenerated", 82);
   return sendWithWallet(provider, tx.toJSON(), input.onProgress);
 }
 
@@ -468,9 +468,9 @@ export async function settleGameOnchain(input: {
       toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
-  report(input.onProgress, "Generation de la preuve", 54);
+  report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
-  report(input.onProgress, "Preuve generee", 82);
+  report(input.onProgress, "progressProofGenerated", 82);
   return sendWithWallet(provider, tx.toJSON(), input.onProgress);
 }
 
@@ -519,9 +519,9 @@ export async function refundGameOnchain(input: {
       toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
-  report(input.onProgress, "Generation de la preuve", 54);
+  report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
-  report(input.onProgress, "Preuve generee", 82);
+  report(input.onProgress, "progressProofGenerated", 82);
   return sendWithWallet(provider, tx.toJSON(), input.onProgress);
 }
 

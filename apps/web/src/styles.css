@@ -190,7 +190,7 @@ h2 {
 .layout {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(260px, 320px) minmax(300px, 0.75fr) minmax(360px, 1.25fr);
+  grid-template-columns: minmax(260px, 320px) minmax(360px, 0.75fr) minmax(360px, 1.25fr);
   margin-top: 24px;
 }
 
@@ -363,7 +363,7 @@ select {
 .gameFilters {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   margin-top: 16px;
 }
 
@@ -743,7 +743,7 @@ dd {
   color: var(--danger-text);
 }
 
-@media (max-width: 1060px) {
+@media (max-width: 1120px) {
   .layout {
     grid-template-columns: 1fr;
   }

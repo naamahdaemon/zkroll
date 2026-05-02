@@ -158,6 +158,15 @@ const copy: Record<Locale, Record<string, string>> = {
     save: "Save",
     zkWorkNotice: "Compilation and proof generation can take a while in the browser.",
     elapsed: "Elapsed",
+    progressSwitchNetwork: "Switching wallet network",
+    progressCompileCircuit: "Compiling ZK circuit",
+    progressCircuitReady: "ZK circuit ready",
+    progressWalletSignature: "Wallet signature",
+    progressTransactionProvided: "Transaction provided",
+    progressWalletNoAutoReturn: "Wallet did not return automatically",
+    progressTransactionSent: "Transaction sent",
+    progressGenerateProof: "Generating proof",
+    progressProofGenerated: "Proof generated",
     refresh: "Refresh",
     walletMissing: "Mina wallet not found. Install Auro or enable the extension.",
     noWalletAccount: "No account returned by the wallet.",
@@ -304,6 +313,15 @@ const copy: Record<Locale, Record<string, string>> = {
     save: "Enregistrer",
     zkWorkNotice: "La compilation et la generation de preuve peuvent prendre un moment dans le navigateur.",
     elapsed: "Temps ecoule",
+    progressSwitchNetwork: "Changement de reseau wallet",
+    progressCompileCircuit: "Compilation du circuit ZK",
+    progressCircuitReady: "Circuit ZK pret",
+    progressWalletSignature: "Signature dans le wallet",
+    progressTransactionProvided: "Transaction renseignee",
+    progressWalletNoAutoReturn: "Wallet sans retour automatique",
+    progressTransactionSent: "Transaction envoyee",
+    progressGenerateProof: "Generation de la preuve",
+    progressProofGenerated: "Preuve generee",
     refresh: "Rafraichir",
     walletMissing: "Wallet Mina introuvable. Installe Auro ou active l'extension.",
     noWalletAccount: "Aucun compte retourne par le wallet.",
@@ -1464,7 +1482,7 @@ function App() {
       {onchainProgress && (
         <div className="workOverlay">
           <div className="workPanel">
-            <h2>{onchainProgress.label}</h2>
+            <h2>{t(onchainProgress.label)}</h2>
             <div className="progress">
               <span style={{ width: `${onchainProgress.progress}%` }} />
             </div>
