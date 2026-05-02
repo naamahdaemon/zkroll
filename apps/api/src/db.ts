@@ -812,6 +812,8 @@ export function settleGame(
           status = 'settled',
           updated_at = ?
       where id = ? and creator_reveal is not null and joiner_reveal is not null
+        and status in ('joined', 'player_one_revealed', 'player_two_revealed')
+        and (settlement_tx_hash is null or settlement_tx_status = 'FAILED')
     `
     )
     .run(input.creatorDie, input.joinerDie, input.winnerPublicKey, input.settlementTxHash, settlementTxStatus, now, now, id);

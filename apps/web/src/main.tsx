@@ -158,6 +158,9 @@ const copy: Record<Locale, Record<string, string>> = {
     join: "Join",
     reveal: "Reveal",
     settle: "Settle",
+    enterSettlementHash: "Enter settlement hash",
+    pasteSettlementHash: "Paste the settlement transaction hash visible in Auro or the explorer.",
+    settlementHashSaved: "Settlement hash saved. On-chain sync will be checked.",
     refundedGame: "Game refunded",
     failedGame: "Creation failed",
     noLockedFunds: "No funds were locked by the contract.",
@@ -321,6 +324,9 @@ const copy: Record<Locale, Record<string, string>> = {
     join: "Rejoindre",
     reveal: "Reveler",
     settle: "Regler",
+    enterSettlementHash: "Renseigner le hash settlement",
+    pasteSettlementHash: "Colle le hash de la transaction settlement visible dans Auro ou l'explorateur.",
+    settlementHashSaved: "Hash settlement renseigne. La synchronisation on-chain va etre verifiee.",
     refundedGame: "Partie remboursee",
     failedGame: "Creation echouee",
     noLockedFunds: "Aucun fonds n'a ete verrouille par le contrat.",
@@ -1488,6 +1494,28 @@ function App() {
     });
   }
 
+  async function handleReconcileSettlement(game: Game) {
+    await runAction(async () => {
+      if (!canSettle(game)) throw new Error(t("incompleteSettlement"));
+      const settlementTxHash = window.prompt(t("pasteSettlementHash"));
+      if (!settlementTxHash?.trim()) return;
+
+      const { creatorDie, joinerDie } = await computeDice(game);
+      const winnerPublicKey =
+        creatorDie > joinerDie ? game.creatorPublicKey : joinerDie > creatorDie ? game.joinerPublicKey : null;
+      const settled = await settleGame(game.id, {
+        creatorDie,
+        joinerDie,
+        winnerPublicKey,
+        settlementTxHash: settlementTxHash.trim()
+      });
+      setSelectedGameId(settled.id);
+      setTxStatuses((current) => ({ ...current, [settlementTxHash.trim()]: settled.settlementTxStatus ?? "PENDING" }));
+      setMessage(t("settlementHashSaved"));
+      await refreshGames();
+    });
+  }
+
   async function handleRefund(game: Game) {
     await runAction(async () => {
       if (!publicKey) throw new Error(t("walletRequired"));
@@ -2056,6 +2084,9 @@ function App() {
                   </button>
                   <button disabled={busy || !canSettle(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
                     {t("settle")}
+                  </button>
+                  <button disabled={busy || !canSettle(selectedGame)} onClick={() => void handleReconcileSettlement(selectedGame)}>
+                    {t("enterSettlementHash")}
                   </button>
                   <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
                     {t("refund")}
