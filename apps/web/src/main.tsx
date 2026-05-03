@@ -221,6 +221,7 @@ const copy: Record<Locale, Record<string, string>> = {
     progressProofGenerated: "Proof generated",
     refresh: "Refresh",
     settings: "Settings",
+    language: "Language",
     displayMode: "Display mode",
     cardsMode: "Cards",
     appMode: "Application",
@@ -428,6 +429,7 @@ const copy: Record<Locale, Record<string, string>> = {
     progressProofGenerated: "Preuve generee",
     refresh: "Rafraichir",
     settings: "Parametres",
+    language: "Langue",
     displayMode: "Affichage",
     cardsMode: "Cards",
     appMode: "Application",
@@ -1397,6 +1399,15 @@ function App() {
 
     return (
       <>
+        {viewMode === "app" && (
+          <label>
+            {t("language")}
+            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
+              <option value="en">English</option>
+              <option value="fr">Francais</option>
+            </select>
+          </label>
+        )}
         <label>
           {t("displayMode")}
           <select value={viewMode} onChange={(event) => setMode(event.target.value as ViewMode)}>
@@ -2204,13 +2215,15 @@ function App() {
               )}
             </div>
           )}
-          <label className="compactSelect" title="Language">
-            <Languages size={16} />
-            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
-              <option value="en">EN</option>
-              <option value="fr">FR</option>
-            </select>
-          </label>
+          {viewMode !== "app" && (
+            <label className="compactSelect" title={t("language")}>
+              <Languages size={16} />
+              <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
+                <option value="en">EN</option>
+                <option value="fr">FR</option>
+              </select>
+            </label>
+          )}
           <button
             className="iconButton"
             onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}

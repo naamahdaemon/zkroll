@@ -1377,26 +1377,38 @@ dd {
 
   .appShell .topbar {
     display: grid;
-    gap: 14px;
-    grid-template-columns: 1fr;
+    align-items: center;
+    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
     max-width: 100%;
   }
 
-  .appShell .topbar > .topActions {
-    order: -1;
+  .appShell .brand {
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .appShell .brand img {
+    height: 38px;
+    width: 38px;
+  }
+
+  .appShell h1 {
+    font-size: 34px;
+    line-height: 0.9;
   }
 
   .appShell .topActions {
     display: grid;
     gap: 8px;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
-    width: 100%;
+    grid-template-columns: minmax(96px, 140px) auto auto;
+    width: auto;
   }
 
   .appShell .networkPill {
     width: 100%;
     min-width: 0;
-    padding-left: 10px;
+    padding: 0 9px;
   }
 
   .appShell .networkPill span:not(.networkSpark) {
@@ -1438,7 +1450,8 @@ dd {
   }
 
   .appShell .iconButton {
-    width: 42px;
+    width: 40px;
+    min-height: 40px;
   }
 
   .gameFilters {
