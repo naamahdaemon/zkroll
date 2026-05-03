@@ -1734,7 +1734,6 @@ function App() {
         savePendingCreationMaterial(created, secret, gameKey.privateKey);
       }
       setSelectedGameId(created.id);
-      if (viewMode === "app") setAppScreen("detail");
 
       if (onchainEnabled) {
         const result = await createGameOnchain({
@@ -1755,6 +1754,8 @@ function App() {
         removePendingCreationMaterial(reconciled);
         setSelectedGameId(reconciled.id);
         if (viewMode === "app") setAppScreen("detail");
+      } else if (viewMode === "app") {
+        setAppScreen("detail");
       }
 
       setMessage(onchainEnabled ? t("createdOnchain") : t("createdMock"));
