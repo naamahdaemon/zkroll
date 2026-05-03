@@ -1379,79 +1379,118 @@ dd {
     display: grid;
     align-items: center;
     gap: 10px;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(116px, 148px);
     max-width: 100%;
   }
 
+  .appShell .eyebrow {
+    font-size: 10px;
+    line-height: 1.15;
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .appShell .brand {
-    gap: 9px;
+    gap: 6px;
     min-width: 0;
   }
 
   .appShell .brand img {
-    height: 38px;
-    width: 38px;
+    height: 34px;
+    width: 34px;
   }
 
   .appShell h1 {
-    font-size: 34px;
+    font-size: 31px;
     line-height: 0.9;
   }
 
   .appShell .topActions {
-    display: grid;
-    gap: 8px;
-    grid-template-columns: minmax(96px, 140px) auto auto;
-    width: auto;
+    display: block;
+    justify-self: end;
+    width: 100%;
   }
 
   .appShell .networkPill {
     width: 100%;
     min-width: 0;
-    padding: 0 9px;
+    gap: 5px;
+    min-height: 32px;
+    padding: 0 7px;
   }
 
   .appShell .networkPill span:not(.networkSpark) {
-    font-size: 13px;
+    font-size: 11px;
+    font-weight: 600;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     width: 100%;
   }
 
+  .appShell .networkSpark {
+    height: 6px;
+    width: 6px;
+  }
+
   .appShell .networkMenu {
-    left: 0;
+    left: 14px;
     min-width: 0;
-    right: auto;
-    width: calc(100vw - 28px);
+    max-height: calc(100vh - 86px);
+    overflow: auto;
+    position: fixed;
+    right: 14px;
+    top: 86px;
+    width: auto;
   }
 
   .appShell .networkOption {
-    gap: 10px;
-    min-height: 68px;
-    padding: 12px;
+    gap: 8px;
+    min-height: 58px;
+    padding: 10px;
+  }
+
+  .appShell .networkOption span strong {
+    font-size: 14px;
+  }
+
+  .appShell .networkOption small {
+    font-size: 11px;
   }
 
   .appShell .networkOption em {
-    font-size: 13px;
-    padding: 8px 10px;
+    font-size: 11px;
+    padding: 7px 8px;
   }
 
   .appShell .compactSelect {
     gap: 4px;
-    min-height: 42px;
+    min-height: 32px;
     padding: 0 6px;
   }
 
   .appShell .compactSelect select {
-    font-size: 13px;
+    font-size: 11px;
     padding: 0;
-    width: 42px;
+    width: 34px;
+  }
+
+  .appShell .compactSelect svg {
+    height: 13px;
+    width: 13px;
   }
 
   .appShell .iconButton {
-    width: 40px;
-    min-height: 40px;
+    min-height: 32px;
+    width: 32px;
+  }
+
+  .appShell .iconButton svg,
+  .appShell .networkPill svg {
+    height: 13px;
+    width: 13px;
   }
 
   .gameFilters {

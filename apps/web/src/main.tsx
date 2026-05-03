@@ -222,6 +222,9 @@ const copy: Record<Locale, Record<string, string>> = {
     refresh: "Refresh",
     settings: "Settings",
     language: "Language",
+    theme: "Theme",
+    lightTheme: "Light",
+    darkTheme: "Dark",
     displayMode: "Display mode",
     cardsMode: "Cards",
     appMode: "Application",
@@ -323,7 +326,7 @@ const copy: Record<Locale, Record<string, string>> = {
     cancelNotReady: "Only the creator can cancel an open game after the creation transaction is included.",
     invalidRefundTimeout: "Refund timeout must be a positive integer.",
     activeAfterSlot: "active after slot",
-    minaZkDice: "Mina / Zeko zk dice",
+    minaZkDice: "Mina / Zeko zk dice roll",
     provingCompatibilityTitle: "ZK proving may not work in this browser",
     provingCompatibilityIntro: "This device cannot safely compile the circuit here.",
     provingCompatibilityAdvice: "Open zkroll in a full browser with COOP/COEP support, or use desktop.",
@@ -430,6 +433,9 @@ const copy: Record<Locale, Record<string, string>> = {
     refresh: "Rafraichir",
     settings: "Parametres",
     language: "Langue",
+    theme: "Theme",
+    lightTheme: "Clair",
+    darkTheme: "Sombre",
     displayMode: "Affichage",
     cardsMode: "Cards",
     appMode: "Application",
@@ -531,7 +537,7 @@ const copy: Record<Locale, Record<string, string>> = {
     cancelNotReady: "Seul le createur peut annuler une partie ouverte apres inclusion de la transaction de creation.",
     invalidRefundTimeout: "Le timeout de refund doit etre un nombre entier positif.",
     activeAfterSlot: "actif apres le slot",
-    minaZkDice: "Mina / Zeko zk dice",
+    minaZkDice: "Mina / Zeko zk dice roll",
     provingCompatibilityTitle: "La preuve ZK risque de ne pas fonctionner dans ce navigateur",
     provingCompatibilityIntro: "Cet environnement ne peut pas compiler le circuit de maniere fiable.",
     provingCompatibilityAdvice: "Ouvre zkroll dans un navigateur complet compatible COOP/COEP, ou utilise desktop.",
@@ -1400,13 +1406,22 @@ function App() {
     return (
       <>
         {viewMode === "app" && (
-          <label>
-            {t("language")}
-            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
-              <option value="en">English</option>
-              <option value="fr">Francais</option>
-            </select>
-          </label>
+          <>
+            <label>
+              {t("language")}
+              <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
+                <option value="en">English</option>
+                <option value="fr">Francais</option>
+              </select>
+            </label>
+            <label>
+              {t("theme")}
+              <select value={theme} onChange={(event) => setTheme(event.target.value as Theme)}>
+                <option value="light">{t("lightTheme")}</option>
+                <option value="dark">{t("darkTheme")}</option>
+              </select>
+            </label>
+          </>
         )}
         <label>
           {t("displayMode")}
@@ -2171,11 +2186,11 @@ function App() {
 
       <section className="topbar">
         <div>
-          <p className="eyebrow">{t("minaZkDice")}</p>
           <div className="brand">
             <img src="/zkroll-logo.svg" alt="" />
             <h1>zkroll</h1>
           </div>
+          <p className="eyebrow">{t("minaZkDice")}</p>
         </div>
         <div className="topActions">
           {viewMode === "app" && (
@@ -2224,16 +2239,20 @@ function App() {
               </select>
             </label>
           )}
-          <button
-            className="iconButton"
-            onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-            title={theme === "dark" ? "Light" : "Dark"}
-          >
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-          <button className="iconButton" onClick={openSettings} title={t("settings")}>
-            <Settings size={18} />
-          </button>
+          {viewMode !== "app" && (
+            <button
+              className="iconButton"
+              onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+              title={theme === "dark" ? "Light" : "Dark"}
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+          )}
+          {viewMode !== "app" && (
+            <button className="iconButton" onClick={openSettings} title={t("settings")}>
+              <Settings size={18} />
+            </button>
+          )}
         </div>
       </section>
 
