@@ -68,7 +68,7 @@ async function firebaseAccessToken() {
 }
 
 function notificationUrl(game: Game) {
-  const path = `/?game=${encodeURIComponent(game.id)}`;
+  const path = `/?network=${encodeURIComponent(game.network)}&game=${encodeURIComponent(game.id)}`;
   return webOrigin ? `${webOrigin.replace(/\/$/, "")}${path}` : path;
 }
 

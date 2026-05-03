@@ -798,6 +798,7 @@ function App() {
       (game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)
     );
     if (!selectedGameId && nextVisibleGames[0]) setSelectedGameId(nextVisibleGames[0].id);
+    return nextGames;
   }
 
   function statusFor(hash: string | null | undefined): TxStatus {
@@ -1041,15 +1042,46 @@ function App() {
     );
   }
 
+  function networkFromUrl(value: string | null): NetworkId | null {
+    return value && value in networks ? (value as NetworkId) : null;
+  }
+
+  function selectGameFromUrl(items = games) {
+    const params = new URLSearchParams(window.location.search);
+    const gameId = params.get("game");
+    if (!gameId) return;
+
+    const linkedGame = items.find((item) => item.id === gameId);
+    const linkedNetwork = networkFromUrl(params.get("network")) ?? linkedGame?.network ?? null;
+    if (linkedNetwork) setNetwork(linkedNetwork);
+    setStatusFilter("all");
+    setPlayerSearch("");
+    setSelectedGameId(gameId);
+    if (viewMode === "app") setAppScreen("detail");
+  }
+
   useEffect(() => {
-    const gameFromUrl = new URLSearchParams(window.location.search).get("game");
-    if (gameFromUrl) setSelectedGameId(gameFromUrl);
-    void refreshGames();
+    void refreshGames().then((items) => selectGameFromUrl(items));
     const savedVault = localStorage.getItem("zkroll:secrets");
     if (savedVault) {
       setSecretVault(JSON.parse(savedVault) as Record<string, string>);
     }
   }, []);
+
+  useEffect(() => {
+    selectGameFromUrl();
+
+    const handleDeepLink = () => selectGameFromUrl();
+    window.addEventListener("focus", handleDeepLink);
+    window.addEventListener("popstate", handleDeepLink);
+    navigator.serviceWorker?.addEventListener("message", handleDeepLink);
+
+    return () => {
+      window.removeEventListener("focus", handleDeepLink);
+      window.removeEventListener("popstate", handleDeepLink);
+      navigator.serviceWorker?.removeEventListener("message", handleDeepLink);
+    };
+  }, [games, viewMode]);
 
   useEffect(() => {
     localStorage.setItem("zkroll:locale", locale);

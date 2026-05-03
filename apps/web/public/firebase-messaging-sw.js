@@ -16,8 +16,13 @@ if (Object.values(firebaseConfig).every(Boolean)) {
 
   messaging.onBackgroundMessage((payload) => {
     const gameId = payload.data?.gameId;
+    const network = payload.data?.network;
     const status = payload.data?.status;
-    const url = payload.data?.url || (gameId ? `/?game=${encodeURIComponent(gameId)}` : "/");
+    const url =
+      payload.data?.url ||
+      (gameId
+        ? `/?${network ? `network=${encodeURIComponent(network)}&` : ""}game=${encodeURIComponent(gameId)}`
+        : "/");
     self.registration.showNotification(payload.data?.title || "zkroll", {
       body: payload.data?.body || (gameId ? `Game ${gameId} updated${status ? `: ${status}` : ""}` : "Game updated"),
       icon: "/zkroll-logo.svg",
