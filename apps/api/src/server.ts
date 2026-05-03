@@ -20,6 +20,7 @@ import {
   markCreationFailed,
   markTransactionFailed,
   reconcileCreationTx,
+  reconcileJoinTx,
   refundGame,
   revealSecret,
   settleGame,
@@ -670,6 +671,18 @@ app.post("/games/:id/join", async (request, reply) => {
       refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
       joinTxHash: requiredString(body, "joinTxHash")
     }));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/join-tx", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    const game = await sendUpdatedGame(reconcileJoinTx(id, requiredString(body, "joinTxHash")));
+    await notifyGameUpdated(game);
+    return game;
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

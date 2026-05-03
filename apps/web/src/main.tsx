@@ -45,6 +45,7 @@ import {
   markTransactionIncluded,
   markCreationFailed,
   reconcileCreationTx,
+  reconcileJoinTx,
   refundGame,
   revealGame,
   settleGame,
@@ -278,6 +279,9 @@ const copy: Record<Locale, Record<string, string>> = {
     creatorOnlyHash: "Only the creator can enter the creation hash.",
     pasteCreationHash: "Paste the creation transaction hash visible in Auro or the explorer.",
     hashSaved: "Creation hash saved. On-chain sync will be checked.",
+    pasteJoinHash: "Paste the join transaction hash visible in Auro or the explorer.",
+    joinHashSaved: "Join hash saved. On-chain sync will be checked.",
+    joinerOnlyHash: "Only the opponent can enter this join hash.",
     resignCreationConfirm: "Before re-signing, check Auro or the explorer. If the transaction already exists, paste its hash instead. Re-sign now?",
     creationMaterialMissing: "Local creation material is missing. Paste the transaction hash if it exists, or create a new challenge.",
     creationResigned: "Creation transaction signed again and indexed.",
@@ -489,6 +493,9 @@ const copy: Record<Locale, Record<string, string>> = {
     creatorOnlyHash: "Seul le createur peut renseigner le hash de creation.",
     pasteCreationHash: "Colle le hash de la transaction de creation visible dans Auro ou l'explorateur.",
     hashSaved: "Hash de creation renseigne. La synchronisation on-chain va etre verifiee.",
+    pasteJoinHash: "Colle le hash de la transaction de join visible dans Auro ou l'explorateur.",
+    joinHashSaved: "Hash de join renseigne. La synchronisation on-chain va etre verifiee.",
+    joinerOnlyHash: "Seul l'adversaire peut renseigner ce hash de join.",
     resignCreationConfirm: "Avant de resigner, verifie Auro ou l'explorateur. Si la transaction existe deja, colle plutot son hash. Resigner maintenant ?",
     creationMaterialMissing: "Les donnees locales de creation sont manquantes. Colle le hash si la transaction existe, ou cree un nouveau defi.",
     creationResigned: "Transaction de creation signee a nouveau et indexee.",
@@ -1681,6 +1688,19 @@ function App() {
     });
   }
 
+  async function handleReconcileJoin(game: Game) {
+    await runAction(async () => {
+      if (game.joinerPublicKey !== publicKey) {
+        throw new Error(t("joinerOnlyHash"));
+      }
+      const txHash = window.prompt(t("pasteJoinHash"));
+      if (!txHash?.trim()) return;
+      const reconciled = await reconcileJoinTx(game.id, requiredTransactionHash(txHash));
+      setSelectedGameId(reconciled.id);
+      setMessage(t("joinHashSaved"));
+    });
+  }
+
   async function handleResignCreation(game: Game) {
     await runAction(async () => {
       if (game.creatorPublicKey !== publicKey) {
@@ -1827,6 +1847,16 @@ function App() {
         : await temporaryCommitment(secret, publicKey, game.id);
       const refundDeadlineSlot = onchainEnabled ? await refundDeadlineForJoin(game.network, game.refundTimeoutSlots) : "0";
       let txHash = fakeTxHash("join");
+      let joined = await joinGame(game.id, {
+        joinerPseudo: pseudo,
+        joinerPublicKey: publicKey,
+        joinerPseudoHash,
+        joinerCommitment,
+        refundDeadlineSlot,
+        joinTxHash: onchainEnabled ? `pending:join:${game.id}` : txHash
+      });
+      rememberSecret(joined.id, secret);
+      setSelectedGameId(joined.id);
 
       if (onchainEnabled) {
         if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot || !game.zkappAddress) throw new Error(t("incompatibleOnchain"));
@@ -1846,18 +1876,10 @@ function App() {
           nextRefundDeadlineSlot: refundDeadlineSlot,
           onProgress: updateOnchainProgress
         });
+        joined = await reconcileJoinTx(joined.id, requiredTransactionHash(txHash));
       }
 
-      const joined = await joinGame(game.id, {
-        joinerPseudo: pseudo,
-        joinerPublicKey: publicKey,
-        joinerPseudoHash,
-        joinerCommitment,
-        refundDeadlineSlot,
-        joinTxHash: txHash
-      });
       const indexedGame = onchainEnabled ? joined : await confirmJoinGame(joined.id);
-      rememberSecret(indexedGame.id, secret);
       setSelectedGameId(indexedGame.id);
       setMessage(onchainEnabled ? t("joinPendingMessage") : t("joinedMock"));
     });
@@ -2703,6 +2725,13 @@ function App() {
 
               {selectedGame.status === "join_pending" && (
                 <div className="actions">
+                  <button
+                    className="secondaryButton"
+                    disabled={busy || selectedGame.joinerPublicKey !== publicKey || !selectedGame.joinTxHash?.startsWith("pending:")}
+                    onClick={() => void handleReconcileJoin(selectedGame)}
+                  >
+                    {t("enterHash")}
+                  </button>
                   <button disabled={busy || !canConfirmJoin(selectedGame)} onClick={() => void handleConfirmJoin(selectedGame)} className="primary">
                     {t("confirmJoin")}
                   </button>

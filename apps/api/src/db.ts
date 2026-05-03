@@ -761,6 +761,29 @@ export function joinGame(
   return getGame(id)!;
 }
 
+export function reconcileJoinTx(id: string, joinTxHash: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set join_tx_hash = ?,
+          join_tx_status = 'PENDING',
+          updated_at = ?
+      where id = ?
+        and status = 'join_pending'
+        and join_tx_hash like 'pending:%'
+    `
+    )
+    .run(joinTxHash, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Join transaction cannot be reconciled");
+  }
+
+  return getGame(id)!;
+}
+
 export function confirmJoinGame(id: string): Game {
   const now = new Date().toISOString();
   const result = db

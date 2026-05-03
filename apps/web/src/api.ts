@@ -132,6 +132,13 @@ export function joinGame(
   });
 }
 
+export function reconcileJoinTx(id: string, joinTxHash: string) {
+  return request<Game>(`/games/${id}/join-tx`, {
+    method: "PATCH",
+    body: JSON.stringify({ joinTxHash })
+  });
+}
+
 export function confirmJoinGame(id: string) {
   return request<Game>(`/games/${id}/join-confirmed`, {
     method: "PATCH",
