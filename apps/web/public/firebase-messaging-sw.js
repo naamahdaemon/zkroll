@@ -18,10 +18,13 @@ if (Object.values(firebaseConfig).every(Boolean)) {
     const gameId = payload.data?.gameId;
     const network = payload.data?.network;
     const status = payload.data?.status;
+    const updatedAt = payload.data?.updatedAt;
     const url =
       payload.data?.url ||
       (gameId
-        ? `/?${network ? `network=${encodeURIComponent(network)}&` : ""}game=${encodeURIComponent(gameId)}`
+        ? `/?${network ? `network=${encodeURIComponent(network)}&` : ""}game=${encodeURIComponent(gameId)}${
+            updatedAt ? `&notification=${encodeURIComponent(updatedAt)}` : ""
+          }`
         : "/");
     self.registration.showNotification(payload.data?.title || "zkroll", {
       body: payload.data?.body || (gameId ? `Game ${gameId} updated${status ? `: ${status}` : ""}` : "Game updated"),

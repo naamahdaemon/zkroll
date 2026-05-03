@@ -68,7 +68,12 @@ async function firebaseAccessToken() {
 }
 
 function notificationUrl(game: Game) {
-  const path = `/?network=${encodeURIComponent(game.network)}&game=${encodeURIComponent(game.id)}`;
+  const params = new URLSearchParams({
+    network: game.network,
+    game: game.id,
+    notification: game.updatedAt
+  });
+  const path = `/?${params.toString()}`;
   return webOrigin ? `${webOrigin.replace(/\/$/, "")}${path}` : path;
 }
 

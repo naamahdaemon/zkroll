@@ -1046,10 +1046,29 @@ function App() {
     return value && value in networks ? (value as NetworkId) : null;
   }
 
+  function cleanDeepLinkUrl(params: URLSearchParams) {
+    params.delete("game");
+    params.delete("network");
+    params.delete("notification");
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }
+
+  function consumedDeepLinkKey(params: URLSearchParams, gameId: string) {
+    return `zkroll:consumed-deeplink:${params.get("network") ?? ""}:${gameId}:${params.get("notification") ?? "legacy"}`;
+  }
+
   function selectGameFromUrl(items = games) {
     const params = new URLSearchParams(window.location.search);
     const gameId = params.get("game");
     if (!gameId) return;
+    const consumedKey = consumedDeepLinkKey(params, gameId);
+
+    if (sessionStorage.getItem(consumedKey)) {
+      cleanDeepLinkUrl(params);
+      return;
+    }
 
     const linkedGame = items.find((item) => item.id === gameId);
     const linkedNetwork = networkFromUrl(params.get("network")) ?? linkedGame?.network ?? null;
@@ -1058,12 +1077,8 @@ function App() {
     setPlayerSearch("");
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
-
-    params.delete("game");
-    params.delete("network");
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
-    window.history.replaceState(window.history.state, "", nextUrl);
+    sessionStorage.setItem(consumedKey, "1");
+    cleanDeepLinkUrl(params);
   }
 
   useEffect(() => {
