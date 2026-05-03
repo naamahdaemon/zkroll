@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   AtSign,
   Bell,
+  ChevronDown,
   CircleEqual,
   Copy,
   Copyright,
@@ -231,6 +232,10 @@ const copy: Record<Locale, Record<string, string>> = {
     backToGames: "Back to games",
     walletAddress: "Wallet address",
     chooseNetwork: "Choose network",
+    mainnetNetworkDescription: "Mina production network",
+    devnetNetworkDescription: "Mina development network",
+    zekoNetworkDescription: "Zeko test network",
+    activeNetwork: "Active",
     enableNotifications: "Enable notifications for this game",
     disableNotifications: "Disable notifications for this game",
     notificationsEnabled: "Notifications enabled for this game.",
@@ -434,6 +439,10 @@ const copy: Record<Locale, Record<string, string>> = {
     backToGames: "Retour aux parties",
     walletAddress: "Adresse wallet",
     chooseNetwork: "Choisir reseau",
+    mainnetNetworkDescription: "Reseau Mina de production",
+    devnetNetworkDescription: "Reseau Mina de developpement",
+    zekoNetworkDescription: "Reseau de test Zeko",
+    activeNetwork: "Actif",
     enableNotifications: "Activer les notifications pour cette partie",
     disableNotifications: "Desactiver les notifications pour cette partie",
     notificationsEnabled: "Notifications activees pour cette partie.",
@@ -657,6 +666,7 @@ function App() {
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem("zkroll:view-mode") === "app" ? "app" : "cards"));
   const [appScreen, setAppScreen] = useState<AppScreen>("games");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [networkMenuOpen, setNetworkMenuOpen] = useState(false);
   const [pseudo, setPseudo] = useState("");
   const [publicKey, setPublicKey] = useState("");
   const [pseudoDraft, setPseudoDraft] = useState("");
@@ -1416,6 +1426,17 @@ function App() {
     );
   }
 
+  function networkDescriptionKey(networkId: NetworkId) {
+    if (networkId === "mainnet") return "mainnetNetworkDescription";
+    if (networkId === "zeko") return "zekoNetworkDescription";
+    return "devnetNetworkDescription";
+  }
+
+  function selectAppNetwork(nextNetwork: NetworkId) {
+    setNetwork(nextNetwork);
+    setNetworkMenuOpen(false);
+  }
+
   async function computeDice(game: Game) {
     if (!game.creatorReveal || !game.joinerReveal) {
       throw new Error(t("bothSecretsRequired"));
@@ -2147,16 +2168,41 @@ function App() {
         </div>
         <div className="topActions">
           {viewMode === "app" && (
-            <label className={`networkPill ${network}`} title={t("chooseNetwork")}>
-              <span className="networkSpark" />
-              <select value={network} onChange={(event) => setNetwork(event.target.value as NetworkId)}>
-                {Object.values(networks).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="networkPicker">
+              <button
+                aria-expanded={networkMenuOpen}
+                className={`networkPill ${network}`}
+                onClick={() => setNetworkMenuOpen((current) => !current)}
+                title={t("chooseNetwork")}
+                type="button"
+              >
+                <span className="networkSpark" />
+                <span>{networks[network].label}</span>
+                <ChevronDown size={16} />
+              </button>
+              {networkMenuOpen && (
+                <div className="networkMenu">
+                  <strong>{t("chooseNetwork")}</strong>
+                  {Object.values(networks).map((item) => {
+                    const active = item.id === network;
+                    return (
+                      <button
+                        className={active ? `networkOption ${item.id} active` : `networkOption ${item.id}`}
+                        key={item.id}
+                        onClick={() => selectAppNetwork(item.id)}
+                        type="button"
+                      >
+                        <span>
+                          <strong>{item.label}</strong>
+                          <small>{t(networkDescriptionKey(item.id))}</small>
+                        </span>
+                        <em>{active ? t("activeNetwork") : item.id === "mainnet" ? "Mainnet" : item.id === "devnet" ? "Devnet" : "Zeko"}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
           <label className="compactSelect" title="Language">
             <Languages size={16} />

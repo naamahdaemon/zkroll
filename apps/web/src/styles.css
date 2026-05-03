@@ -143,6 +143,10 @@ h1 {
   gap: 10px;
 }
 
+.networkPicker {
+  position: relative;
+}
+
 .networkPill {
   align-items: center;
   background:
@@ -152,19 +156,16 @@ h1 {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   display: inline-flex;
   gap: 8px;
+  justify-content: center;
   min-height: 42px;
-  padding: 0 8px 0 12px;
+  padding: 0 14px;
+  white-space: nowrap;
 }
 
-.networkPill select {
-  background: transparent;
-  border: 0;
+.networkPill span:not(.networkSpark) {
   color: var(--primary);
   font-size: 14px;
   font-weight: 900;
-  min-height: 36px;
-  padding: 0 22px 0 0;
-  width: auto;
 }
 
 .networkSpark {
@@ -185,6 +186,79 @@ h1 {
 
 .networkPill.zeko .networkSpark {
   background: #b871ff;
+}
+
+.networkMenu {
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px var(--shadow);
+  display: grid;
+  gap: 10px;
+  min-width: min(360px, calc(100vw - 28px));
+  padding: 14px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 30;
+}
+
+.networkMenu > strong {
+  font-size: 16px;
+  padding: 4px 6px 2px;
+}
+
+.networkOption {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 76px;
+  padding: 14px;
+  text-align: left;
+}
+
+.networkOption span {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.networkOption span strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.networkOption small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.networkOption em {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--primary);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 900;
+  padding: 9px 13px;
+}
+
+.networkOption.devnet em {
+  color: #c77d12;
+}
+
+.networkOption.zeko em {
+  color: #b871ff;
+}
+
+.networkOption.active {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface-soft));
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
 }
 
 .compatibilityWarning {
@@ -1138,12 +1212,16 @@ dd {
 }
 
 .appShell .topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   margin: 0 auto;
   max-width: 620px;
 }
 
 .appShell .topActions {
-  flex-wrap: wrap;
+  align-self: start;
+  justify-self: end;
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
@@ -1291,6 +1369,76 @@ dd {
 
   .topbar {
     align-items: flex-start;
+  }
+
+  .appShell {
+    padding: 18px 14px 96px;
+  }
+
+  .appShell .topbar {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+
+  .appShell .topbar > .topActions {
+    order: -1;
+  }
+
+  .appShell .topActions {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    width: 100%;
+  }
+
+  .appShell .networkPill {
+    width: 100%;
+    min-width: 0;
+    padding-left: 10px;
+  }
+
+  .appShell .networkPill span:not(.networkSpark) {
+    font-size: 13px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+  }
+
+  .appShell .networkMenu {
+    left: 0;
+    min-width: 0;
+    right: auto;
+    width: calc(100vw - 28px);
+  }
+
+  .appShell .networkOption {
+    gap: 10px;
+    min-height: 68px;
+    padding: 12px;
+  }
+
+  .appShell .networkOption em {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+
+  .appShell .compactSelect {
+    gap: 4px;
+    min-height: 42px;
+    padding: 0 6px;
+  }
+
+  .appShell .compactSelect select {
+    font-size: 13px;
+    padding: 0;
+    width: 42px;
+  }
+
+  .appShell .iconButton {
+    width: 42px;
   }
 
   .gameFilters {
