@@ -684,7 +684,7 @@ function App() {
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("mine_active");
   const [playerSearch, setPlayerSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
@@ -1058,6 +1058,12 @@ function App() {
     setPlayerSearch("");
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
+
+    params.delete("game");
+    params.delete("network");
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    window.history.replaceState(window.history.state, "", nextUrl);
   }
 
   useEffect(() => {
