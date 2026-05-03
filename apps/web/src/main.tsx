@@ -2,19 +2,30 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AlertTriangle,
+  AtSign,
   Bell,
   CircleEqual,
   Copy,
+  Copyright,
   Dices,
+  Github,
+  Globe,
   Languages,
+  Mail,
+  MessageCircle,
+  List,
   Moon,
   Pencil,
+  Plus,
   RefreshCw,
   RotateCcw,
   Search,
+  Send,
+  Settings,
   ShieldCheck,
   Sun,
   Trophy,
+  User,
   X,
   Wallet
 } from "lucide-react";
@@ -95,7 +106,9 @@ const zekoJoinedRefundDeadlineSlot = "4294967295";
 type TxStatus = TransactionStatus;
 type Locale = "en" | "fr";
 type Theme = "light" | "dark";
-type StatusFilter = "active" | "all" | GameStatus;
+type ViewMode = "cards" | "app";
+type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "settings";
+type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
 const gameStatuses: GameStatus[] = [
   "pending_signature",
   "created",
@@ -119,6 +132,16 @@ async function createSecretQrDataUrl(secret: string) {
   return qrcode.toDataURL(secret, { margin: 1, width: 192 });
 }
 
+const credits = [
+  { icon: "copyright", text: "2026 naamahdaemon" },
+  { icon: "mail", text: "naamahdaemon@gmail.com" },
+  { icon: "discord", text: "naamah8064" },
+  { icon: "telegram", text: "@naamadaemon", url: "https://t.me/naamahdaemon" },
+  { icon: "twitter", text: "@naamahdaemon", url: "https://twitter.com/naamahdaemon" },
+  { icon: "github", text: "github.com/naamahdaemon", url: "https://github.com/naamahdaemon" },
+  { icon: "web", text: "mina.naamahdaemon.eu", url: "https://mina.naamahdaemon.eu" }
+];
+
 const copy: Record<Locale, Record<string, string>> = {
   en: {
     walletPrompt: "Connect your wallet to start.",
@@ -138,6 +161,7 @@ const copy: Record<Locale, Record<string, string>> = {
     create: "Create",
     games: "Games",
     activeStatuses: "Active games",
+    myActiveStatuses: "My active games",
     allStatuses: "All statuses",
     allNetworks: "All networks",
     searchPlayer: "Search player",
@@ -195,6 +219,18 @@ const copy: Record<Locale, Record<string, string>> = {
     progressGenerateProof: "Generating proof",
     progressProofGenerated: "Proof generated",
     refresh: "Refresh",
+    settings: "Settings",
+    displayMode: "Display mode",
+    cardsMode: "Cards",
+    appMode: "Application",
+    credits: "Credits",
+    walletTab: "Wallet",
+    newGameTab: "New",
+    gamesTab: "Games",
+    messages: "Messages",
+    backToGames: "Back to games",
+    walletAddress: "Wallet address",
+    chooseNetwork: "Choose network",
     enableNotifications: "Enable notifications for this game",
     disableNotifications: "Disable notifications for this game",
     notificationsEnabled: "Notifications enabled for this game.",
@@ -328,6 +364,7 @@ const copy: Record<Locale, Record<string, string>> = {
     create: "Creer",
     games: "Parties",
     activeStatuses: "Parties actives",
+    myActiveStatuses: "Mes parties actives",
     allStatuses: "Tous les etats",
     allNetworks: "Tous les reseaux",
     searchPlayer: "Rechercher joueur",
@@ -385,6 +422,18 @@ const copy: Record<Locale, Record<string, string>> = {
     progressGenerateProof: "Generation de la preuve",
     progressProofGenerated: "Preuve generee",
     refresh: "Rafraichir",
+    settings: "Parametres",
+    displayMode: "Affichage",
+    cardsMode: "Cards",
+    appMode: "Application",
+    credits: "Credits",
+    walletTab: "Wallet",
+    newGameTab: "Nouvelle",
+    gamesTab: "Parties",
+    messages: "Messages",
+    backToGames: "Retour aux parties",
+    walletAddress: "Adresse wallet",
+    chooseNetwork: "Choisir reseau",
     enableNotifications: "Activer les notifications pour cette partie",
     disableNotifications: "Desactiver les notifications pour cette partie",
     notificationsEnabled: "Notifications activees pour cette partie.",
@@ -502,6 +551,8 @@ const copy: Record<Locale, Record<string, string>> = {
   }
 };
 
+const initialMessage = copy.en.walletPrompt ?? "Connect your wallet to start.";
+
 const provingIssueCopyKey: Record<ProvingCompatibilityIssueCode, string> = {
   noWebAssembly: "issueNoWebAssembly",
   noWorker: "issueNoWorker",
@@ -603,6 +654,9 @@ function removePendingCreationMaterial(game: Game) {
 function App() {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem("zkroll:locale") === "fr" ? "fr" : "en"));
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("zkroll:theme") === "dark" ? "dark" : "light"));
+  const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem("zkroll:view-mode") === "app" ? "app" : "cards"));
+  const [appScreen, setAppScreen] = useState<AppScreen>("games");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [pseudo, setPseudo] = useState("");
   const [publicKey, setPublicKey] = useState("");
   const [pseudoDraft, setPseudoDraft] = useState("");
@@ -649,7 +703,8 @@ function App() {
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
   const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
-  const [message, setMessage] = useState(() => copy.en.walletPrompt);
+  const [message, setMessage] = useState(initialMessage);
+  const [messageHistory, setMessageHistory] = useState<string[]>(() => [initialMessage]);
 
   const visibleGames = useMemo(
     () => games.filter((game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)),
@@ -663,6 +718,10 @@ function App() {
         const statusMatches =
           statusFilter === "active"
             ? !terminalGameStatuses.has(game.status)
+            : statusFilter === "mine_active"
+              ? !terminalGameStatuses.has(game.status) &&
+                Boolean(publicKey) &&
+                (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey)
             : statusFilter === "all" || game.status === statusFilter;
         const searchMatches =
           !needle ||
@@ -671,7 +730,7 @@ function App() {
         return statusMatches && searchMatches;
       })
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-  }, [playerSearch, statusFilter, visibleGames]);
+  }, [playerSearch, publicKey, statusFilter, visibleGames]);
 
   const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
   const paginatedGames = useMemo(
@@ -992,6 +1051,21 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (!message.trim()) return;
+    setMessageHistory((current) => {
+      if (current[0] === message) return current;
+      return [message, ...current].slice(0, 60);
+    });
+  }, [message]);
+
+  useEffect(() => {
+    localStorage.setItem("zkroll:view-mode", viewMode);
+    if (viewMode === "app" && appScreen === "detail" && !selectedGameId) {
+      setAppScreen("games");
+    }
+  }, [appScreen, selectedGameId, viewMode]);
+
+  useEffect(() => {
     setProvingCompatibility(getProvingCompatibility());
   }, []);
 
@@ -1279,6 +1353,69 @@ function App() {
     );
   }
 
+  function handleGameCardSelect(gameId: string) {
+    setSelectedGameId(gameId);
+    if (viewMode === "app") setAppScreen("detail");
+  }
+
+  function openSettings() {
+    if (viewMode === "app") {
+      setAppScreen("settings");
+      return;
+    }
+    setSettingsOpen(true);
+  }
+
+  function setMode(nextMode: ViewMode) {
+    setViewMode(nextMode);
+    if (nextMode === "app") {
+      setSettingsOpen(false);
+      setAppScreen("games");
+    }
+  }
+
+  function settingsContent() {
+    const creditIcon = (icon: string) => {
+      if (icon === "copyright") return <Copyright size={16} />;
+      if (icon === "mail") return <Mail size={16} />;
+      if (icon === "discord") return <MessageCircle size={16} />;
+      if (icon === "telegram") return <Send size={16} />;
+      if (icon === "twitter") return <AtSign size={16} />;
+      if (icon === "github") return <Github size={16} />;
+      return <Globe size={16} />;
+    };
+
+    return (
+      <>
+        <label>
+          {t("displayMode")}
+          <select value={viewMode} onChange={(event) => setMode(event.target.value as ViewMode)}>
+            <option value="cards">{t("cardsMode")}</option>
+            <option value="app">{t("appMode")}</option>
+          </select>
+        </label>
+        <div className="creditsBox">
+          <strong>{t("credits")}</strong>
+          {credits.map((item) => {
+            const content = (
+              <>
+                {creditIcon(item.icon)}
+                <span>{item.text}</span>
+              </>
+            );
+            return item.url ? (
+              <a href={item.url} key={item.text} rel="noreferrer" target="_blank">
+                {content}
+              </a>
+            ) : (
+              <span key={item.text}>{content}</span>
+            );
+          })}
+        </div>
+      </>
+    );
+  }
+
   async function computeDice(game: Game) {
     if (!game.creatorReveal || !game.joinerReveal) {
       throw new Error(t("bothSecretsRequired"));
@@ -1550,6 +1687,7 @@ function App() {
         savePendingCreationMaterial(created, secret, gameKey.privateKey);
       }
       setSelectedGameId(created.id);
+      if (viewMode === "app") setAppScreen("detail");
 
       if (onchainEnabled) {
         const result = await createGameOnchain({
@@ -1569,6 +1707,7 @@ function App() {
         const reconciled = await reconcileCreationTx(created.id, txHash);
         removePendingCreationMaterial(reconciled);
         setSelectedGameId(reconciled.id);
+        if (viewMode === "app") setAppScreen("detail");
       }
 
       setMessage(onchainEnabled ? t("createdOnchain") : t("createdMock"));
@@ -1805,7 +1944,7 @@ function App() {
   }
 
   return (
-    <main className="shell">
+    <main className={`shell ${viewMode === "app" ? "appShell" : "cardsShell"}`} data-app-screen={appScreen}>
       {pseudoModalOpen && (
         <div className="modalBackdrop">
           <form className="modal" onSubmit={(event) => void savePseudo(event)}>
@@ -1836,12 +1975,13 @@ function App() {
               {t("openAuro")}
             </a>
             {walletConnectPrompt.fallbackOpenUrl && (
-              <a className="actionLink" href={walletConnectPrompt.fallbackOpenUrl} rel="noreferrer">
+              <a className="secondaryButton actionLink" href={walletConnectPrompt.fallbackOpenUrl} rel="noreferrer">
                 {t("openAuroFallback")}
               </a>
             )}
             {walletConnectPrompt.uri && (
               <button
+                className="secondaryButton"
                 type="button"
                 onClick={() => {
                   void navigator.clipboard?.writeText(walletConnectPrompt.uri ?? "");
@@ -1851,6 +1991,7 @@ function App() {
               </button>
             )}
             <button
+              className="ghostButton"
               type="button"
               onClick={() => {
                 cancelWalletConnectPrompt();
@@ -1890,8 +2031,9 @@ function App() {
               </label>
             )}
             <div className="modalActions">
-              <button type="submit">{t("markFailed")}</button>
+              <button className="dangerButton" type="submit">{t("markFailed")}</button>
               <button
+                className="ghostButton"
                 onClick={() => {
                   setFailureDialogGame(null);
                   setFailureReasonText("");
@@ -1905,13 +2047,27 @@ function App() {
         </div>
       )}
 
+      {settingsOpen && (
+        <div className="modalBackdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="modal settingsModal" onClick={(event) => event.stopPropagation()}>
+            <div className="modalHeader">
+              <h2>{t("settings")}</h2>
+              <button aria-label={t("cancel")} className="tinyIconButton" onClick={() => setSettingsOpen(false)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+            {settingsContent()}
+          </div>
+        </div>
+      )}
+
       {scannerGameId && (
         <div className="modalBackdrop">
           <div className="modal">
             <h2>{t("scanSecretQr")}</h2>
             <video className="qrVideo" muted playsInline ref={scannerVideoRef} />
             <div className="modalActions">
-              <button onClick={() => setScannerGameId(null)} type="button">
+              <button className="ghostButton" onClick={() => setScannerGameId(null)} type="button">
                 {t("stopScan")}
               </button>
             </div>
@@ -1968,10 +2124,10 @@ function App() {
                   />
                 </label>
                 <div className="modalActions">
-                  <button disabled={!manualSignatureHash.trim()} onClick={handleManualSignatureHash} type="button">
+                  <button className="secondaryButton" disabled={!manualSignatureHash.trim()} onClick={handleManualSignatureHash} type="button">
                     {t("manualSignatureUseHash")}
                   </button>
-                  <button onClick={handleManualSignatureFailed} type="button">
+                  <button className="dangerButton" onClick={handleManualSignatureFailed} type="button">
                     {t("manualSignatureFailed")}
                   </button>
                 </div>
@@ -1990,6 +2146,18 @@ function App() {
           </div>
         </div>
         <div className="topActions">
+          {viewMode === "app" && (
+            <label className={`networkPill ${network}`} title={t("chooseNetwork")}>
+              <span className="networkSpark" />
+              <select value={network} onChange={(event) => setNetwork(event.target.value as NetworkId)}>
+                {Object.values(networks).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="compactSelect" title="Language">
             <Languages size={16} />
             <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
@@ -2004,8 +2172,8 @@ function App() {
           >
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <button className="iconButton" onClick={() => void refreshGames()} title={t("refresh")}>
-            <RefreshCw size={18} />
+          <button className="iconButton" onClick={openSettings} title={t("settings")}>
+            <Settings size={18} />
           </button>
         </div>
       </section>
@@ -2028,6 +2196,7 @@ function App() {
                   {t("openInBrowser")}
                 </a>
                 <button
+                  className="secondaryButton"
                   type="button"
                   onClick={() => {
                     void navigator.clipboard?.writeText(window.location.href);
@@ -2042,8 +2211,10 @@ function App() {
       )}
 
       <section className="layout">
-        <aside className="panel">
-          <h2>{t("player")}</h2>
+        <div className="leftColumn">
+        <aside className="panel playerPanel">
+          <div className="playerBlock">
+            <h2>{t("player")}</h2>
           <div className="identityBox">
             <div className="identityHead">
               <span>{t("pseudo")}</span>
@@ -2059,7 +2230,13 @@ function App() {
             </div>
             <strong>{pseudo || t("noPseudo")}</strong>
           </div>
-          <label>
+          {publicKey && (
+            <div className="walletAddressBox">
+              <span>{t("walletAddress")}</span>
+              <strong>{publicKey}</strong>
+            </div>
+          )}
+          <label className="playerNetworkSelect">
             {t("network")}
             <select value={network} onChange={(event) => setNetwork(event.target.value as NetworkId)}>
               {Object.values(networks).map((item) => (
@@ -2080,13 +2257,14 @@ function App() {
               {publicKey ? t("walletConnected") : t("connectWallet")}
             </button>
             {publicKey && (
-              <button onClick={() => void disconnectWallet()} type="button">
+              <button className="dangerButton subtleButton" onClick={() => void disconnectWallet()} type="button">
                 {t("disconnectWallet")}
               </button>
             )}
           </div>
-          {publicKey && <p className="key">{publicKey}</p>}
+          </div>
 
+          <div className="newChallengeBlock">
           <h2>{t("newChallenge")}</h2>
           <label>
             {t("stake")}
@@ -2106,13 +2284,31 @@ function App() {
             <Dices size={18} />
             {t("create")}
           </button>
-          <p className="notice">{message}</p>
+          </div>
         </aside>
 
-        <section className="games">
+        <section className="panel messagesPanel">
+          <div className="sectionHead">
+            <h2>{t("messages")}</h2>
+            <MessageCircle size={20} />
+          </div>
+          <div className="messageList">
+            {messageHistory.map((item, index) => (
+              <p className="messageItem" key={`${index}-${item}`}>
+                {item}
+              </p>
+            ))}
+          </div>
+        </section>
+        </div>
+
+        <section className="games gamesPanel">
           <div className="sectionHead">
             <h2>{t("games")}</h2>
             <span className="sectionTools">
+              <button className="tinyIconButton" onClick={() => void refreshGames()} title={t("refresh")} type="button">
+                <RefreshCw size={16} />
+              </button>
               {newGameNotificationButton(network)}
               <span>{filteredGames.length} / {visibleGames.length} {t("indexed")}</span>
             </span>
@@ -2122,6 +2318,7 @@ function App() {
               {t("onchainState")}
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
                 <option value="active">{t("activeStatuses")}</option>
+                <option value="mine_active">{t("myActiveStatuses")}</option>
                 <option value="all">{t("allStatuses")}</option>
                 {gameStatuses.map((item) => (
                   <option key={item} value={item}>
@@ -2149,9 +2346,9 @@ function App() {
                 className={game.id === selectedGame?.id ? "gameCard selected" : "gameCard"}
                 role="button"
                 tabIndex={0}
-                onClick={() => setSelectedGameId(game.id)}
+                onClick={() => handleGameCardSelect(game.id)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") setSelectedGameId(game.id);
+                  if (event.key === "Enter" || event.key === " ") handleGameCardSelect(game.id);
                 }}
               >
                 <div className="gameCardHead">
@@ -2201,11 +2398,18 @@ function App() {
           )}
         </section>
 
-        <section className="panel detail">
+        <section className="panel detail detailPanel">
           {selectedGame ? (
             <>
               <div className="sectionHead">
-                <h2>{t("challenge")} {selectedGame.id}</h2>
+                <span className="detailTitleGroup">
+                  {viewMode === "app" && (
+                    <button className="tinyIconButton appBackButton" onClick={() => setAppScreen("games")} title={t("backToGames")} type="button">
+                      <X size={16} />
+                    </button>
+                  )}
+                  <h2>{t("challenge")} {selectedGame.id}</h2>
+                </span>
                 <span className="detailTools">
                   {notificationButton(selectedGame)}
                   <ShieldCheck size={20} />
@@ -2237,10 +2441,10 @@ function App() {
                     <dt>{t("secret")}</dt>
                     <dd className="missingSecretActions">
                       <span>{t("secretMissing")}</span>
-                      <button type="button" onClick={() => handlePasteSecret(selectedGame)}>
+                      <button className="secondaryButton" type="button" onClick={() => handlePasteSecret(selectedGame)}>
                         {t("pasteSecret")}
                       </button>
-                      <button type="button" onClick={() => setScannerGameId(selectedGame.id)}>
+                      <button className="secondaryButton" type="button" onClick={() => setScannerGameId(selectedGame.id)}>
                         {t("scanSecretQr")}
                       </button>
                     </dd>
@@ -2331,16 +2535,17 @@ function App() {
 
               {selectedGame.status === "pending_signature" && (
                 <div className="actions">
-                  <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
+                  <button className="secondaryButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
                     {t("enterHash")}
                   </button>
                   <button
+                    className="secondaryButton"
                     disabled={busy || selectedGame.creatorPublicKey !== publicKey || !loadPendingCreationMaterial(selectedGame, publicKey)}
                     onClick={() => void handleResignCreation(selectedGame)}
                   >
                     {t("resignCreation")}
                   </button>
-                  <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
+                  <button className="dangerButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
                     {t("markFailed")}
                   </button>
                 </div>
@@ -2352,14 +2557,14 @@ function App() {
                     <Dices size={18} />
                     {t("join")}
                   </button>
-                  <button disabled={busy || !canCancelCreatedGame(selectedGame)} onClick={() => void handleCancelCreatedGame(selectedGame)}>
+                  <button className="warningButton" disabled={busy || !canCancelCreatedGame(selectedGame)} onClick={() => void handleCancelCreatedGame(selectedGame)}>
                     {t("cancelGame")}
                   </button>
                 </div>
               )}
 
               {selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED" && (
-                <button disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
+                <button className="dangerButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
                   {t("markFailed")}
                 </button>
               )}
@@ -2370,6 +2575,7 @@ function App() {
                     {t("confirmJoin")}
                   </button>
                   <button
+                    className="warningButton"
                     disabled={busy || (selectedGame.creatorPublicKey !== publicKey && selectedGame.joinerPublicKey !== publicKey)}
                     onClick={() => void handleReleaseJoin(selectedGame)}
                   >
@@ -2401,20 +2607,20 @@ function App() {
                   <button disabled={busy || !canReveal(selectedGame)} onClick={() => void handleReveal(selectedGame)} className="primary">
                     {t("reveal")}
                   </button>
-                  <button disabled={busy || !canSettle(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
+                  <button className="secondaryButton" disabled={busy || !canSettle(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
                     {t("settle")}
                   </button>
-                  <button disabled={busy || !canSettle(selectedGame)} onClick={() => void handleReconcileSettlement(selectedGame)}>
+                  <button className="secondaryButton" disabled={busy || !canSettle(selectedGame)} onClick={() => void handleReconcileSettlement(selectedGame)}>
                     {t("enterSettlementHash")}
                   </button>
-                  <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
+                  <button className="warningButton" disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
                     {t("refund")}
                   </button>
                 </div>
               )}
 
               {selectedGame.status === "created" && (
-                <button disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
+                <button className="warningButton" disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
                   {t("refund")}
                 </button>
               )}
@@ -2448,7 +2654,40 @@ function App() {
             <p className="empty">{t("emptyGames")}</p>
           )}
         </section>
+
+        <section className="panel settingsPanel">
+          <div className="sectionHead">
+            <h2>{t("settings")}</h2>
+            <Settings size={20} />
+          </div>
+          {settingsContent()}
+        </section>
       </section>
+
+      {viewMode === "app" && (
+        <nav className="bottomNav" aria-label={t("settings")}>
+          <button className={appScreen === "player" ? "active" : ""} onClick={() => setAppScreen("player")} type="button">
+            <User size={20} />
+            <span>{t("walletTab")}</span>
+          </button>
+          <button className={appScreen === "new" ? "active" : ""} onClick={() => setAppScreen("new")} type="button">
+            <Plus size={20} />
+            <span>{t("newGameTab")}</span>
+          </button>
+          <button className={appScreen === "games" || appScreen === "detail" ? "active" : ""} onClick={() => setAppScreen("games")} type="button">
+            <List size={20} />
+            <span>{t("gamesTab")}</span>
+          </button>
+          <button className={appScreen === "messages" ? "active" : ""} onClick={() => setAppScreen("messages")} type="button">
+            <MessageCircle size={20} />
+            <span>{t("messages")}</span>
+          </button>
+          <button className={appScreen === "settings" ? "active" : ""} onClick={() => setAppScreen("settings")} type="button">
+            <Settings size={20} />
+            <span>{t("settings")}</span>
+          </button>
+        </nav>
+      )}
     </main>
   );
 }

@@ -72,11 +72,26 @@ button {
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
 }
 
 button:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+
+button:not(:disabled):hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .shell {
@@ -126,6 +141,50 @@ h1 {
   align-items: center;
   display: flex;
   gap: 10px;
+}
+
+.networkPill {
+  align-items: center;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-soft) 88%, var(--primary) 12%), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, var(--primary) 30%);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  display: inline-flex;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 8px 0 12px;
+}
+
+.networkPill select {
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 900;
+  min-height: 36px;
+  padding: 0 22px 0 0;
+  width: auto;
+}
+
+.networkSpark {
+  background: var(--primary);
+  border-radius: 999px;
+  box-shadow: 0 0 16px var(--primary);
+  height: 8px;
+  width: 8px;
+}
+
+.networkPill.mainnet .networkSpark {
+  background: #58c7b7;
+}
+
+.networkPill.devnet .networkSpark {
+  background: #f4b84a;
+}
+
+.networkPill.zeko .networkSpark {
+  background: #b871ff;
 }
 
 .compatibilityWarning {
@@ -194,6 +253,17 @@ h2 {
   margin-top: 24px;
 }
 
+.leftColumn {
+  display: grid;
+  gap: 18px;
+  grid-template-rows: auto minmax(160px, 1fr);
+  min-height: 520px;
+}
+
+.settingsPanel {
+  display: none;
+}
+
 .panel,
 .games {
   background: var(--surface);
@@ -206,6 +276,15 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.playerBlock,
+.newChallengeBlock {
+  display: contents;
+}
+
+.cardsShell .settingsPanel {
+  display: none;
 }
 
 .identityBox {
@@ -234,6 +313,27 @@ h2 {
   display: grid;
   gap: 4px;
   padding: 12px;
+}
+
+.walletAddressBox {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.walletAddressBox span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.walletAddressBox strong {
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .balanceBox span {
@@ -309,6 +409,63 @@ select {
   font-weight: 800;
 }
 
+.primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--primary) 86%, var(--text) 14%);
+  border-color: color-mix(in srgb, var(--primary) 82%, var(--text) 18%);
+}
+
+.secondaryButton,
+.ghostButton,
+.warningButton,
+.dangerButton {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 14px;
+  text-decoration: none;
+}
+
+.secondaryButton {
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--primary) 18%);
+  border-color: color-mix(in srgb, var(--border-strong) 72%, var(--primary) 28%);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.ghostButton {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.warningButton {
+  background: #fff4df;
+  border-color: #d7a34c;
+  color: #6d4308;
+  font-weight: 900;
+}
+
+.dangerButton {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+  font-weight: 900;
+}
+
+.subtleButton {
+  min-height: 38px;
+}
+
+[data-theme="dark"] .warningButton {
+  background: #3c2b12;
+  border-color: #9f7331;
+  color: #ffd58f;
+}
+
 .actionLink {
   text-decoration: none;
 }
@@ -362,6 +519,70 @@ select {
 
 .sectionTools .notificationButton {
   flex: 0 0 auto;
+}
+
+.detailTitleGroup {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.appBackButton {
+  display: none;
+}
+
+.creditsBox {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.creditsBox a,
+.creditsBox span {
+  align-items: center;
+  color: var(--text);
+  display: flex;
+  font-size: 13px;
+  gap: 10px;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.creditsBox svg {
+  color: var(--primary);
+  flex: 0 0 auto;
+}
+
+.creditsBox a:hover {
+  color: var(--primary);
+}
+
+.messagesPanel {
+  min-height: 0;
+}
+
+.messageList {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.messageItem {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 10px;
 }
 
 .gameList {
@@ -541,6 +762,17 @@ select {
 .pagination button {
   border-radius: 6px;
   min-height: 38px;
+  font-weight: 800;
+}
+
+.actions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.modalActions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.inlineActions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.missingSecretActions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.pagination button {
+  background: color-mix(in srgb, var(--surface-soft) 90%, var(--primary) 10%);
+  border-color: color-mix(in srgb, var(--border-strong) 78%, var(--primary) 22%);
+  color: var(--text);
 }
 
 .pagination span {
@@ -898,6 +1130,152 @@ dd {
   background: var(--danger-bg);
   border-color: var(--danger-border);
   color: var(--danger-text);
+}
+
+.appShell {
+  min-height: 100vh;
+  padding-bottom: 92px;
+}
+
+.appShell .topbar {
+  margin: 0 auto;
+  max-width: 620px;
+}
+
+.appShell .topActions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.appShell .brand img {
+  height: 48px;
+  width: 48px;
+}
+
+.appShell h1 {
+  font-size: 42px;
+}
+
+.appShell .layout {
+  display: block;
+  margin: 18px auto 0;
+  max-width: 620px;
+}
+
+.appShell .leftColumn {
+  display: contents;
+}
+
+.appShell .panel,
+.appShell .games {
+  min-height: calc(100vh - 190px);
+}
+
+.appShell .playerPanel,
+.appShell .gamesPanel,
+.appShell .detailPanel,
+.appShell .messagesPanel,
+.appShell .settingsPanel {
+  display: none;
+}
+
+.appShell[data-app-screen="player"] .playerPanel,
+.appShell[data-app-screen="new"] .playerPanel,
+.appShell[data-app-screen="games"] .gamesPanel,
+.appShell[data-app-screen="detail"] .detailPanel,
+.appShell[data-app-screen="messages"] .messagesPanel,
+.appShell[data-app-screen="settings"] .settingsPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.appShell[data-app-screen="games"] .gamesPanel,
+.appShell[data-app-screen="detail"] .detailPanel {
+  flex-direction: column;
+}
+
+.appShell .gamesPanel .sectionHead {
+  align-items: center;
+}
+
+.appShell .gameFilters {
+  grid-template-columns: 1fr;
+  margin-top: 14px;
+}
+
+.appShell .gameFilters label {
+  min-width: 0;
+}
+
+.appShell .gameList {
+  align-content: start;
+}
+
+.appShell .gameCard {
+  min-height: 0;
+}
+
+.appShell[data-app-screen="player"] .newChallengeBlock,
+.appShell[data-app-screen="new"] .playerBlock {
+  display: none;
+}
+
+.appShell[data-app-screen="player"] .playerBlock,
+.appShell[data-app-screen="new"] .newChallengeBlock {
+  display: grid;
+  gap: 14px;
+}
+
+.appShell .playerNetworkSelect {
+  display: none;
+}
+
+.appShell .messageList {
+  max-height: none;
+}
+
+.appShell .appBackButton {
+  display: inline-flex;
+}
+
+.bottomNav {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 0 0;
+  bottom: 0;
+  box-shadow: 0 -14px 40px var(--shadow);
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  left: 50%;
+  max-width: 620px;
+  padding: 8px;
+  position: fixed;
+  transform: translateX(-50%);
+  width: min(100%, 620px);
+  z-index: 15;
+}
+
+.bottomNav button {
+  align-items: center;
+  border: 0;
+  border-radius: 10px;
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  min-height: 58px;
+  padding: 6px 4px;
+}
+
+.bottomNav button.active {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.bottomNav span {
+  font-size: 11px;
+  font-weight: 800;
 }
 
 @media (max-width: 1120px) {
