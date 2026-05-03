@@ -183,8 +183,18 @@ export type GameNotificationSubscription = {
   updatedAt: string;
 };
 
+export type NewGameNotificationSubscription = {
+  network: NetworkId;
+  publicKey: string;
+  fcmToken: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export function listNotificationSubscriptions(publicKey: string) {
-  return request<{ items: GameNotificationSubscription[] }>(`/notifications/${encodeURIComponent(publicKey)}`);
+  return request<{ items: GameNotificationSubscription[]; newGameItems: NewGameNotificationSubscription[] }>(
+    `/notifications/${encodeURIComponent(publicKey)}`
+  );
 }
 
 export function subscribeGameNotifications(id: string, input: { publicKey: string; fcmToken: string }) {
@@ -196,6 +206,20 @@ export function subscribeGameNotifications(id: string, input: { publicKey: strin
 
 export function unsubscribeGameNotifications(id: string, input: { publicKey: string; fcmToken?: string }) {
   return request<{ ok: true }>(`/games/${id}/notifications`, {
+    method: "DELETE",
+    body: JSON.stringify(input)
+  });
+}
+
+export function subscribeNewGameNotifications(input: { network: NetworkId; publicKey: string; fcmToken: string }) {
+  return request<NewGameNotificationSubscription>("/notifications/new-games", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function unsubscribeNewGameNotifications(input: { network: NetworkId; publicKey: string; fcmToken?: string }) {
+  return request<{ ok: true }>("/notifications/new-games", {
     method: "DELETE",
     body: JSON.stringify(input)
   });

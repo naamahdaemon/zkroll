@@ -3,6 +3,7 @@ import { getMessaging, getToken, isSupported, onMessage, type Messaging } from "
 import type { GameStatus, NetworkId } from "@zkroll/shared";
 
 type ForegroundGameUpdate = {
+  kind?: "game_update" | "new_game";
   gameId: string;
   network?: NetworkId;
   status?: GameStatus;
@@ -84,6 +85,7 @@ export async function listenForGameNotifications(callback: (update: ForegroundGa
     const gameId = payload.data?.gameId;
     if (!gameId) return;
     callback({
+      kind: payload.data?.kind as "game_update" | "new_game" | undefined,
       gameId,
       network: payload.data?.network as NetworkId | undefined,
       status: payload.data?.status as GameStatus | undefined,

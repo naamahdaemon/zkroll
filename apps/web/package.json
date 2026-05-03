@@ -11,12 +11,14 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@types/qrcode": "^1.5.6",
     "@walletconnect/sign-client": "^2.23.9",
     "@zkroll/contracts": "0.1.0",
     "@zkroll/shared": "0.1.0",
     "firebase": "^10.13.2",
     "lucide-react": "^0.468.0",
     "o1js": "^2.1.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

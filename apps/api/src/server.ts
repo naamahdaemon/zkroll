@@ -15,6 +15,7 @@ import {
   getStoredTransactionStatus,
   joinGame,
   listGames,
+  listNewGameNotificationSubscriptionsForPublicKey,
   listNotificationSubscriptionsForPublicKey,
   markCreationFailed,
   markTransactionFailed,
@@ -22,7 +23,9 @@ import {
   refundGame,
   revealSecret,
   settleGame,
+  subscribeNewGameNotification,
   subscribeGameNotification,
+  unsubscribeNewGameNotification,
   unsubscribeGameNotification,
   updateStoredTransactionStatus,
   upsertPlayer
@@ -38,7 +41,7 @@ import {
   requiredString
 } from "./validation.js";
 import { witnessForGameId } from "./merkle.js";
-import { notifyGameUpdated } from "./notifications.js";
+import { notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
 
 const app = Fastify({
   logger: true
@@ -453,7 +456,29 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
 
 app.get("/notifications/:publicKey", async (request) => {
   const { publicKey } = request.params as { publicKey: string };
-  return { items: listNotificationSubscriptionsForPublicKey(publicKey) };
+  return {
+    items: listNotificationSubscriptionsForPublicKey(publicKey),
+    newGameItems: listNewGameNotificationSubscriptionsForPublicKey(publicKey)
+  };
+});
+
+app.post("/notifications/new-games", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    return subscribeNewGameNotification(requiredNetwork(body), requiredString(body, "publicKey"), requiredString(body, "fcmToken"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/notifications/new-games", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    unsubscribeNewGameNotification(requiredNetwork(body), requiredString(body, "publicKey"), optionalString(body, "fcmToken"));
+    return { ok: true };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
 });
 
 app.post("/games/:id/notifications", async (request, reply) => {
@@ -599,7 +624,9 @@ app.post("/games", async (request, reply) => {
         refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
         creationTxHash: optionalString(body, "creationTxHash")
       });
-    return reply.code(201).send(await sendUpdatedGame(game));
+    const updatedGame = await sendUpdatedGame(game);
+    if (updatedGame.status === "created") await notifyNewGameCreated(updatedGame);
+    return reply.code(201).send(updatedGame);
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -609,7 +636,9 @@ app.patch("/games/:id/creation-tx", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    return sendUpdatedGame(reconcileCreationTx(id, requiredString(body, "creationTxHash")));
+    const game = await sendUpdatedGame(reconcileCreationTx(id, requiredString(body, "creationTxHash")));
+    await notifyNewGameCreated(game);
+    return game;
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

@@ -4,7 +4,9 @@ import {
   deleteNotificationSubscriptionToken,
   disableGameNotifications,
   listGameNotificationSubscriptions,
-  type GameNotificationSubscription
+  listNewGameNotificationSubscriptions,
+  type GameNotificationSubscription,
+  type NewGameNotificationSubscription
 } from "./db.js";
 
 const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
@@ -70,7 +72,14 @@ function notificationUrl(game: Game) {
   return webOrigin ? `${webOrigin.replace(/\/$/, "")}${path}` : path;
 }
 
-async function sendToSubscription(game: Game, subscription: GameNotificationSubscription, token: string) {
+type NotificationPayload = {
+  title: string;
+  body: string;
+  data: Record<string, string>;
+  link: string;
+};
+
+async function sendToToken(fcmToken: string, payload: NotificationPayload, token: string) {
   const response = await fetch(`https://fcm.googleapis.com/v1/projects/${firebaseProjectId}/messages:send`, {
     method: "POST",
     headers: {
@@ -79,21 +88,15 @@ async function sendToSubscription(game: Game, subscription: GameNotificationSubs
     },
     body: JSON.stringify({
       message: {
-        token: subscription.fcmToken,
-        notification: {
-          title: "zkroll",
-          body: `Game ${game.id} updated: ${game.status}`
-        },
+        token: fcmToken,
         data: {
-          gameId: game.id,
-          network: game.network,
-          status: game.status,
-          updatedAt: game.updatedAt,
-          url: notificationUrl(game)
+          ...payload.data,
+          title: payload.title,
+          body: payload.body
         },
         webpush: {
           fcm_options: {
-            link: notificationUrl(game)
+            link: payload.link
           }
         }
       }
@@ -102,11 +105,52 @@ async function sendToSubscription(game: Game, subscription: GameNotificationSubs
 
   if (response.ok) return;
 
-  const payload = (await response.json().catch(() => null)) as { error?: { status?: string } } | null;
-  if (payload?.error?.status === "NOT_FOUND" || payload?.error?.status === "INVALID_ARGUMENT") {
-    deleteNotificationSubscriptionToken(subscription.fcmToken);
+  const errorPayload = (await response.json().catch(() => null)) as { error?: { status?: string } } | null;
+  if (errorPayload?.error?.status === "NOT_FOUND" || errorPayload?.error?.status === "INVALID_ARGUMENT") {
+    deleteNotificationSubscriptionToken(fcmToken);
   }
   throw new Error(`FCM send failed with HTTP ${response.status}`);
+}
+
+async function sendToGameSubscription(game: Game, subscription: GameNotificationSubscription, token: string) {
+  return sendToToken(
+    subscription.fcmToken,
+    {
+      title: "zkroll",
+      body: `Game ${game.id} updated: ${game.status}`,
+      data: {
+        kind: "game_update",
+        gameId: game.id,
+        network: game.network,
+        status: game.status,
+        updatedAt: game.updatedAt,
+        url: notificationUrl(game)
+      },
+      link: notificationUrl(game)
+    },
+    token
+  );
+}
+
+async function sendToNewGameSubscription(game: Game, subscription: NewGameNotificationSubscription, token: string) {
+  const link = notificationUrl(game);
+  return sendToToken(
+    subscription.fcmToken,
+    {
+      title: "zkroll",
+      body: `New ${game.network} game available: ${game.creatorPseudo}`,
+      data: {
+        kind: "new_game",
+        gameId: game.id,
+        network: game.network,
+        status: game.status,
+        updatedAt: game.updatedAt,
+        url: link
+      },
+      link
+    },
+    token
+  );
 }
 
 export async function notifyGameUpdated(game: Game) {
@@ -116,7 +160,7 @@ export async function notifyGameUpdated(game: Game) {
   if (firebaseConfigured()) {
     try {
       const token = await firebaseAccessToken();
-      await Promise.allSettled(subscriptions.map((subscription) => sendToSubscription(game, subscription, token)));
+      await Promise.allSettled(subscriptions.map((subscription) => sendToGameSubscription(game, subscription, token)));
     } catch (error) {
       console.warn(`Firebase notification skipped for game ${game.id}: ${(error as Error).message}`);
     }
@@ -124,5 +168,19 @@ export async function notifyGameUpdated(game: Game) {
 
   if (terminalGameStatuses.has(game.status)) {
     disableGameNotifications(game.id);
+  }
+}
+
+export async function notifyNewGameCreated(game: Game) {
+  const subscriptions = listNewGameNotificationSubscriptions(game.network).filter(
+    (subscription) => subscription.publicKey !== game.creatorPublicKey
+  );
+  if (subscriptions.length === 0 || !firebaseConfigured()) return;
+
+  try {
+    const token = await firebaseAccessToken();
+    await Promise.allSettled(subscriptions.map((subscription) => sendToNewGameSubscription(game, subscription, token)));
+  } catch (error) {
+    console.warn(`Firebase new game notification skipped for game ${game.id}: ${(error as Error).message}`);
   }
 }

@@ -8,7 +8,19 @@ export type MinaProvider = {
 };
 
 declare global {
+  type BarcodeFormat = "qr_code";
+
+  type DetectedBarcode = {
+    rawValue: string;
+  };
+
+  class BarcodeDetector {
+    constructor(options?: { formats?: BarcodeFormat[] });
+    detect(source: CanvasImageSource): Promise<DetectedBarcode[]>;
+  }
+
   interface Window {
     mina?: MinaProvider;
+    BarcodeDetector?: typeof BarcodeDetector;
   }
 }

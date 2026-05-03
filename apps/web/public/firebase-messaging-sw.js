@@ -18,8 +18,8 @@ if (Object.values(firebaseConfig).every(Boolean)) {
     const gameId = payload.data?.gameId;
     const status = payload.data?.status;
     const url = payload.data?.url || (gameId ? `/?game=${encodeURIComponent(gameId)}` : "/");
-    self.registration.showNotification(payload.notification?.title || "zkroll", {
-      body: payload.notification?.body || (gameId ? `Game ${gameId} updated${status ? `: ${status}` : ""}` : "Game updated"),
+    self.registration.showNotification(payload.data?.title || "zkroll", {
+      body: payload.data?.body || (gameId ? `Game ${gameId} updated${status ? `: ${status}` : ""}` : "Game updated"),
       icon: "/zkroll-logo.svg",
       badge: "/zkroll-logo.svg",
       tag: gameId ? `zkroll-game-${gameId}` : "zkroll-game",

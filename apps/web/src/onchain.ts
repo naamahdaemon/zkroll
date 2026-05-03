@@ -525,6 +525,36 @@ export async function refundGameOnchain(input: {
   return sendWithWallet(provider, tx.toJSON(), input.onProgress);
 }
 
+export async function cancelCreatedGameOnchain(input: {
+  provider: MinaProvider | undefined;
+  network: NetworkId;
+  senderPublicKey: string;
+  gameIdField: string;
+  zkappAddress: string;
+  creatorPseudoHash: string;
+  creatorCommitment: string;
+  refundDeadlineSlot: string;
+  onProgress?: ProgressCallback;
+}) {
+  const provider = assertProvider(input.provider);
+  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  const toolkit = await setup(input.network, input.onProgress);
+  const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
+  const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
+
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo: compactGameMemo("cancel", input.gameIdField) }, async () => {
+    await (contract as any).cancelCreatedGame(
+      toolkit.Field(input.creatorPseudoHash),
+      toolkit.Field(input.creatorCommitment),
+      toolkit.UInt32.from(input.refundDeadlineSlot)
+    );
+  });
+  report(input.onProgress, "progressGenerateProof", 54);
+  await tx.prove();
+  report(input.onProgress, "progressProofGenerated", 82);
+  return sendWithWallet(provider, tx.toJSON(), input.onProgress);
+}
+
 export async function diceOutcomeOnchain(creatorSecret: string, joinerSecret: string, gameIdField: string) {
   const toolkit = await load();
   const outcome = toolkit.diceOutcome(toolkit.Field(creatorSecret), toolkit.Field(joinerSecret), toolkit.Field(gameIdField));

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Bell,
   CircleEqual,
+  Copy,
   Dices,
   Languages,
   Moon,
@@ -14,6 +15,7 @@ import {
   ShieldCheck,
   Sun,
   Trophy,
+  X,
   Wallet
 } from "lucide-react";
 import { networks, type Game, type GameStatus, type NetworkId, type TransactionStatus } from "@zkroll/shared";
@@ -35,12 +37,15 @@ import {
   revealGame,
   settleGame,
   subscribeGameNotifications,
+  subscribeNewGameNotifications,
   unsubscribeGameNotifications,
+  unsubscribeNewGameNotifications,
   listNotificationSubscriptions
 } from "./api";
 import { fakeTxHash, randomFieldString, temporaryCommitment, temporaryDie } from "./crypto";
 import {
   commitment as onchainCommitment,
+  cancelCreatedGameOnchain,
   createGameOnchain,
   diceOutcomeOnchain,
   ensureWalletNetwork,
@@ -104,6 +109,15 @@ const gameStatuses: GameStatus[] = [
   "cancelled"
 ];
 const terminalGameStatuses = new Set<GameStatus>(["settled", "refunded", "failed", "cancelled"]);
+
+type QRCodeBrowserModule = {
+  toDataURL: (text: string, options?: { margin?: number; width?: number }) => Promise<string>;
+};
+
+async function createSecretQrDataUrl(secret: string) {
+  const qrcode = (await import("qrcode/lib/browser.js")) as QRCodeBrowserModule;
+  return qrcode.toDataURL(secret, { margin: 1, width: 192 });
+}
 
 const copy: Record<Locale, Record<string, string>> = {
   en: {
@@ -185,10 +199,31 @@ const copy: Record<Locale, Record<string, string>> = {
     disableNotifications: "Disable notifications for this game",
     notificationsEnabled: "Notifications enabled for this game.",
     notificationsDisabled: "Notifications disabled for this game.",
+    enableNewGameNotifications: "Enable new game notifications",
+    disableNewGameNotifications: "Disable new game notifications",
+    newGameNotificationsEnabled: "New game notifications enabled for this network.",
+    newGameNotificationsDisabled: "New game notifications disabled for this network.",
     notificationsUnsupported: "Push notifications are not supported by this browser.",
     notificationsNotConfigured: "Firebase notifications are not configured.",
     notificationsPermissionDenied: "Notification permission was not granted.",
     gameUpdatedNotification: "Game updated",
+    newGameNotification: "New game available",
+    secret: "Secret",
+    secretAvailable: "Secret available",
+    secretMissing: "Secret missing",
+    yes: "Yes",
+    no: "No",
+    showSecret: "Show secret",
+    hideSecret: "Hide secret",
+    copySecret: "Copy secret",
+    closeSecret: "Close secret",
+    secretCopied: "Secret copied.",
+    pasteSecret: "Paste secret",
+    pasteSecretPrompt: "Paste the secret for this game.",
+    secretImported: "Secret imported locally.",
+    scanSecretQr: "Scan QR",
+    stopScan: "Stop scan",
+    qrScannerUnavailable: "QR scanning is not available in this browser.",
     walletMissing: "Mina wallet not found. Install Auro or enable the extension.",
     noWalletAccount: "No account returned by the wallet.",
     walletFound: "Wallet connected. Pseudo found:",
@@ -241,6 +276,9 @@ const copy: Record<Locale, Record<string, string>> = {
     incompleteRefund: "Game is incomplete for on-chain refund.",
     refundSent: "Refund sent on-chain and indexed.",
     refundMock: "Game refunded in simulation mode.",
+    cancelGame: "Cancel game",
+    cancelSent: "Game cancelled and refund sent.",
+    cancelNotReady: "Only the creator can cancel an open game after the creation transaction is included.",
     invalidRefundTimeout: "Refund timeout must be a positive integer.",
     activeAfterSlot: "active after slot",
     minaZkDice: "Mina / Zeko zk dice",
@@ -351,10 +389,31 @@ const copy: Record<Locale, Record<string, string>> = {
     disableNotifications: "Desactiver les notifications pour cette partie",
     notificationsEnabled: "Notifications activees pour cette partie.",
     notificationsDisabled: "Notifications desactivees pour cette partie.",
+    enableNewGameNotifications: "Activer les notifications de nouvelles parties",
+    disableNewGameNotifications: "Desactiver les notifications de nouvelles parties",
+    newGameNotificationsEnabled: "Notifications de nouvelles parties activees pour ce reseau.",
+    newGameNotificationsDisabled: "Notifications de nouvelles parties desactivees pour ce reseau.",
     notificationsUnsupported: "Les notifications push ne sont pas supportees par ce navigateur.",
     notificationsNotConfigured: "Les notifications Firebase ne sont pas configurees.",
     notificationsPermissionDenied: "La permission de notification n'a pas ete accordee.",
     gameUpdatedNotification: "Partie mise a jour",
+    newGameNotification: "Nouvelle partie disponible",
+    secret: "Secret",
+    secretAvailable: "Secret disponible",
+    secretMissing: "Secret absent",
+    yes: "Oui",
+    no: "Non",
+    showSecret: "Afficher secret",
+    hideSecret: "Masquer secret",
+    copySecret: "Copier secret",
+    closeSecret: "Fermer secret",
+    secretCopied: "Secret copie.",
+    pasteSecret: "Coller secret",
+    pasteSecretPrompt: "Colle le secret de cette partie.",
+    secretImported: "Secret importe localement.",
+    scanSecretQr: "Scanner QR",
+    stopScan: "Arreter scan",
+    qrScannerUnavailable: "Le scan QR n'est pas disponible dans ce navigateur.",
     walletMissing: "Wallet Mina introuvable. Installe Auro ou active l'extension.",
     noWalletAccount: "Aucun compte retourne par le wallet.",
     walletFound: "Wallet connecte. Pseudo retrouve :",
@@ -407,6 +466,9 @@ const copy: Record<Locale, Record<string, string>> = {
     incompleteRefund: "Partie incomplete pour refund on-chain.",
     refundSent: "Refund envoye on-chain et indexe.",
     refundMock: "Partie remboursee en mode simulation.",
+    cancelGame: "Annuler la partie",
+    cancelSent: "Partie annulee et refund envoye.",
+    cancelNotReady: "Seul le createur peut annuler une partie ouverte apres inclusion de la transaction de creation.",
     invalidRefundTimeout: "Le timeout de refund doit etre un nombre entier positif.",
     activeAfterSlot: "actif apres le slot",
     minaZkDice: "Mina / Zeko zk dice",
@@ -578,7 +640,12 @@ function App() {
     error: null
   });
   const [notificationGameIds, setNotificationGameIds] = useState<Set<string>>(new Set());
+  const [newGameNotificationNetworks, setNewGameNotificationNetworks] = useState<Set<NetworkId>>(new Set());
   const [firebaseToken, setFirebaseToken] = useState<string | null>(null);
+  const [secretModalGameId, setSecretModalGameId] = useState<string | null>(null);
+  const [secretQrDataUrl, setSecretQrDataUrl] = useState<string | null>(null);
+  const [scannerGameId, setScannerGameId] = useState<string | null>(null);
+  const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
   const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
@@ -789,6 +856,14 @@ function App() {
     return value;
   }
 
+  async function notificationToken() {
+    if (!firebaseNotificationsConfigured()) throw new Error(t("notificationsNotConfigured"));
+    if (!browserNotificationsSupported()) throw new Error(t("notificationsUnsupported"));
+    const token = await requestFirebaseNotificationToken();
+    setFirebaseToken(token);
+    return token;
+  }
+
   async function handleToggleGameNotifications(game: Game) {
     if (!publicKey) {
       setMessage(t("walletRequired"));
@@ -808,13 +883,38 @@ function App() {
         return;
       }
 
-      if (!firebaseNotificationsConfigured()) throw new Error(t("notificationsNotConfigured"));
-      if (!browserNotificationsSupported()) throw new Error(t("notificationsUnsupported"));
-      const token = await requestFirebaseNotificationToken();
-      setFirebaseToken(token);
+      const token = await notificationToken();
       await subscribeGameNotifications(game.id, { publicKey, fcmToken: token });
       setNotificationGameIds((current) => new Set(current).add(game.id));
       setMessage(t("notificationsEnabled"));
+    } catch (error) {
+      const errorMessage = (error as Error).message;
+      setMessage(errorMessage.includes("permission") ? t("notificationsPermissionDenied") : errorMessage);
+    }
+  }
+
+  async function handleToggleNewGameNotifications(networkId: NetworkId) {
+    if (!publicKey) {
+      setMessage(t("walletRequired"));
+      return;
+    }
+
+    try {
+      if (newGameNotificationNetworks.has(networkId)) {
+        await unsubscribeNewGameNotifications({ network: networkId, publicKey, fcmToken: firebaseToken ?? undefined });
+        setNewGameNotificationNetworks((current) => {
+          const next = new Set(current);
+          next.delete(networkId);
+          return next;
+        });
+        setMessage(t("newGameNotificationsDisabled"));
+        return;
+      }
+
+      const token = await notificationToken();
+      await subscribeNewGameNotifications({ network: networkId, publicKey, fcmToken: token });
+      setNewGameNotificationNetworks((current) => new Set(current).add(networkId));
+      setMessage(t("newGameNotificationsEnabled"));
     } catch (error) {
       const errorMessage = (error as Error).message;
       setMessage(errorMessage.includes("permission") ? t("notificationsPermissionDenied") : errorMessage);
@@ -834,6 +934,30 @@ function App() {
           event.stopPropagation();
           void handleToggleGameNotifications(game);
         }}
+      >
+        <Bell size={16} />
+      </button>
+    );
+  }
+
+  function canCancelCreatedGame(game: Game): boolean {
+    return (
+      game.status === "created" &&
+      game.creatorPublicKey === publicKey &&
+      !game.joinerPublicKey &&
+      creationStatusFor(game) === "INCLUDED"
+    );
+  }
+
+  function newGameNotificationButton(networkId: NetworkId) {
+    const enabled = newGameNotificationNetworks.has(networkId);
+    return (
+      <button
+        type="button"
+        className={enabled ? "notificationButton active" : "notificationButton"}
+        title={enabled ? t("disableNewGameNotifications") : t("enableNewGameNotifications")}
+        aria-label={enabled ? t("disableNewGameNotifications") : t("enableNewGameNotifications")}
+        onClick={() => void handleToggleNewGameNotifications(networkId)}
       >
         <Bell size={16} />
       </button>
@@ -907,10 +1031,14 @@ function App() {
       .then((result) => {
         if (!cancelled) {
           setNotificationGameIds(new Set(result.items.map((item) => item.gameId)));
+          setNewGameNotificationNetworks(new Set(result.newGameItems.map((item) => item.network)));
         }
       })
       .catch(() => {
-        if (!cancelled) setNotificationGameIds(new Set());
+        if (!cancelled) {
+          setNotificationGameIds(new Set());
+          setNewGameNotificationNetworks(new Set());
+        }
       });
 
     return () => {
@@ -924,21 +1052,14 @@ function App() {
     let cancelled = false;
 
     listenForGameNotifications((update) => {
-      if (cancelled || !notificationGameIds.has(update.gameId)) return;
+      const isSubscribedGame = update.kind === "new_game" ? newGameNotificationNetworks.has(update.network!) : notificationGameIds.has(update.gameId);
+      if (cancelled || !isSubscribedGame) return;
       void refreshGames();
-      if (Notification.permission === "granted") {
-        const notification = new Notification("zkroll", {
-          body: `${t("gameUpdatedNotification")}: ${update.gameId}${update.status ? ` (${update.status})` : ""}`,
-          icon: "/zkroll-logo.svg",
-          tag: `zkroll-game-${update.gameId}`
-        });
-        notification.onclick = () => {
-          window.focus();
-          setSelectedGameId(update.gameId);
-          history.replaceState(null, "", `?game=${encodeURIComponent(update.gameId)}`);
-          notification.close();
-        };
-      }
+      setMessage(
+        update.kind === "new_game"
+          ? `${t("newGameNotification")}: ${update.gameId}`
+          : `${t("gameUpdatedNotification")}: ${update.gameId}${update.status ? ` (${update.status})` : ""}`
+      );
     })
       .then((nextUnsubscribe) => {
         unsubscribe = nextUnsubscribe;
@@ -949,7 +1070,7 @@ function App() {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [notificationGameIds, locale]);
+  }, [notificationGameIds, newGameNotificationNetworks, locale]);
 
   useEffect(() => {
     setWalletConnectPromptHandler(setWalletConnectPrompt);
@@ -1040,6 +1161,50 @@ function App() {
     return () => window.clearInterval(interval);
   }, [onchainProgress, onchainStartedAt]);
 
+  useEffect(() => {
+    if (!scannerGameId) return;
+    const game = games.find((item) => item.id === scannerGameId);
+    if (!game) return;
+    if (!window.BarcodeDetector) {
+      setMessage(t("qrScannerUnavailable"));
+      setScannerGameId(null);
+      return;
+    }
+
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+
+    const scan = async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        const video = scannerVideoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        await video.play();
+
+        while (!cancelled) {
+          const codes = await detector.detect(video);
+          const value = codes[0]?.rawValue;
+          if (value) {
+            importSecret(game, value);
+            break;
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 450));
+        }
+      } catch (error) {
+        setMessage((error as Error).message);
+        setScannerGameId(null);
+      }
+    };
+
+    void scan();
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [scannerGameId, games]);
+
   function rememberSecret(gameId: string, secret: string) {
     if (!publicKey) return;
     setSecretVault((vault) => {
@@ -1056,6 +1221,62 @@ function App() {
   function secretFor(game: Game) {
     if (!publicKey) return undefined;
     return secretVault[secretKey(game.id, publicKey)] ?? secretVault[game.id];
+  }
+
+  function connectedPlayerCanUseSecret(game: Game) {
+    return publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey;
+  }
+
+  async function openSecretModal(game: Game) {
+    const secret = secretFor(game);
+    if (!secret) return;
+    setSecretModalGameId(game.id);
+    setSecretQrDataUrl(await createSecretQrDataUrl(secret));
+  }
+
+  function closeSecretModal() {
+    setSecretModalGameId(null);
+    setSecretQrDataUrl(null);
+  }
+
+  async function handleCopySecret(game: Game) {
+    const secret = secretFor(game);
+    if (!secret) return;
+    await navigator.clipboard.writeText(secret);
+    setMessage(t("secretCopied"));
+  }
+
+  function importSecret(game: Game, secret: string) {
+    const value = secret.trim();
+    if (!value) return;
+    rememberSecret(game.id, value);
+    setScannerGameId(null);
+    setMessage(t("secretImported"));
+  }
+
+  function handlePasteSecret(game: Game) {
+    const secret = window.prompt(t("pasteSecretPrompt"));
+    if (secret) importSecret(game, secret);
+  }
+
+  function splitSecretForDisplay(secret: string) {
+    const midpoint = Math.ceil(secret.length / 2);
+    return [secret.slice(0, midpoint), secret.slice(midpoint)];
+  }
+
+  function secretButtonFor(game: Game, playerPublicKey: string | null | undefined) {
+    if (!publicKey || playerPublicKey !== publicKey || !secretFor(game)) return null;
+    return (
+      <button
+        aria-label={t("showSecret")}
+        className="tinyIconButton"
+        onClick={() => void openSecretModal(game)}
+        title={t("showSecret")}
+        type="button"
+      >
+        <ShieldCheck size={15} />
+      </button>
+    );
   }
 
   async function computeDice(game: Game) {
@@ -1553,6 +1774,36 @@ function App() {
     });
   }
 
+  async function handleCancelCreatedGame(game: Game) {
+    await runAction(async () => {
+      if (!publicKey) throw new Error(t("walletRequired"));
+      if (!canCancelCreatedGame(game)) throw new Error(t("cancelNotReady"));
+
+      let txHash = fakeTxHash("refund");
+      if (onchainEnabled) {
+        if (!game.gameIdField || !game.zkappAddress || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
+          throw new Error(t("incompleteRefund"));
+        }
+        txHash = await cancelCreatedGameOnchain({
+          provider: walletProvider(),
+          network: game.network,
+          senderPublicKey: publicKey,
+          gameIdField: game.gameIdField,
+          zkappAddress: game.zkappAddress,
+          creatorPseudoHash: game.creatorPseudoHash,
+          creatorCommitment: game.creatorCommitment,
+          refundDeadlineSlot: game.refundDeadlineSlot,
+          onProgress: updateOnchainProgress
+        });
+      }
+
+      const refunded = await refundGame(game.id, { refundTxHash: txHash });
+      setSelectedGameId(refunded.id);
+      setMessage(t("cancelSent"));
+      await refreshGames();
+    });
+  }
+
   return (
     <main className="shell">
       {pseudoModalOpen && (
@@ -1653,6 +1904,47 @@ function App() {
           </form>
         </div>
       )}
+
+      {scannerGameId && (
+        <div className="modalBackdrop">
+          <div className="modal">
+            <h2>{t("scanSecretQr")}</h2>
+            <video className="qrVideo" muted playsInline ref={scannerVideoRef} />
+            <div className="modalActions">
+              <button onClick={() => setScannerGameId(null)} type="button">
+                {t("stopScan")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {secretModalGameId && (() => {
+        const game = games.find((item) => item.id === secretModalGameId);
+        const secret = game ? secretFor(game) : undefined;
+        if (!game || !secret) return null;
+        const secretLines = splitSecretForDisplay(secret);
+        return (
+          <div className="modalBackdrop" onClick={closeSecretModal}>
+            <div className="modal secretModal" onClick={(event) => event.stopPropagation()}>
+              <button aria-label={t("closeSecret")} className="tinyIconButton secretCloseButton" onClick={closeSecretModal} type="button">
+                <X size={16} />
+              </button>
+              {secretQrDataUrl && <img alt={t("secret")} className="secretQr" src={secretQrDataUrl} />}
+              <div className="secretCopyBox">
+                <code>
+                  {secretLines.map((line) => (
+                    <span key={line}>{line}</span>
+                  ))}
+                </code>
+                <button aria-label={t("copySecret")} className="tinyIconButton" onClick={() => void handleCopySecret(game)} type="button">
+                  <Copy size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {onchainProgress && (
         <div className="workOverlay">
@@ -1820,7 +2112,10 @@ function App() {
         <section className="games">
           <div className="sectionHead">
             <h2>{t("games")}</h2>
-            <span>{filteredGames.length} / {visibleGames.length} {t("indexed")}</span>
+            <span className="sectionTools">
+              {newGameNotificationButton(network)}
+              <span>{filteredGames.length} / {visibleGames.length} {t("indexed")}</span>
+            </span>
           </div>
           <div className="gameFilters">
             <label>
@@ -1860,7 +2155,10 @@ function App() {
                 }}
               >
                 <div className="gameCardHead">
-                  <span className={`status ${game.status}`}>{game.status}</span>
+                  <div className="gameCardMeta">
+                    <span className="gameId">#{game.id}</span>
+                    <span className={`status ${game.status}`}>{game.status}</span>
+                  </div>
                   {notificationButton(game)}
                 </div>
                 <div className="playersLine">
@@ -1919,6 +2217,7 @@ function App() {
                   <dd className="playerResult">
                     {selectedGame.creatorPseudo}
                     {resultIconFor(selectedGame, "creator")}
+                    {secretButtonFor(selectedGame, selectedGame.creatorPublicKey)}
                   </dd>
                 </div>
                 <div>
@@ -1926,12 +2225,27 @@ function App() {
                   <dd className="playerResult">
                     {selectedGame.joinerPseudo ?? t("waiting")}
                     {selectedGame.joinerPseudo && resultIconFor(selectedGame, "joiner")}
+                    {secretButtonFor(selectedGame, selectedGame.joinerPublicKey)}
                   </dd>
                 </div>
                 <div>
                   <dt>{t("stake")}</dt>
                   <dd>{formatMina(selectedGame.stakeNanoMina)} MINA</dd>
                 </div>
+                {connectedPlayerCanUseSecret(selectedGame) && !secretFor(selectedGame) && (
+                  <div className="detailWide">
+                    <dt>{t("secret")}</dt>
+                    <dd className="missingSecretActions">
+                      <span>{t("secretMissing")}</span>
+                      <button type="button" onClick={() => handlePasteSecret(selectedGame)}>
+                        {t("pasteSecret")}
+                      </button>
+                      <button type="button" onClick={() => setScannerGameId(selectedGame.id)}>
+                        {t("scanSecretQr")}
+                      </button>
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt>{t("timeline")}</dt>
                   <dd className="timeline">
@@ -2033,10 +2347,15 @@ function App() {
               )}
 
               {selectedGame.status === "created" && (
-                <button disabled={busy || !canJoin(selectedGame)} onClick={() => void handleJoinGame(selectedGame)} className="primary">
-                  <Dices size={18} />
-                  {t("join")}
-                </button>
+                <div className="actions">
+                  <button disabled={busy || !canJoin(selectedGame)} onClick={() => void handleJoinGame(selectedGame)} className="primary">
+                    <Dices size={18} />
+                    {t("join")}
+                  </button>
+                  <button disabled={busy || !canCancelCreatedGame(selectedGame)} onClick={() => void handleCancelCreatedGame(selectedGame)}>
+                    {t("cancelGame")}
+                  </button>
+                </div>
               )}
 
               {selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED" && (

@@ -247,6 +247,23 @@ export class ZkDiceGame extends SmartContract {
     this.status.set(REFUNDED);
   }
 
+  async cancelCreatedGame(creatorPseudoHash: Field, creatorCommitment: Field, refundDeadlineSlot: UInt32) {
+    const status = this.status.getAndRequireEquals();
+    const creator = this.creator.getAndRequireEquals();
+    const stake = this.stake.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
+    const currentDataHash = createdDataHash({ creatorPseudoHash, creatorCommitment, refundDeadlineSlot });
+
+    status.assertEquals(CREATED);
+    dataHash.assertEquals(currentDataHash);
+    stake.assertGreaterThan(UInt64.zero);
+    AccountUpdate.createSigned(creator);
+
+    this.send({ to: creator, amount: stake });
+    this.dataHash.set(refundedDataHash({ previousDataHash: currentDataHash, refundDeadlineSlot }));
+    this.status.set(REFUNDED);
+  }
+
   async refundJoinedGame(
     creatorPseudoHash: Field,
     joinerPseudoHash: Field,
@@ -293,5 +310,6 @@ declareMethods(ZkDiceGame, {
   joinGame: [PublicKey, Field, Field, UInt32, Field, Field, UInt32] as any,
   settle: [Field, Field, Field, Field, Field, Field, PublicKey, UInt32] as any,
   refundCreatedGame: [Field, Field, UInt32] as any,
+  cancelCreatedGame: [Field, Field, UInt32] as any,
   refundJoinedGame: [Field, Field, Field, Field, UInt32] as any
 });

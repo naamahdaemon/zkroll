@@ -68,6 +68,15 @@ db.exec(`
     primary key (game_id, public_key, fcm_token),
     foreign key (game_id) references games(id) on delete cascade
   );
+
+  create table if not exists new_game_notification_subscriptions (
+    network text not null,
+    public_key text not null,
+    fcm_token text not null,
+    created_at text not null,
+    updated_at text not null,
+    primary key (network, public_key, fcm_token)
+  );
 `);
 
 for (const statement of [
@@ -130,6 +139,22 @@ db.exec(`
     end
 `);
 
+db.exec(`
+  delete from game_notification_subscriptions
+  where rowid not in (
+    select max(rowid)
+    from game_notification_subscriptions
+    group by game_id, public_key
+  );
+
+  delete from new_game_notification_subscriptions
+  where rowid not in (
+    select max(rowid)
+    from new_game_notification_subscriptions
+    group by network, public_key
+  );
+`);
+
 type PlayerRow = {
   pseudo: string;
   public_key: string;
@@ -187,8 +212,24 @@ export type GameNotificationSubscription = {
   updatedAt: string;
 };
 
+export type NewGameNotificationSubscription = {
+  network: NetworkId;
+  publicKey: string;
+  fcmToken: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type GameNotificationSubscriptionRow = {
   game_id: string;
+  public_key: string;
+  fcm_token: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type NewGameNotificationSubscriptionRow = {
+  network: NetworkId;
   public_key: string;
   fcm_token: string;
   created_at: string;
@@ -258,6 +299,16 @@ function subscriptionFromRow(row: GameNotificationSubscriptionRow): GameNotifica
   };
 }
 
+function newGameSubscriptionFromRow(row: NewGameNotificationSubscriptionRow): NewGameNotificationSubscription {
+  return {
+    network: row.network,
+    publicKey: row.public_key,
+    fcmToken: row.fcm_token,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 export function upsertPlayer(pseudo: string, publicKey: string): Player {
   const now = new Date().toISOString();
   const existingPseudoOwner = getPlayerByPseudo(pseudo);
@@ -300,6 +351,20 @@ export function listNotificationSubscriptionsForPublicKey(publicKey: string): Ga
   return rows.map(subscriptionFromRow);
 }
 
+export function listNewGameNotificationSubscriptions(network: NetworkId): NewGameNotificationSubscription[] {
+  const rows = db
+    .prepare("select * from new_game_notification_subscriptions where network = ? order by updated_at desc")
+    .all(network) as NewGameNotificationSubscriptionRow[];
+  return rows.map(newGameSubscriptionFromRow);
+}
+
+export function listNewGameNotificationSubscriptionsForPublicKey(publicKey: string): NewGameNotificationSubscription[] {
+  const rows = db
+    .prepare("select * from new_game_notification_subscriptions where public_key = ? order by updated_at desc")
+    .all(publicKey) as NewGameNotificationSubscriptionRow[];
+  return rows.map(newGameSubscriptionFromRow);
+}
+
 export function subscribeGameNotification(gameId: string, publicKey: string, fcmToken: string): GameNotificationSubscription {
   const game = getGame(gameId);
   if (!game) throw new Error("Game not found");
@@ -308,6 +373,7 @@ export function subscribeGameNotification(gameId: string, publicKey: string, fcm
   }
 
   const now = new Date().toISOString();
+  db.prepare("delete from game_notification_subscriptions where game_id = ? and public_key = ?").run(gameId, publicKey);
   db.prepare(
     `
     insert into game_notification_subscriptions (game_id, public_key, fcm_token, created_at, updated_at)
@@ -335,8 +401,43 @@ export function unsubscribeGameNotification(gameId: string, publicKey: string, f
   db.prepare("delete from game_notification_subscriptions where game_id = ? and public_key = ?").run(gameId, publicKey);
 }
 
+export function subscribeNewGameNotification(
+  network: NetworkId,
+  publicKey: string,
+  fcmToken: string
+): NewGameNotificationSubscription {
+  const now = new Date().toISOString();
+  db.prepare("delete from new_game_notification_subscriptions where network = ? and public_key = ?").run(network, publicKey);
+  db.prepare(
+    `
+    insert into new_game_notification_subscriptions (network, public_key, fcm_token, created_at, updated_at)
+    values (?, ?, ?, ?, ?)
+    on conflict(network, public_key, fcm_token) do update set updated_at = excluded.updated_at
+  `
+  ).run(network, publicKey, fcmToken, now, now);
+
+  const row = db
+    .prepare("select * from new_game_notification_subscriptions where network = ? and public_key = ? and fcm_token = ?")
+    .get(network, publicKey, fcmToken) as NewGameNotificationSubscriptionRow;
+  return newGameSubscriptionFromRow(row);
+}
+
+export function unsubscribeNewGameNotification(network: NetworkId, publicKey: string, fcmToken?: string): void {
+  if (fcmToken) {
+    db.prepare("delete from new_game_notification_subscriptions where network = ? and public_key = ? and fcm_token = ?").run(
+      network,
+      publicKey,
+      fcmToken
+    );
+    return;
+  }
+
+  db.prepare("delete from new_game_notification_subscriptions where network = ? and public_key = ?").run(network, publicKey);
+}
+
 export function deleteNotificationSubscriptionToken(fcmToken: string): void {
   db.prepare("delete from game_notification_subscriptions where fcm_token = ?").run(fcmToken);
+  db.prepare("delete from new_game_notification_subscriptions where fcm_token = ?").run(fcmToken);
 }
 
 export function disableGameNotifications(gameId: string): void {
