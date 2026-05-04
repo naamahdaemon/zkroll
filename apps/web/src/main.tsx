@@ -1475,8 +1475,8 @@ function App() {
   );
 
   const selectedGame = useMemo(
-    () => filteredGames.find((game) => game.id === selectedGameId) ?? filteredGames[0] ?? null,
-    [filteredGames, selectedGameId]
+    () => (selectedGameId ? games.find((game) => game.id === selectedGameId) : null) ?? filteredGames[0] ?? null,
+    [filteredGames, games, selectedGameId]
   );
 
   const selectedGameTxs = useMemo(() => {
