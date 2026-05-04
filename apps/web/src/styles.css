@@ -875,7 +875,8 @@ select {
 .status.joined,
 .status.join_pending,
 .status.player_one_revealed,
-.status.player_two_revealed {
+.status.player_two_revealed,
+.status.both_revealed {
   background: #8b5a18;
 }
 
