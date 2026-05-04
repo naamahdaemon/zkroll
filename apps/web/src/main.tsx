@@ -1400,6 +1400,7 @@ function App() {
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("mine_active");
   const [playerSearch, setPlayerSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
@@ -1475,8 +1476,16 @@ function App() {
   );
 
   const selectedGame = useMemo(
-    () => (selectedGameId ? games.find((game) => game.id === selectedGameId && game.network === network) : null) ?? filteredGames[0] ?? null,
-    [filteredGames, games, network, selectedGameId]
+    () => {
+      const target = deepLinkedGameTarget && selectedGameId === deepLinkedGameTarget.id ? deepLinkedGameTarget : null;
+      return (
+        (target ? games.find((game) => game.id === target.id && game.network === target.network) : null) ??
+        (selectedGameId ? games.find((game) => game.id === selectedGameId && game.network === network) : null) ??
+        filteredGames[0] ??
+        null
+      );
+    },
+    [deepLinkedGameTarget, filteredGames, games, network, selectedGameId]
   );
 
   const selectedGameTxs = useMemo(() => {
@@ -1859,6 +1868,7 @@ function App() {
     }
     setStatusFilter("all");
     setPlayerSearch("");
+    setDeepLinkedGameTarget(linkedNetwork ? { id: gameId, network: linkedNetwork } : null);
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
     sessionStorage.setItem(consumedDeepLinkKey(params, gameId), "1");
@@ -2218,6 +2228,7 @@ function App() {
   }
 
   function handleGameCardSelect(gameId: string) {
+    setDeepLinkedGameTarget(null);
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
   }
@@ -2308,6 +2319,7 @@ function App() {
   }
 
   function selectAppNetwork(nextNetwork: NetworkId) {
+    setDeepLinkedGameTarget(null);
     setNetwork(nextNetwork);
     setNetworkMenuOpen(false);
   }
@@ -3250,7 +3262,7 @@ function App() {
           )}
           <label className="playerNetworkSelect">
             {t("network")}
-            <select value={network} onChange={(event) => setNetwork(event.target.value as NetworkId)}>
+            <select value={network} onChange={(event) => selectAppNetwork(event.target.value as NetworkId)}>
               {Object.values(networks).map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
@@ -3355,7 +3367,7 @@ function App() {
             {paginatedGames.map((game) => (
               <div
                 key={game.id}
-                className={game.id === selectedGame?.id ? "gameCard selected" : "gameCard"}
+                className={game.id === selectedGame?.id && game.network === selectedGame.network ? "gameCard selected" : "gameCard"}
                 role="button"
                 tabIndex={0}
                 onClick={() => handleGameCardSelect(game.id)}
