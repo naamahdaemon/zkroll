@@ -1475,8 +1475,8 @@ function App() {
   );
 
   const selectedGame = useMemo(
-    () => (selectedGameId ? games.find((game) => game.id === selectedGameId) : null) ?? filteredGames[0] ?? null,
-    [filteredGames, games, selectedGameId]
+    () => (selectedGameId ? games.find((game) => game.id === selectedGameId && game.network === network) : null) ?? filteredGames[0] ?? null,
+    [filteredGames, games, network, selectedGameId]
   );
 
   const selectedGameTxs = useMemo(() => {
@@ -1851,21 +1851,17 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const gameId = params.get("game");
     if (!gameId) return;
-    const consumedKey = consumedDeepLinkKey(params, gameId);
-
-    if (sessionStorage.getItem(consumedKey)) {
-      cleanDeepLinkUrl(params);
-      return;
+    const requestedNetwork = networkFromUrl(params.get("network"));
+    const linkedGame = items.find((item) => item.id === gameId && (!requestedNetwork || item.network === requestedNetwork));
+    const linkedNetwork = requestedNetwork ?? linkedGame?.network ?? null;
+    if (linkedNetwork) {
+      setNetwork(linkedNetwork);
     }
-
-    const linkedGame = items.find((item) => item.id === gameId);
-    const linkedNetwork = networkFromUrl(params.get("network")) ?? linkedGame?.network ?? null;
-    if (linkedNetwork) setNetwork(linkedNetwork);
     setStatusFilter("all");
     setPlayerSearch("");
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
-    sessionStorage.setItem(consumedKey, "1");
+    sessionStorage.setItem(consumedDeepLinkKey(params, gameId), "1");
     cleanDeepLinkUrl(params);
   }
 
