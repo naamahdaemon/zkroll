@@ -103,8 +103,6 @@ const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLO
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
-const zekoCreatedRefundDeadlineSlot = "4294967294";
-const zekoJoinedRefundDeadlineSlot = "4294967295";
 type TxStatus = TransactionStatus;
 type Locale = "en" | "fr";
 type Theme = "light" | "dark";
@@ -645,15 +643,11 @@ function formatDateTime(value: string | null | undefined, locale: Locale): strin
 }
 
 async function refundDeadlineForCreate(network: NetworkId, timeoutSlots: number) {
-  // Zeko does not currently expose a reliable Mina-style current slot in its GraphQL API.
-  // Use high deadlines so create/join remain usable there; Devnet/Mainnet keep slot timeouts.
-  if (network === "zeko") return zekoCreatedRefundDeadlineSlot;
   const currentSlot = (await getCurrentSlot(network)).currentSlot;
   return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
 }
 
 async function refundDeadlineForJoin(network: NetworkId, timeoutSlots: number) {
-  if (network === "zeko") return zekoJoinedRefundDeadlineSlot;
   const currentSlot = (await getCurrentSlot(network)).currentSlot;
   return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
 }

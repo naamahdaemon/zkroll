@@ -52,6 +52,7 @@ const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS
 const currentSlotCacheMs = Number(process.env.ZKROLL_CURRENT_SLOT_CACHE_MS ?? 15_000);
 const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_000);
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
+const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
 const currentSlotRequests = new Map<NetworkId, Promise<string>>();
 const accountBalanceCache = new Map<string, { expiresAt: number; balance: string | null; error: string | null }>();
@@ -82,7 +83,7 @@ async function currentSlotFor(network: NetworkId) {
   const running = currentSlotRequests.get(network);
   if (running) return running;
 
-  const request = (network === "zeko" ? zekoCurrentSlotFor(network) : minaCurrentSlotFor(network))
+  const request = (network === "zeko" ? minaCurrentSlotFor(zekoSlotSourceNetwork) : minaCurrentSlotFor(network))
     .then((currentSlot) => {
       currentSlotCache.set(network, { expiresAt: Date.now() + currentSlotCacheMs, currentSlot });
       return currentSlot;
@@ -101,55 +102,6 @@ async function minaCurrentSlotFor(network: NetworkId) {
     `${network} latest block fetch`
   );
   return latest.globalSlotSinceGenesis.toString();
-}
-
-async function zekoCurrentSlotFor(network: NetworkId) {
-  // Zeko exposes a Mina-compatible transaction/account API, but not Mina node fields like
-  // bestChain or current slot. Query only stable Zeko fields here and let callers treat 0
-  // as "slot unavailable" for UI purposes.
-  const query = `
-    query ZekoNetworkTiming {
-      genesisConstants {
-        genesisTimestamp
-      }
-      daemonStatus {
-        consensusConfiguration {
-          slotDuration
-        }
-      }
-    }
-  `;
-
-  const payload = await withTimeout(
-    fetch(networks[network].minaEndpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query })
-    }).then(async (response) => {
-      if (!response.ok) throw new Error(`GraphQL ${response.status}`);
-      return (await response.json()) as {
-        data?: {
-          genesisConstants?: { genesisTimestamp?: string };
-          daemonStatus?: { consensusConfiguration?: { slotDuration?: number | string } };
-        };
-        errors?: { message: string }[];
-      };
-    }),
-    chainRequestTimeoutMs,
-    `${network} current slot fetch`
-  );
-
-  if (payload.errors?.length) {
-    throw new Error(payload.errors.map((error) => error.message).join("; "));
-  }
-
-  const slotDuration = Number(payload.data?.daemonStatus?.consensusConfiguration?.slotDuration ?? 0);
-  const genesisTimestamp = payload.data?.genesisConstants?.genesisTimestamp;
-  if (!slotDuration || slotDuration < 1 || !genesisTimestamp) {
-    return "0";
-  }
-
-  return Math.max(0, Math.floor((Date.now() - new Date(genesisTimestamp).getTime()) / slotDuration)).toString();
 }
 
 function isLocalTransactionHash(hash: string) {
