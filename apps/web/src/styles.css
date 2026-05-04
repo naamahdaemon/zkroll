@@ -1158,6 +1158,56 @@ dd {
   white-space: nowrap;
 }
 
+.walletConnectQrBox {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 12px;
+}
+
+.walletConnectQr {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  height: 240px;
+  padding: 10px;
+  width: 240px;
+}
+
+.walletConnectQrSwitch {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  width: 100%;
+}
+
+.walletConnectQrSwitch button {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  min-height: 34px;
+}
+
+.walletConnectQrSwitch button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.walletConnectQrBox code {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .modalActions {
   display: grid;
   gap: 10px;

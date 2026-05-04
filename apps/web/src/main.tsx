@@ -111,6 +111,7 @@ type Theme = "light" | "dark";
 type ViewMode = "cards" | "app";
 type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "settings";
 type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
+type WalletConnectQrMode = "auro" | "wc";
 const gameStatuses: GameStatus[] = [
   "pending_signature",
   "created",
@@ -130,9 +131,13 @@ type QRCodeBrowserModule = {
   toDataURL: (text: string, options?: { margin?: number; width?: number }) => Promise<string>;
 };
 
-async function createSecretQrDataUrl(secret: string) {
+async function createQrDataUrl(secret: string, width = 192) {
   const qrcode = (await import("qrcode/lib/browser.js")) as QRCodeBrowserModule;
-  return qrcode.toDataURL(secret, { margin: 1, width: 192 });
+  return qrcode.toDataURL(secret, { margin: 1, width });
+}
+
+async function createSecretQrDataUrl(secret: string) {
+  return createQrDataUrl(secret, 192);
 }
 
 const credits = [
@@ -340,7 +345,11 @@ const copy: Record<Locale, Record<string, string>> = {
     openAuro: "Open Auro",
     openAuroFallback: "Open Auro directly",
     cancel: "Cancel",
-    copyWalletConnectUri: "Copy WalletConnect URI",
+    copyWalletConnectUri: "Copy Auro WalletConnect URL",
+    showWalletConnectQr: "Show connection QR code",
+    hideWalletConnectQr: "Hide connection QR code",
+    walletConnectQrAuro: "Auro link",
+    walletConnectQrWc: "WC URI",
     walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here. If Auro opens without a connection screen, use the direct open button and the copied URI from Auro WalletConnect.",
     walletConnectNotConfigured: "Mobile WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID.",
     createdAt: "Created",
@@ -554,7 +563,11 @@ const copy: Record<Locale, Record<string, string>> = {
     openAuro: "Ouvrir Auro",
     openAuroFallback: "Ouvrir Auro directement",
     cancel: "Annuler",
-    copyWalletConnectUri: "Copier l'URI WalletConnect",
+    copyWalletConnectUri: "Copier l'URL WalletConnect Auro",
+    showWalletConnectQr: "Afficher le QRCode de connexion",
+    hideWalletConnectQr: "Masquer le QRCode de connexion",
+    walletConnectQrAuro: "Lien Auro",
+    walletConnectQrWc: "URI WC",
     walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici. Si Auro s'ouvre sans mire de connexion, utilise l'ouverture directe et l'URI copiee depuis WalletConnect dans Auro.",
     walletConnectNotConfigured: "WalletConnect mobile n'est pas configure. Renseigne VITE_WALLETCONNECT_PROJECT_ID.",
     createdAt: "Creee",
@@ -728,6 +741,8 @@ function App() {
   const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
+  const [walletConnectQrDataUrl, setWalletConnectQrDataUrl] = useState<string | null>(null);
+  const [walletConnectQrMode, setWalletConnectQrMode] = useState<WalletConnectQrMode>("auro");
   const t = (key: string) => copy[locale][key] ?? copy.en[key] ?? key;
   const [message, setMessage] = useState(initialMessage);
   const [messageHistory, setMessageHistory] = useState<string[]>(() => [initialMessage]);
@@ -1237,6 +1252,10 @@ function App() {
   }, []);
 
   useEffect(() => {
+    setWalletConnectQrDataUrl(null);
+  }, [walletConnectPrompt?.openUrl]);
+
+  useEffect(() => {
     txStatusesRef.current = txStatuses;
   }, [txStatuses]);
 
@@ -1672,6 +1691,29 @@ function App() {
   function handleManualSignatureFailed() {
     rejectPendingWalletSignature(t("manualSignatureFailedMessage"));
     setManualSignatureHash("");
+  }
+
+  async function toggleWalletConnectQr() {
+    if (walletConnectQrDataUrl) {
+      setWalletConnectQrDataUrl(null);
+      return;
+    }
+    const url = walletConnectQrValue();
+    if (!url) return;
+    setWalletConnectQrDataUrl(await createQrDataUrl(url, 240));
+  }
+
+  function walletConnectQrValue(mode = walletConnectQrMode) {
+    if (!walletConnectPrompt) return null;
+    return mode === "auro" ? walletConnectPrompt.openUrl : walletConnectPrompt.uri ?? null;
+  }
+
+  async function updateWalletConnectQrMode(mode: WalletConnectQrMode) {
+    setWalletConnectQrMode(mode);
+    if (!walletConnectQrDataUrl) return;
+    const url = walletConnectQrValue(mode);
+    if (!url) return;
+    setWalletConnectQrDataUrl(await createQrDataUrl(url, 240));
   }
 
   function walletProvider() {
@@ -2114,11 +2156,38 @@ function App() {
                 className="secondaryButton"
                 type="button"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(walletConnectPrompt.uri ?? "");
+                  void navigator.clipboard?.writeText(walletConnectPrompt.openUrl);
                 }}
               >
                 {t("copyWalletConnectUri")}
               </button>
+            )}
+            {walletConnectPrompt.uri && (
+              <button className="secondaryButton" type="button" onClick={() => void toggleWalletConnectQr()}>
+                {walletConnectQrDataUrl ? t("hideWalletConnectQr") : t("showWalletConnectQr")}
+              </button>
+            )}
+            {walletConnectQrDataUrl && (
+              <div className="walletConnectQrBox">
+                <div className="walletConnectQrSwitch" role="group" aria-label="WalletConnect QR">
+                  <button
+                    className={walletConnectQrMode === "auro" ? "active" : ""}
+                    onClick={() => void updateWalletConnectQrMode("auro")}
+                    type="button"
+                  >
+                    {t("walletConnectQrAuro")}
+                  </button>
+                  <button
+                    className={walletConnectQrMode === "wc" ? "active" : ""}
+                    onClick={() => void updateWalletConnectQrMode("wc")}
+                    type="button"
+                  >
+                    {t("walletConnectQrWc")}
+                  </button>
+                </div>
+                <img alt="WalletConnect" className="walletConnectQr" src={walletConnectQrDataUrl} />
+                <code>{walletConnectQrValue()}</code>
+              </div>
             )}
             <button
               className="ghostButton"
