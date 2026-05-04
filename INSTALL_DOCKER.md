@@ -98,6 +98,7 @@ ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -127,6 +128,7 @@ Important:
 - Set `VITE_WALLETCONNECT_PROJECT_ID` to a Reown Cloud project id to enable Auro Mobile from Chrome/Safari. Leave it empty if you only want desktop extension support.
 - Firebase variables are optional. When configured, users can install zkroll as a PWA and subscribe to per-game push notifications. The web image needs the `VITE_FIREBASE_*` values and the API needs the service account values. Keep `FIREBASE_PRIVATE_KEY` secret and outside Git.
 - Zeko Testnet is supported, but its public GraphQL API is not identical to Mina Devnet/Mainnet. The backend avoids Mina-only `bestChain` transaction scans on Zeko and relies on per-game zkApp state instead.
+- Zeko refund/cancel deadlines use a Mina L1 current-slot source. Keep `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` for Zeko Testnet unless Zeko documents another L1 slot source.
 - Zeko Testnet uses the Mina `testnet` signing domain for current Auro compatibility and a `0.1 MINA` account creation funding workaround. Rebuild `web` after pulling changes that affect network config.
 - Remove old compose references to `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS`, and `VITE_ZKROLL_CONTRACT_ADDRESS`. They are obsolete and will produce Docker Compose warnings if left in `docker-compose.prod.yml`.
 
@@ -605,6 +607,7 @@ ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 
 VITE_API_URL=https://zkroll.naamahdaemon.eu/api
 VITE_ONCHAIN_ENABLED=true
@@ -631,6 +634,7 @@ Important :
 - Renseigne `VITE_WALLETCONNECT_PROJECT_ID` avec un project id Reown Cloud pour activer Auro Mobile depuis Chrome/Safari. Laisse vide si tu veux uniquement le support extension desktop.
 - Les variables Firebase sont optionnelles. Une fois configurees, les utilisateurs peuvent installer zkroll en PWA et s'abonner aux notifications push par partie. L'image web a besoin des valeurs `VITE_FIREBASE_*` et l'API a besoin des valeurs du compte de service. Garde `FIREBASE_PRIVATE_KEY` secret et hors Git.
 - Zeko Testnet est supporte, mais son API GraphQL publique n'est pas identique a Mina Devnet/Mainnet. Le backend evite les scans `bestChain` propres a Mina sur Zeko et s'appuie plutot sur l'etat zkApp de chaque partie.
+- Les deadlines refund/cancel Zeko utilisent une source de slot courant Mina L1. Garde `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` pour Zeko Testnet sauf indication contraire de Zeko.
 - Zeko Testnet utilise actuellement le domaine de signature Mina `testnet` pour compatibilite Auro, ainsi qu'un financement explicite de creation de compte a `0.1 MINA`. Rebuild `web` apres tout changement de configuration reseau.
 - Supprime les anciennes references compose a `ZKROLL_CONTRACT_ADDRESS`, `ZKROLL_ONCHAIN_ROOT_CACHE_MS` et `VITE_ZKROLL_CONTRACT_ADDRESS`. Elles sont obsoletes et provoquent des warnings Docker Compose si elles restent dans `docker-compose.prod.yml`.
 

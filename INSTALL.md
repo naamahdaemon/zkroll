@@ -48,7 +48,7 @@ Important Zeko notes:
 - Auro identifies the mobile wallet chain as `zeko:testnet`, but the o1js transaction `networkId` currently uses the Mina `testnet` signing domain for Zeko Testnet compatibility.
 - Zeko Testnet account creation currently uses a `0.1 MINA` fee. The app funds that explicitly for Zeko instead of using the default Mina `fundNewAccount` helper.
 - Zeko does not expose the same `bestChain` and current-slot GraphQL fields as Mina Devnet/Mainnet. The backend therefore infers known transaction inclusion from the per-game zkApp state and treats direct transaction lookup as `UNKNOWN` on Zeko.
-- Refund deadlines on Zeko Testnet use high placeholder slots because the public endpoint does not provide a reliable Mina-style current slot. Treat refunds on Zeko Testnet as experimental until a reliable slot source is available.
+- Refund deadlines on Zeko Testnet use a Mina L1 current-slot source through `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK`, defaulting to Devnet. Treat Zeko refunds as experimental until Zeko formally documents the expected L1 slot source.
 
 ## 4. zkApp Addresses
 
@@ -140,6 +140,7 @@ ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
+ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -156,6 +157,7 @@ $env:ZKROLL_CURRENT_SLOT_CACHE_MS="15000"
 $env:ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 $env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 $env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
+$env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 npm run dev:api
 ```
 
@@ -168,6 +170,7 @@ export ZKROLL_CURRENT_SLOT_CACHE_MS="15000"
 export ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
+export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 npm run dev:api
 ```
 
@@ -189,6 +192,8 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 `ZKROLL_CURRENT_SLOT_CACHE_MS` caches current-slot lookups used by refund eligibility.
 
 `ZKROLL_CHAIN_REQUEST_TIMEOUT_MS` bounds external Mina GraphQL calls. Lower values make the API fail fast when public endpoints are slow; higher values can reduce `UNKNOWN` statuses but may make requests feel slower.
+
+`ZKROLL_ZEKO_SLOT_SOURCE_NETWORK` controls the Mina L1 slot source used for Zeko refund/cancel deadlines. Use `devnet` by default for Zeko Testnet. Set it to `mainnet` only if a future Zeko environment explicitly uses mainnet L1 slots. If the source does not match Zeko's slot semantics, the expected failure mode is a rejected refund/cancel transaction.
 
 ## 7. Configure The Web App
 
@@ -225,6 +230,8 @@ VITE_FIREBASE_VAPID_KEY=
 ```
 
 Without `VITE_ONCHAIN_ENABLED=true`, the UI stays in simulation mode.
+
+The interface language selector supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish. The selected locale is stored in browser local storage.
 
 `VITE_API_URL` defaults to `http://127.0.0.1:4000` if omitted, but keeping it explicit makes local setup easier to audit.
 

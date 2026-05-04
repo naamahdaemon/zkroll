@@ -102,6 +102,20 @@ VITE_WALLETCONNECT_PROJECT_ID=your-reown-project-id
 
 Desktop/laptop keeps using the injected `window.mina` provider when the Auro extension is available. WalletConnect is only used when `window.mina` is absent and `VITE_WALLETCONNECT_PROJECT_ID` is configured.
 
+## Interface Locales
+
+The frontend language selector supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish. Locale choice is stored in browser local storage and all UI copy is resolved through the in-app translation table with English as the fallback.
+
+## Zeko Current Slot Source
+
+Zeko Testnet does not expose every Mina node GraphQL field used by o1js helper APIs. For refund/cancel deadlines, the backend resolves `current-slot` for Zeko from a Mina L1 slot source instead of a sequencer index. The source defaults to Devnet and can be changed with:
+
+```env
+ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
+```
+
+Use `mainnet` only if a future Zeko environment explicitly uses mainnet L1 slots. If the selected source does not match Zeko's slot semantics, the expected failure mode is a rejected refund/cancel transaction.
+
 ## PWA And Notifications
 
 The web app ships a manifest and a Firebase Messaging service worker, so it can be installed as a PWA on supported browsers.
