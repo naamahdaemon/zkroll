@@ -114,14 +114,14 @@ db.exec(`
   update games
   set creation_tx_status = case
       when status = 'failed' then 'FAILED'
-      when status in ('joined', 'join_pending', 'player_one_revealed', 'player_two_revealed', 'settled', 'refunded') then 'INCLUDED'
+      when status in ('joined', 'join_pending', 'player_one_revealed', 'player_two_revealed', 'both_revealed', 'settled', 'refunded') then 'INCLUDED'
       when creation_tx_hash like 'fake%' or creation_tx_hash like 'create_%' then 'INCLUDED'
       when creation_tx_hash like 'pending:%' then 'PENDING'
       else coalesce(nullif(creation_tx_status, ''), 'PENDING')
     end,
     join_tx_status = case
       when join_tx_hash is null then null
-      when status in ('joined', 'player_one_revealed', 'player_two_revealed', 'settled', 'refunded') then 'INCLUDED'
+      when status in ('joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed', 'settled', 'refunded') then 'INCLUDED'
       when join_tx_hash like 'fake%' or join_tx_hash like 'join_%' then 'INCLUDED'
       else coalesce(nullif(join_tx_status, ''), 'PENDING')
     end,
@@ -629,7 +629,7 @@ export function updateStoredTransactionStatus(network: NetworkId, hash: string, 
 }
 
 function revealedStatus(creatorReveal: string | null, joinerReveal: string | null): GameStatus {
-  if (creatorReveal && joinerReveal) return "player_two_revealed";
+  if (creatorReveal && joinerReveal) return "both_revealed";
   if (creatorReveal) return "player_one_revealed";
   if (joinerReveal) return "player_two_revealed";
   return "joined";
@@ -850,7 +850,7 @@ export function refundGame(id: string, input: { refundTxHash: string }): Game {
           status = 'refunded',
           updated_at = ?
       where id = ?
-        and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed')
+        and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed')
     `
     )
     .run(input.refundTxHash, refundTxStatus, now, now, id);
@@ -865,7 +865,12 @@ export function refundGame(id: string, input: { refundTxHash: string }): Game {
 export function revealSecret(id: string, publicKey: string, secret: string): Game {
   const game = getGame(id);
   if (!game) throw new Error("Game not found");
-  if (game.status !== "joined" && game.status !== "player_one_revealed" && game.status !== "player_two_revealed") {
+  if (
+    game.status !== "joined" &&
+    game.status !== "player_one_revealed" &&
+    game.status !== "player_two_revealed" &&
+    game.status !== "both_revealed"
+  ) {
     throw new Error("Game cannot accept reveals");
   }
 
@@ -878,9 +883,9 @@ export function revealSecret(id: string, publicKey: string, secret: string): Gam
 
   const nextStatus =
     isCreator && game.joinerReveal
-      ? "player_two_revealed"
+      ? "both_revealed"
       : isJoiner && game.creatorReveal
-        ? "player_one_revealed"
+        ? "both_revealed"
         : isCreator
           ? "player_one_revealed"
           : "player_two_revealed";
@@ -936,7 +941,7 @@ export function settleGame(
           status = 'settled',
           updated_at = ?
       where id = ? and creator_reveal is not null and joiner_reveal is not null
-        and status in ('joined', 'player_one_revealed', 'player_two_revealed')
+        and status in ('joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed')
         and (settlement_tx_hash is null or settlement_tx_status = 'FAILED')
     `
     )

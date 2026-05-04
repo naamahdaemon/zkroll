@@ -5,7 +5,7 @@ import { listGames } from "./db.js";
 
 function statusField(status: GameStatus) {
   if (status === "created") return CREATED;
-  if (status === "joined" || status === "player_one_revealed" || status === "player_two_revealed") return JOINED;
+  if (status === "joined" || status === "player_one_revealed" || status === "player_two_revealed" || status === "both_revealed") return JOINED;
   if (status === "settled") return SETTLED;
   if (status === "refunded") return REFUNDED;
   return EMPTY;

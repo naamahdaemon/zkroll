@@ -118,6 +118,7 @@ const gameStatuses: GameStatus[] = [
   "joined",
   "player_one_revealed",
   "player_two_revealed",
+  "both_revealed",
   "settled",
   "refunded",
   "failed",
@@ -903,7 +904,10 @@ function App() {
 
   function canReveal(game: Game): boolean {
     return (
-      (game.status === "joined" || game.status === "player_one_revealed" || game.status === "player_two_revealed") &&
+      (game.status === "joined" ||
+        game.status === "player_one_revealed" ||
+        game.status === "player_two_revealed" ||
+        game.status === "both_revealed") &&
       statusFor(game.creationTxHash) === "INCLUDED" &&
       statusFor(game.joinTxHash) === "INCLUDED"
     );
@@ -923,7 +927,10 @@ function App() {
       !onchainEnabled ||
       (Boolean(currentSlot) && Boolean(game.refundDeadlineSlot) && BigInt(currentSlot!) >= BigInt(game.refundDeadlineSlot!));
     const joinedLike =
-      game.status === "joined" || game.status === "player_one_revealed" || game.status === "player_two_revealed";
+      game.status === "joined" ||
+      game.status === "player_one_revealed" ||
+      game.status === "player_two_revealed" ||
+      game.status === "both_revealed";
       if (game.status === "created") {
       return deadlineReached && creationStatusFor(game) === "INCLUDED";
     }
@@ -2747,7 +2754,8 @@ function App() {
 
               {(selectedGame.status === "joined" ||
                 selectedGame.status === "player_one_revealed" ||
-                selectedGame.status === "player_two_revealed") && (
+                selectedGame.status === "player_two_revealed" ||
+                selectedGame.status === "both_revealed") && (
                 <div className="actions">
                   <div className={rollingGameId === selectedGame.id ? "dice rolling" : "dice"}>
                     <DiceFace

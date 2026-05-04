@@ -7,6 +7,7 @@ export type GameStatus =
   | "joined"
   | "player_one_revealed"
   | "player_two_revealed"
+  | "both_revealed"
   | "settled"
   | "refunded"
   | "failed"
