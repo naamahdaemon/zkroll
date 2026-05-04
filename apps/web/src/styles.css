@@ -713,11 +713,17 @@ select {
   justify-content: space-between;
 }
 
-.gameCardMeta {
+.gameCardTools {
   align-items: center;
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.gameCardMeta {
+  align-items: start;
+  display: grid;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -758,6 +764,17 @@ select {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
+}
+
+.localSecretIndicator {
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border-strong));
+  border-radius: 6px;
+  color: var(--primary);
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
 }
 
 .detailTools {

@@ -23,6 +23,7 @@ import {
   Search,
   Send,
   Settings,
+  Share2,
   ShieldCheck,
   Sun,
   Trophy,
@@ -82,6 +83,7 @@ import {
   cancelWalletConnectPrompt,
   disconnectWalletConnect,
   mobileBrowserCanUseWalletConnect,
+  restoredWalletConnectAccounts,
   setWalletConnectPromptHandler,
   setWalletConnectNetwork,
   walletConnectConfigured,
@@ -103,6 +105,7 @@ const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLO
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
+const autoConnectStorageKey = "zkroll:auto-connect-wallet";
 type TxStatus = TransactionStatus;
 type Locale = "en" | "fr" | "zh" | "tr" | "ru" | "de" | "ja" | "es";
 type Theme = "light" | "dark";
@@ -263,6 +266,9 @@ const copy: Record<string, Record<string, string>> = {
     activeNetwork: "Active",
     enableNotifications: "Enable notifications for this game",
     disableNotifications: "Disable notifications for this game",
+    shareGame: "Share game",
+    gameLinkCopied: "Game link copied.",
+    gameLinkCopyFailed: "Unable to share this game link.",
     notificationsEnabled: "Notifications enabled for this game.",
     notificationsDisabled: "Notifications disabled for this game.",
     enableNewGameNotifications: "Enable new game notifications",
@@ -481,6 +487,9 @@ const copy: Record<string, Record<string, string>> = {
     activeNetwork: "Actif",
     enableNotifications: "Activer les notifications pour cette partie",
     disableNotifications: "Desactiver les notifications pour cette partie",
+    shareGame: "Partager la partie",
+    gameLinkCopied: "Lien de la partie copie.",
+    gameLinkCopyFailed: "Impossible de partager le lien de cette partie.",
     notificationsEnabled: "Notifications activees pour cette partie.",
     notificationsDisabled: "Notifications desactivees pour cette partie.",
     enableNewGameNotifications: "Activer les notifications de nouvelles parties",
@@ -1733,6 +1742,69 @@ function App() {
     );
   }
 
+  function gameAwaitsPlayerAction(game: Game) {
+    return (
+      game.status === "created" ||
+      game.status === "join_pending" ||
+      game.status === "joined" ||
+      game.status === "player_one_revealed" ||
+      game.status === "player_two_revealed" ||
+      game.status === "both_revealed"
+    );
+  }
+
+  function gameDeepLink(game: Game) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("network", game.network);
+    url.searchParams.set("game", game.id);
+    url.searchParams.set("share", Date.now().toString(36));
+    url.searchParams.delete("notification");
+    return url.toString();
+  }
+
+  async function handleShareGame(game: Game) {
+    const url = gameDeepLink(game);
+    const title = `${t("challenge")} ${game.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text: title, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        setMessage(t("gameLinkCopied"));
+      }
+    } catch (error) {
+      const name = (error as Error).name;
+      if (name !== "AbortError") setMessage(t("gameLinkCopyFailed"));
+    }
+  }
+
+  function shareGameButton(game: Game) {
+    if (!gameAwaitsPlayerAction(game)) return null;
+    return (
+      <button
+        type="button"
+        className="notificationButton"
+        title={t("shareGame")}
+        aria-label={t("shareGame")}
+        onClick={(event) => {
+          event.stopPropagation();
+          void handleShareGame(game);
+        }}
+      >
+        <Share2 size={16} />
+      </button>
+    );
+  }
+
+  function localSecretIndicator(game: Game) {
+    if (!secretFor(game)) return null;
+    return (
+      <span className="localSecretIndicator" aria-label={t("secretAvailable")} title={t("secretAvailable")}>
+        <ShieldCheck size={16} />
+      </span>
+    );
+  }
+
   function canCancelCreatedGame(game: Game): boolean {
     return (
       game.status === "created" &&
@@ -1765,13 +1837,14 @@ function App() {
     params.delete("game");
     params.delete("network");
     params.delete("notification");
+    params.delete("share");
     const nextSearch = params.toString();
     const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
     window.history.replaceState(window.history.state, "", nextUrl);
   }
 
   function consumedDeepLinkKey(params: URLSearchParams, gameId: string) {
-    return `zkroll:consumed-deeplink:${params.get("network") ?? ""}:${gameId}:${params.get("notification") ?? "legacy"}`;
+    return `zkroll:consumed-deeplink:${params.get("network") ?? ""}:${gameId}:${params.get("notification") ?? "legacy"}:${params.get("share") ?? ""}`;
   }
 
   function selectGameFromUrl(items = games) {
@@ -1803,6 +1876,11 @@ function App() {
       setSecretVault(JSON.parse(savedVault) as Record<string, string>);
     }
   }, []);
+
+  useEffect(() => {
+    if (publicKey || localStorage.getItem(autoConnectStorageKey) !== "true") return;
+    void connectWallet({ silent: true });
+  }, [network, publicKey]);
 
   useEffect(() => {
     selectGameFromUrl();
@@ -2269,12 +2347,14 @@ function App() {
     setRollingGameId(null);
   }
 
-  async function connectWallet() {
+  async function connectWallet(options?: { silent?: boolean }) {
+    const silent = options?.silent === true;
     if (!window.mina && walletConnectConfigured()) {
       setWalletConnectNetwork(network);
     }
     const provider = window.mina ?? (mobileBrowserCanUseWalletConnect() ? walletConnectProvider() : undefined);
     if (!provider) {
+      if (silent) return;
       if (!window.mina && !walletConnectConfigured()) {
         setMessage(t("walletConnectNotConfigured"));
         return;
@@ -2285,8 +2365,17 @@ function App() {
 
     let accounts: string[];
     try {
-      accounts = await provider.requestAccounts();
+      if (silent && !window.mina && mobileBrowserCanUseWalletConnect()) {
+        accounts = await restoredWalletConnectAccounts();
+        if (accounts.length === 0) return;
+      } else if (silent && provider.getAccounts) {
+        accounts = await provider.getAccounts();
+        if (accounts.length === 0) return;
+      } else {
+        accounts = await provider.requestAccounts();
+      }
     } catch (error) {
+      if (silent) return;
       const errorMessage = (error as Error).message;
       setMessage(errorMessage === "WalletConnect cancelled." ? t("walletPrompt") : errorMessage);
       return;
@@ -2294,6 +2383,7 @@ function App() {
     const account = accounts[0] ?? "";
     setPublicKey(account);
     if (!account) {
+      if (silent) return;
       setMessage(t("noWalletAccount"));
       return;
     }
@@ -2301,6 +2391,7 @@ function App() {
     try {
       await ensureWalletNetwork(provider, network);
     } catch (error) {
+      if (silent) return;
       setMessage((error as Error).message);
       return;
     }
@@ -2309,11 +2400,13 @@ function App() {
       const player = await getPlayerByPublicKey(account);
       setPseudo(player.pseudo);
       setPseudoModalOpen(false);
-      setMessage(`${t("walletFound")} ${player.pseudo}.`);
+      localStorage.setItem(autoConnectStorageKey, "true");
+      if (!silent) setMessage(`${t("walletFound")} ${player.pseudo}.`);
     } catch {
       setPseudoDraft("");
       setPseudoModalOpen(true);
-      setMessage(t("choosePseudoMessage"));
+      localStorage.setItem(autoConnectStorageKey, "true");
+      if (!silent) setMessage(t("choosePseudoMessage"));
     }
   }
 
@@ -2330,6 +2423,7 @@ function App() {
     setPseudoDraft("");
     setPseudoModalOpen(false);
     setWalletConnectPrompt(null);
+    localStorage.removeItem(autoConnectStorageKey);
     setMessage(t("walletPrompt"));
   }
 
@@ -3278,7 +3372,11 @@ function App() {
                     <span className="gameId">#{game.id}</span>
                     <span className={`status ${game.status}`}>{game.status}</span>
                   </div>
-                  {notificationButton(game)}
+                  <span className="gameCardTools">
+                    {localSecretIndicator(game)}
+                    {shareGameButton(game)}
+                    {notificationButton(game)}
+                  </span>
                 </div>
                 <div className="playersLine">
                   <strong>
@@ -3333,6 +3431,7 @@ function App() {
                   <h2>{t("challenge")} {selectedGame.id}</h2>
                 </span>
                 <span className="detailTools">
+                  {shareGameButton(selectedGame)}
                   {notificationButton(selectedGame)}
                   <ShieldCheck size={20} />
                 </span>

@@ -73,6 +73,15 @@ export async function disconnectWalletConnect() {
   });
 }
 
+export async function restoredWalletConnectAccounts() {
+  if (!walletConnectConfigured()) return [];
+  await restoreSession();
+  if (!session) return [];
+  const targetChainId = preferredChainId;
+  const publicKey = targetChainId ? accountForChain(targetChainId) : firstAccount()?.publicKey;
+  return publicKey ? [publicKey] : [];
+}
+
 function isMobile() {
   return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
 }

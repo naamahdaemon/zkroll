@@ -1,4 +1,5 @@
 export type MinaProvider = {
+  getAccounts?: () => Promise<string[]>;
   requestAccounts: () => Promise<string[]>;
   requestNetwork?: () => Promise<{ chainId?: string; name?: string; networkID?: string } | string | null>;
   switchChain?: (args: { networkID: string }) => Promise<{ chainId?: string; name?: string; networkID?: string } | { code: number; message: string }>;
