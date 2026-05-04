@@ -217,6 +217,8 @@ VITE_ONCHAIN_ENABLED=true
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
+VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
+VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000
@@ -248,6 +250,8 @@ The web app is installable as a PWA. Firebase push notifications require all `VI
 `VITE_WALLET_RESPONSE_TIMEOUT_MS` controls the fallback when the wallet sends a transaction but does not return a hash to the page. After this timeout, the UI asks you to paste the hash shown by Auro or the explorer so the backend can index the game.
 
 `VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the game zkApp state hash.
+
+`VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS` is the default minimum safety margin before a game's refund deadline. The UI disables `Join` when the remaining slots are below this margin because wallets/nodes can reject transactions whose upper slot is too close. `VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS` overrides that margin on Zeko Testnet and defaults to `30`.
 
 `VITE_O1JS_BROWSER_CACHE_ENABLED=false` disables the best-effort o1js browser cache stored in `localStorage`. Use it if circuit compilation hangs after previous runs or after changing o1js/contract versions. With the cache disabled, the first compile can be slower but avoids stale or corrupted local proving data.
 
@@ -536,6 +540,8 @@ VITE_ONCHAIN_ENABLED=true
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
+VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
+VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000

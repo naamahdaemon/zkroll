@@ -102,6 +102,12 @@ import "./types";
 const nanoMina = 1_000_000_000;
 const onchainEnabled = import.meta.env.VITE_ONCHAIN_ENABLED === "true";
 const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
+const defaultMinJoinDeadlineMarginSlots = Number(import.meta.env.VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? 20);
+const minJoinDeadlineMarginSlotsByNetwork: Record<NetworkId, number> = {
+  mainnet: Number(import.meta.env.VITE_MAINNET_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? defaultMinJoinDeadlineMarginSlots),
+  devnet: Number(import.meta.env.VITE_DEVNET_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? defaultMinJoinDeadlineMarginSlots),
+  zeko: Number(import.meta.env.VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? 30)
+};
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
@@ -207,6 +213,7 @@ const copy: Record<string, Record<string, string>> = {
     signaturePending: "Signature sent or waiting for hash",
     creationFailed: "Creation failed on-chain",
     waitingCreation: "Waiting for creation confirmation",
+    joinDeadlineTooClose: "This game expires too soon to be joined safely. Create a new game or wait for refund/cancel.",
     waitingJoin: "Waiting for join confirmation",
     joinPending: "Join transaction pending",
     confirmJoin: "Confirm join",
@@ -428,6 +435,7 @@ const copy: Record<string, Record<string, string>> = {
     signaturePending: "Signature envoyee ou en attente de hash",
     creationFailed: "Creation echouee on-chain",
     waitingCreation: "En attente de confirmation creation",
+    joinDeadlineTooClose: "Cette partie expire trop bientot pour etre rejointe proprement. Cree une nouvelle partie ou attends le refund/cancel.",
     waitingJoin: "En attente de confirmation join",
     joinPending: "Transaction join en attente",
     confirmJoin: "Confirmer join",
@@ -1343,6 +1351,18 @@ function localeTag(locale: Locale) {
   )[locale];
 }
 
+function networkFromString(value: string | null): NetworkId | null {
+  return value && value in networks ? (value as NetworkId) : null;
+}
+
+function initialDeepLinkedGameTarget(): { id: string; network: NetworkId } | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("game");
+  const network = networkFromString(params.get("network"));
+  return id && network ? { id, network } : null;
+}
+
 async function refundDeadlineForCreate(network: NetworkId, timeoutSlots: number) {
   const currentSlot = (await getCurrentSlot(network)).currentSlot;
   return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
@@ -1385,6 +1405,7 @@ function removePendingCreationMaterial(game: Game) {
 }
 
 function App() {
+  const initialGameTarget = useMemo(() => initialDeepLinkedGameTarget(), []);
   const [locale, setLocale] = useState<Locale>(() => savedLocale());
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("zkroll:theme") === "dark" ? "dark" : "light"));
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem("zkroll:view-mode") === "app" ? "app" : "cards"));
@@ -1395,12 +1416,12 @@ function App() {
   const [publicKey, setPublicKey] = useState("");
   const [pseudoDraft, setPseudoDraft] = useState("");
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
-  const [network, setNetwork] = useState<NetworkId>("devnet");
+  const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? "devnet");
   const [stake, setStake] = useState("1");
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(null);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(() => initialGameTarget?.id ?? null);
+  const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(() => initialGameTarget);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("mine_active");
   const [playerSearch, setPlayerSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
@@ -1478,9 +1499,9 @@ function App() {
   const selectedGame = useMemo(
     () => {
       const target = deepLinkedGameTarget && selectedGameId === deepLinkedGameTarget.id ? deepLinkedGameTarget : null;
+      if (target) return games.find((game) => game.id === target.id && game.network === target.network) ?? null;
+      if (selectedGameId) return games.find((game) => game.id === selectedGameId && game.network === network) ?? null;
       return (
-        (target ? games.find((game) => game.id === target.id && game.network === target.network) : null) ??
-        (selectedGameId ? games.find((game) => game.id === selectedGameId && game.network === network) : null) ??
         filteredGames[0] ??
         null
       );
@@ -1618,7 +1639,23 @@ function App() {
   }
 
   function canJoin(game: Game): boolean {
-    return game.status === "created" && creationStatusFor(game) === "INCLUDED";
+    return game.status === "created" && creationStatusFor(game) === "INCLUDED" && hasSafeJoinDeadline(game);
+  }
+
+  function minJoinDeadlineMarginSlots(networkId: NetworkId) {
+    return minJoinDeadlineMarginSlotsByNetwork[networkId];
+  }
+
+  function remainingJoinDeadlineSlots(game: Game) {
+    const currentSlot = currentSlots[game.network];
+    if (!onchainEnabled || !game.refundDeadlineSlot || !currentSlot) return null;
+    return BigInt(game.refundDeadlineSlot) - BigInt(currentSlot);
+  }
+
+  function hasSafeJoinDeadline(game: Game): boolean {
+    const remaining = remainingJoinDeadlineSlots(game);
+    if (remaining === null) return true;
+    return remaining >= BigInt(minJoinDeadlineMarginSlots(game.network));
   }
 
   function canReveal(game: Game): boolean {
@@ -1839,7 +1876,7 @@ function App() {
   }
 
   function networkFromUrl(value: string | null): NetworkId | null {
-    return value && value in networks ? (value as NetworkId) : null;
+    return networkFromString(value);
   }
 
   function cleanDeepLinkUrl(params: URLSearchParams) {
@@ -3536,6 +3573,8 @@ function App() {
                       ? t("signaturePending")
                       : selectedGame.status === "failed"
                         ? selectedGame.failureReason ?? t("creationFailed")
+                        : selectedGame.status === "created" && creationStatusFor(selectedGame) === "INCLUDED" && !hasSafeJoinDeadline(selectedGame)
+                      ? t("joinDeadlineTooClose")
                         : selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED"
                       ? t("waitingCreation")
                       : selectedGame.status === "join_pending"
