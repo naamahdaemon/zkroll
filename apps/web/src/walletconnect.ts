@@ -231,6 +231,16 @@ function feeToMina(fee?: number) {
   return (fee / 1_000_000_000).toString();
 }
 
+function feePayerParams(feePayer?: { fee?: number; memo?: string }) {
+  const fee = feeToMina(feePayer?.fee);
+  const memo = feePayer?.memo?.trim();
+  if (!fee && !memo) return undefined;
+  return {
+    ...(fee ? { fee } : {}),
+    ...(memo ? { memo } : {})
+  };
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -286,6 +296,7 @@ export function walletConnectProvider(): MinaProvider {
       if (!chainId) throw new Error("WalletConnect network is not selected.");
       const from = accountForChain(chainId);
       if (!from) throw new Error(`No WalletConnect account available for ${chainId}.`);
+      const feePayer = feePayerParams(args.feePayer);
 
       const requestPromise = nextClient.request({
         topic: session.topic,
@@ -295,10 +306,7 @@ export function walletConnectProvider(): MinaProvider {
           params: {
             from,
             transaction: args.transaction,
-            feePayer: {
-              fee: feeToMina(args.feePayer?.fee),
-              memo: args.feePayer?.memo
-            }
+            ...(feePayer ? { feePayer } : {})
           }
         }
       });

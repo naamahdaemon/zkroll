@@ -301,7 +301,7 @@ async function sendWithWallet(
   });
   const sendPromise = provider.sendTransaction!({
     transaction: transactionJson,
-    feePayer: memo ? { memo } : undefined,
+    feePayer: memo ? { fee: FEE_NANOMINA, memo } : undefined,
     walletOpenDelayMs
   });
 
