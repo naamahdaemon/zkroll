@@ -43,6 +43,7 @@ import {
 } from "./validation.js";
 import { witnessForGameId } from "./merkle.js";
 import { notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
+import { createProverJob, getProverJob, serverCommitment, serverGameKey, serverProverInfo, serverPseudoHash } from "./serverProver.js";
 
 const app = Fastify({
   logger: true
@@ -383,6 +384,50 @@ await app.register(cors, {
 });
 
 app.get("/health", async () => ({ ok: true }));
+
+app.get("/prover/info", async () => serverProverInfo());
+
+app.post("/prover/pseudo-hash", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    return { pseudoHash: serverPseudoHash(requiredString(body, "pseudo")) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/prover/commitment", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    return {
+      commitment: serverCommitment(
+        requiredString(body, "secret"),
+        requiredString(body, "publicKey"),
+        requiredString(body, "gameIdField")
+      )
+    };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/prover/keygen", async () => serverGameKey());
+
+app.post("/prover/jobs", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    return reply.code(202).send(createProverJob(requiredString(body, "type"), body.input ?? {}));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/prover/jobs/:id", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const job = getProverJob(id);
+  if (!job) return reply.code(404).send({ error: "Prover job not found" });
+  return job;
+});
 
 app.post("/players", async (request, reply) => {
   try {

@@ -37,6 +37,8 @@ See `INSTALL.md` for deployment, `.env.local`, wallet, network, and refund timeo
 
 See `TECH.md` for the current technical architecture. This version uses one zkApp account per game, so it does not require a global contract address. Use a fresh SQLite database when switching from the old global-root prototype.
 
+Proof generation defaults to the existing browser/client flow. An experimental isolated server prover mode can be enabled with `VITE_PROVER_MODE=server`; see `INSTALL.md` and `TECH.md` before using it because it changes the privacy model by sending proving inputs to the API.
+
 The current implementation has been tested on Mina Devnet and Zeko Testnet. Zeko uses the public `https://testnet.zeko.io/graphql` endpoint, but it does not expose every Mina GraphQL field used by Devnet/Mainnet, so the API has dedicated Zeko transaction-status handling. Zeko refund deadlines use a Mina L1 slot source, defaulting to Devnet, configurable with `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK`.
 
 Firebase Cloud Messaging is optional. When configured, each active game displays a bell icon in the list and in the detail panel. Subscribed users receive a push notification whenever the game `updated_at` changes, and notifications are removed automatically once the game reaches a terminal state.

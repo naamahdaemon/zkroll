@@ -77,9 +77,36 @@ The `testnet` signing domain is a current Auro/Zeko Testnet compatibility requir
 
 The backend does not use Mina-only `bestChain` transaction scans on Zeko. Zeko transaction status is inferred from the game zkApp state when possible, and otherwise returned as `UNKNOWN`. Current-slot support is also limited, so Zeko refund deadlines are treated as experimental placeholders.
 
-## Browser Proving
+## Prover Modes
 
-o1js proving runs in the browser. Production hosting must serve the web app with:
+By default, o1js compilation and proof generation run in the browser:
+
+```env
+VITE_PROVER_MODE=client
+```
+
+This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@2.1.0`.
+
+An experimental server prover mode is available:
+
+```env
+VITE_PROVER_MODE=server
+VITE_SERVER_PROVER_POLL_MS=1500
+ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_FEE_NANOMINA=100000000
+```
+
+In server mode, the browser creates an async prover job on the API, polls it, and then asks the wallet to sign the returned transaction JSON. The wallet still signs and pays the transaction fee. This mode can help browsers/devices that cannot prove locally, but it sends the circuit inputs required for proving, including game secrets, to the API. Treat it as opt-in and experimental until there is a hardened native worker pool and a deployment model you trust.
+
+The server prover path is intentionally isolated from the web bundle. It uses `o1js-native`, an npm alias to `o1js@2.15.0-rc.0`, plus a server-only copy of the game contract importing that alias. This lets the browser stay on the stable o1js version while the API tests the native prover.
+
+The current server prover implementation is an in-process async queue limited by `ZKROLL_PROVER_WORKERS`. It is not yet a durable distributed prover service; queued jobs are lost if the API restarts.
+
+On Windows, `o1js@2.15.0-rc.0` currently reports that `@o1js/native-win32-x64` is unavailable. The native prover test is therefore intended for Linux/Docker, where `@o1js/native-linux-*` is present in the lockfile.
+
+## Browser Proving Requirements
+
+Client-side proving requires production hosting to serve the web app with:
 
 ```text
 Cross-Origin-Opener-Policy: same-origin

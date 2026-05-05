@@ -141,6 +141,8 @@ ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
+ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_FEE_NANOMINA=100000000
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -158,6 +160,8 @@ $env:ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 $env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 $env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
 $env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
+$env:ZKROLL_PROVER_WORKERS="2"
+$env:ZKROLL_PROVER_FEE_NANOMINA="100000000"
 npm run dev:api
 ```
 
@@ -171,6 +175,8 @@ export ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
 export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
+export ZKROLL_PROVER_WORKERS="2"
+export ZKROLL_PROVER_FEE_NANOMINA="100000000"
 npm run dev:api
 ```
 
@@ -194,6 +200,12 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 `ZKROLL_CHAIN_REQUEST_TIMEOUT_MS` bounds external Mina GraphQL calls. Lower values make the API fail fast when public endpoints are slow; higher values can reduce `UNKNOWN` statuses but may make requests feel slower.
 
 `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK` controls the Mina L1 slot source used for Zeko refund/cancel deadlines. Use `devnet` by default for Zeko Testnet. Set it to `mainnet` only if a future Zeko environment explicitly uses mainnet L1 slots. If the source does not match Zeko's slot semantics, the expected failure mode is a rejected refund/cancel transaction.
+
+`ZKROLL_PROVER_WORKERS` controls the number of concurrent server prover jobs when `VITE_PROVER_MODE=server`. The current implementation uses an in-process async queue, so keep this value conservative until a dedicated native prover worker pool is introduced.
+
+When server prover mode is enabled, the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
+
+`ZKROLL_PROVER_FEE_NANOMINA` is the fee used when the API builds proved transactions in server prover mode. The wallet still signs and pays the transaction fee.
 
 ## 7. Configure The Web App
 
@@ -220,6 +232,8 @@ VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
 VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
+VITE_PROVER_MODE=client
+VITE_SERVER_PROVER_POLL_MS=1500
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000
 VITE_WALLETCONNECT_PROJECT_ID=
@@ -254,6 +268,13 @@ The web app is installable as a PWA. Firebase push notifications require all `VI
 `VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS` is the default minimum safety margin before a game's refund deadline. The UI disables `Join` when the remaining slots are below this margin because wallets/nodes can reject transactions whose upper slot is too close. `VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS` overrides that margin on Zeko Testnet and defaults to `30`.
 
 `VITE_O1JS_BROWSER_CACHE_ENABLED=false` disables the best-effort o1js browser cache stored in `localStorage`. Use it if circuit compilation hangs after previous runs or after changing o1js/contract versions. With the cache disabled, the first compile can be slower but avoids stale or corrupted local proving data.
+
+`VITE_PROVER_MODE` controls where o1js compilation and proof generation run:
+
+- `client` is the default and preserves the current privacy model. Compilation and proof generation happen in the browser with the stable client o1js version, and secrets stay local.
+- `server` is experimental. The browser asks the API to compile/prove asynchronously with the server-only native prover, then the wallet signs the returned transaction JSON. This can help devices that cannot prove locally, but it sends the game secrets required by the circuit to the API.
+
+`VITE_SERVER_PROVER_POLL_MS` controls how often the browser polls the API while waiting for a server prover job.
 
 `VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction status for visible or active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
 

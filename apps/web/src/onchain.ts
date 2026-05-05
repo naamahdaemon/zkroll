@@ -4,6 +4,11 @@ import type { MinaProvider } from "./types";
 const FEE_NANOMINA = Number(import.meta.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const WALLET_RESPONSE_TIMEOUT_MS = Number(import.meta.env.VITE_WALLET_RESPONSE_TIMEOUT_MS ?? 120_000);
 const O1JS_BROWSER_CACHE_ENABLED = import.meta.env.VITE_O1JS_BROWSER_CACHE_ENABLED !== "false";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
+const PROVER_MODE = import.meta.env.VITE_PROVER_MODE === "server" ? "server" : "client";
+const SERVER_PROVER_POLL_MS = Number(import.meta.env.VITE_SERVER_PROVER_POLL_MS ?? 1500);
+const CLIENT_O1JS_VERSION = "2.1.0";
+const SERVER_O1JS_VERSION = "2.15.0-rc.0";
 
 let compilePromise: Promise<unknown> | null = null;
 let compiled = false;
@@ -36,6 +41,13 @@ export type ProvingCompatibility = {
 
 type ProgressCallback = (progress: OnchainProgress) => void;
 type ManualWalletResolution = { kind: "hash"; hash: string } | { kind: "failed"; reason: string };
+type ServerProverJob = {
+  id: string;
+  status: "queued" | "running" | "done" | "failed";
+  progress: OnchainProgress;
+  result: Record<string, unknown> | null;
+  error: string | null;
+};
 
 let manualWalletResolution: ((resolution: ManualWalletResolution) => void) | null = null;
 
@@ -53,6 +65,18 @@ export function rejectPendingWalletSignature(reason: string) {
 
 function report(callback: ProgressCallback | undefined, label: string, progress: number) {
   callback?.({ label, progress });
+}
+
+export function proverMode() {
+  return PROVER_MODE;
+}
+
+export function o1jsVersion() {
+  return PROVER_MODE === "server" ? SERVER_O1JS_VERSION : CLIENT_O1JS_VERSION;
+}
+
+export function usesServerProver() {
+  return PROVER_MODE === "server";
 }
 
 function userAgent() {
@@ -318,12 +342,75 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
   return hash;
 }
 
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...init?.headers
+    }
+  });
+  const payload = (await response.json()) as T | { error: string };
+  if (!response.ok) {
+    throw new Error(payload && typeof payload === "object" && "error" in payload ? String(payload.error) : "API request failed");
+  }
+  return payload as T;
+}
+
+async function serverProverJob<T extends Record<string, unknown>>(
+  type: string,
+  input: Record<string, unknown>,
+  onProgress?: ProgressCallback
+): Promise<T> {
+  const created = await apiRequest<ServerProverJob>("/prover/jobs", {
+    method: "POST",
+    body: JSON.stringify({ type, input })
+  });
+  let job = created;
+  report(onProgress, job.progress.label, job.progress.progress);
+
+  while (job.status === "queued" || job.status === "running") {
+    await new Promise((resolve) => window.setTimeout(resolve, SERVER_PROVER_POLL_MS));
+    job = await apiRequest<ServerProverJob>(`/prover/jobs/${encodeURIComponent(job.id)}`);
+    report(onProgress, job.progress.label, job.progress.progress);
+  }
+
+  if (job.status === "failed") {
+    throw new Error(job.error ?? "Server prover job failed.");
+  }
+  if (!job.result) {
+    throw new Error("Server prover returned no result.");
+  }
+  return job.result as T;
+}
+
+function transactionJsonFromServer(result: Record<string, unknown>) {
+  if (typeof result.transactionJson !== "string") {
+    throw new Error("Server prover returned no transaction JSON.");
+  }
+  return result.transactionJson;
+}
+
 export async function pseudoHash(pseudo: string) {
+  if (usesServerProver()) {
+    const result = await apiRequest<{ pseudoHash: string }>("/prover/pseudo-hash", {
+      method: "POST",
+      body: JSON.stringify({ pseudo })
+    });
+    return result.pseudoHash;
+  }
   const { Encoding, Poseidon } = await load();
   return Poseidon.hash(Encoding.stringToFields(pseudo)).toString();
 }
 
 export async function commitment(secret: string, publicKey: string, gameIdField: string) {
+  if (usesServerProver()) {
+    const result = await apiRequest<{ commitment: string }>("/prover/commitment", {
+      method: "POST",
+      body: JSON.stringify({ secret, publicKey, gameIdField })
+    });
+    return result.commitment;
+  }
   const { Field, Poseidon, PublicKey } = await load();
   const player = PublicKey.fromBase58(publicKey);
   return Poseidon.hash([Field(secret), ...player.toFields(), Field(gameIdField)]).toString();
@@ -334,6 +421,9 @@ export function nextRefundDeadlineSlot(currentSlot: string, timeoutSlots: number
 }
 
 export async function generateGameZkappKey() {
+  if (usesServerProver()) {
+    return apiRequest<{ privateKey: string; address: string }>("/prover/keygen", { method: "POST", body: "{}" });
+  }
   const { PrivateKey } = await load();
   const privateKey = PrivateKey.random();
   return {
@@ -357,6 +447,18 @@ export async function createGameOnchain(input: {
 }) {
   const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
+  if (usesServerProver()) {
+    const result = await serverProverJob<Record<string, unknown>>(
+      "create",
+      { ...input, provider: undefined, onProgress: undefined },
+      input.onProgress
+    );
+    const txHash = await sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+    return {
+      txHash,
+      zkappAddress: typeof result.zkappAddress === "string" ? result.zkappAddress : ""
+    };
+  }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const zkappKey = toolkit.PrivateKey.fromBase58(input.zkappPrivateKey);
@@ -407,6 +509,10 @@ export async function joinGameOnchain(input: {
 }) {
   const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
+  if (usesServerProver()) {
+    const result = await serverProverJob<Record<string, unknown>>("join", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
+    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+  }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
@@ -449,6 +555,10 @@ export async function settleGameOnchain(input: {
 }) {
   const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
+  if (usesServerProver()) {
+    const result = await serverProverJob<Record<string, unknown>>("settle", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
+    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+  }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
@@ -493,6 +603,10 @@ export async function refundGameOnchain(input: {
 }) {
   const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
+  if (usesServerProver()) {
+    const result = await serverProverJob<Record<string, unknown>>("refund", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
+    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+  }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
@@ -538,6 +652,14 @@ export async function cancelCreatedGameOnchain(input: {
 }) {
   const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
+  if (usesServerProver()) {
+    const result = await serverProverJob<Record<string, unknown>>(
+      "cancel",
+      { ...input, provider: undefined, onProgress: undefined },
+      input.onProgress
+    );
+    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+  }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));

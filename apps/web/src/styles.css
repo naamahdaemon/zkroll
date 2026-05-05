@@ -634,6 +634,28 @@ select {
   color: var(--primary);
 }
 
+.settingsInfoBox {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.settingsInfoBox > span {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settingsInfoBox b {
+  color: var(--text);
+  font-weight: 800;
+}
+
 .messagesPanel {
   min-height: 0;
 }

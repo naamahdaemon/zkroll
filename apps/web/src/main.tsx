@@ -69,7 +69,9 @@ import {
   hasPendingWalletSignature,
   joinGameOnchain,
   nextRefundDeadlineSlot,
+  o1jsVersion,
   pseudoHash,
+  proverMode,
   rejectPendingWalletSignature,
   refundGameOnchain,
   requiredTransactionHash,
@@ -260,6 +262,11 @@ const copy: Record<string, Record<string, string>> = {
     cardsMode: "Cards",
     appMode: "Application",
     credits: "Credits",
+    technicalInfo: "Technical info",
+    o1jsVersionLabel: "o1js version",
+    proverModeLabel: "Prover mode",
+    clientProverMode: "Client",
+    serverProverMode: "Server",
     walletTab: "Wallet",
     newGameTab: "New",
     gamesTab: "Games",
@@ -482,6 +489,11 @@ const copy: Record<string, Record<string, string>> = {
     cardsMode: "Cards",
     appMode: "Application",
     credits: "Credits",
+    technicalInfo: "Infos techniques",
+    o1jsVersionLabel: "Version o1js",
+    proverModeLabel: "Mode prover",
+    clientProverMode: "Client",
+    serverProverMode: "Serveur",
     walletTab: "Wallet",
     newGameTab: "Nouvelle",
     gamesTab: "Parties",
@@ -2344,6 +2356,17 @@ function App() {
               <span key={item.text}>{content}</span>
             );
           })}
+        </div>
+        <div className="settingsInfoBox">
+          <strong>{t("technicalInfo")}</strong>
+          <span>
+            <span>{t("o1jsVersionLabel")}</span>
+            <b>{o1jsVersion()}</b>
+          </span>
+          <span>
+            <span>{t("proverModeLabel")}</span>
+            <b>{proverMode() === "server" ? t("serverProverMode") : t("clientProverMode")}</b>
+          </span>
         </div>
       </>
     );

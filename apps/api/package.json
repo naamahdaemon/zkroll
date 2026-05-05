@@ -18,7 +18,8 @@
     "better-sqlite3": "^9.6.0",
     "fastify": "^4.28.1",
     "nanoid": "^5.0.7",
-    "o1js": "^2.1.0"
+    "o1js": "2.1.0",
+    "o1js-native": "npm:o1js@2.15.0-rc.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",

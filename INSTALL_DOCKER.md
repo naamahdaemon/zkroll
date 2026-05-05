@@ -99,6 +99,8 @@ ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
+ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_FEE_NANOMINA=100000000
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -109,6 +111,8 @@ VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=false
+VITE_PROVER_MODE=client
+VITE_SERVER_PROVER_POLL_MS=1500
 VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
 VITE_WALLETCONNECT_PROJECT_ID=
@@ -127,6 +131,7 @@ Important:
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
 - Set `VITE_WALLETCONNECT_PROJECT_ID` to a Reown Cloud project id to enable Auro Mobile from Chrome/Safari. Leave it empty if you only want desktop extension support.
 - Firebase variables are optional. When configured, users can install zkroll as a PWA and subscribe to per-game push notifications. The web image needs the `VITE_FIREBASE_*` values and the API needs the service account values. Keep `FIREBASE_PRIVATE_KEY` secret and outside Git.
+- Keep `VITE_PROVER_MODE=client` for the current privacy-preserving browser proving flow. `server` is experimental: the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) with the native prover, compiles/proves asynchronously, and returns transaction JSON for wallet signature. The game secrets required by the circuit are sent to the API.
 - Zeko Testnet is supported, but its public GraphQL API is not identical to Mina Devnet/Mainnet. The backend avoids Mina-only `bestChain` transaction scans on Zeko and relies on per-game zkApp state instead.
 - Zeko refund/cancel deadlines use a Mina L1 current-slot source. Keep `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` for Zeko Testnet unless Zeko documents another L1 slot source.
 - Zeko Testnet uses the Mina `testnet` signing domain for current Auro compatibility and a `0.1 MINA` account creation funding workaround. Rebuild `web` after pulling changes that affect network config.
@@ -604,6 +609,8 @@ ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_FEE_NANOMINA=100000000
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -615,6 +622,8 @@ VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
 VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_O1JS_BROWSER_CACHE_ENABLED=false
+VITE_PROVER_MODE=client
+VITE_SERVER_PROVER_POLL_MS=1500
 VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
 VITE_WALLETCONNECT_PROJECT_ID=
@@ -633,6 +642,7 @@ Important :
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
 - Renseigne `VITE_WALLETCONNECT_PROJECT_ID` avec un project id Reown Cloud pour activer Auro Mobile depuis Chrome/Safari. Laisse vide si tu veux uniquement le support extension desktop.
 - Les variables Firebase sont optionnelles. Une fois configurees, les utilisateurs peuvent installer zkroll en PWA et s'abonner aux notifications push par partie. L'image web a besoin des valeurs `VITE_FIREBASE_*` et l'API a besoin des valeurs du compte de service. Garde `FIREBASE_PRIVATE_KEY` secret et hors Git.
+- Garde `VITE_PROVER_MODE=client` pour le flux actuel de preuve navigateur qui preserve la confidentialite. `server` est experimental : l'API utilise l'alias serveur `o1js-native` (`o1js@2.15.0-rc.0`) avec le prover natif, compile/genere la preuve de facon asynchrone et renvoie le JSON de transaction a signer. Les secrets de jeu requis par le circuit sont envoyes a l'API.
 - Zeko Testnet est supporte, mais son API GraphQL publique n'est pas identique a Mina Devnet/Mainnet. Le backend evite les scans `bestChain` propres a Mina sur Zeko et s'appuie plutot sur l'etat zkApp de chaque partie.
 - Les deadlines refund/cancel Zeko utilisent une source de slot courant Mina L1. Garde `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` pour Zeko Testnet sauf indication contraire de Zeko.
 - Zeko Testnet utilise actuellement le domaine de signature Mina `testnet` pour compatibilite Auro, ainsi qu'un financement explicite de creation de compte a `0.1 MINA`. Rebuild `web` apres tout changement de configuration reseau.
