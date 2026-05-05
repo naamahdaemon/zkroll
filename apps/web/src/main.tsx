@@ -111,6 +111,7 @@ const nanoMina = 1_000_000_000;
 const onchainEnabled = import.meta.env.VITE_ONCHAIN_ENABLED === "true";
 const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
 const defaultMinJoinDeadlineMarginSlots = Number(import.meta.env.VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? 20);
+const joinDeadlineSafetySlots = Math.max(1, Number(import.meta.env.VITE_JOIN_DEADLINE_SAFETY_SLOTS ?? 1));
 const minJoinDeadlineMarginSlotsByNetwork: Record<NetworkId, number> = {
   mainnet: Number(import.meta.env.VITE_MAINNET_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? defaultMinJoinDeadlineMarginSlots),
   devnet: Number(import.meta.env.VITE_DEVNET_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? defaultMinJoinDeadlineMarginSlots),
@@ -1726,7 +1727,7 @@ function App() {
   }
 
   function minJoinDeadlineMarginSlots(networkId: NetworkId) {
-    return minJoinDeadlineMarginSlotsByNetwork[networkId];
+    return minJoinDeadlineMarginSlotsByNetwork[networkId] + joinDeadlineSafetySlots;
   }
 
   function remainingJoinDeadlineSlots(game: Game) {
@@ -1737,7 +1738,7 @@ function App() {
 
   async function freshRemainingJoinDeadlineSlots(game: Game) {
     if (!onchainEnabled || !game.refundDeadlineSlot) return null;
-    const result = await getCurrentSlot(game.network);
+    const result = await getCurrentSlot(game.network, { refresh: true });
     setCurrentSlots((current) => ({ ...current, [game.network]: result.currentSlot }));
     return BigInt(game.refundDeadlineSlot) - BigInt(result.currentSlot);
   }
@@ -1745,7 +1746,7 @@ function App() {
   function hasSafeJoinDeadline(game: Game): boolean {
     const remaining = remainingJoinDeadlineSlots(game);
     if (remaining === null) return true;
-    return remaining >= BigInt(minJoinDeadlineMarginSlots(game.network));
+    return remaining > BigInt(minJoinDeadlineMarginSlots(game.network));
   }
 
   function canReveal(game: Game): boolean {
@@ -1791,8 +1792,8 @@ function App() {
   function normalizedRefundTimeout() {
     const value = Number(refundTimeoutSlots);
     if (!Number.isInteger(value) || value < 1) throw new Error(t("invalidRefundTimeout"));
-    if (onchainEnabled && value < minJoinDeadlineMarginSlots(network)) {
-      throw new Error(`${t("invalidRefundTimeout")} Minimum: ${minJoinDeadlineMarginSlots(network)} slots.`);
+    if (onchainEnabled && value <= minJoinDeadlineMarginSlots(network)) {
+      throw new Error(`${t("invalidRefundTimeout")} Minimum: ${minJoinDeadlineMarginSlots(network) + 1} slots.`);
     }
     return value;
   }
@@ -2935,7 +2936,7 @@ function App() {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
       if (game.creatorPublicKey === publicKey) throw new Error(t("cannotJoinOwn"));
       const freshRemaining = await freshRemainingJoinDeadlineSlots(game);
-      if (freshRemaining !== null && freshRemaining < BigInt(minJoinDeadlineMarginSlots(game.network))) {
+      if (freshRemaining !== null && freshRemaining <= BigInt(minJoinDeadlineMarginSlots(game.network))) {
         throw new Error(t("joinDeadlineTooClose"));
       }
       const secret = randomFieldString();

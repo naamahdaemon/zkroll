@@ -78,8 +78,9 @@ export function markTransactionIncluded(network: NetworkId, hash: string) {
   );
 }
 
-export function getCurrentSlot(network: NetworkId) {
-  return request<{ network: NetworkId; currentSlot: string }>(`/networks/${network}/current-slot`);
+export function getCurrentSlot(network: NetworkId, options: { refresh?: boolean } = {}) {
+  const suffix = options.refresh ? "?refresh=1" : "";
+  return request<{ network: NetworkId; currentSlot: string }>(`/networks/${network}/current-slot${suffix}`);
 }
 
 export function getWalletBalance(network: NetworkId, publicKey: string) {

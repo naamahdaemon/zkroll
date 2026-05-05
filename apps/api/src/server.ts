@@ -82,7 +82,13 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
-async function currentSlotFor(network: NetworkId) {
+async function currentSlotFor(network: NetworkId, options: { refresh?: boolean } = {}) {
+  if (options.refresh) {
+    const currentSlot = await (network === "zeko" ? minaCurrentSlotFor(zekoSlotSourceNetwork) : minaCurrentSlotFor(network));
+    currentSlotCache.set(network, { expiresAt: Date.now() + currentSlotCacheMs, currentSlot });
+    return currentSlot;
+  }
+
   const cached = currentSlotCache.get(network);
   if (cached && cached.expiresAt > Date.now()) return cached.currentSlot;
 
@@ -592,10 +598,11 @@ app.patch("/transactions/:network/:hash/status", async (request, reply) => {
 app.get("/networks/:network/current-slot", async (request, reply) => {
   try {
     const { network } = request.params as { network: string };
+    const query = request.query as { refresh?: string };
     const networkId = assertNetworkId(network);
     return {
       network: networkId,
-      currentSlot: await currentSlotFor(networkId)
+      currentSlot: await currentSlotFor(networkId, { refresh: query.refresh === "1" || query.refresh === "true" })
     };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
