@@ -757,11 +757,11 @@ select {
   max-height: 360px;
   min-height: 0;
   overflow: auto;
-  padding-right: 2px;
+  padding-right: 10px;
 }
 
 .playerMessage {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface-soft) 62%, var(--surface));
   border: 1px solid var(--border);
   border-radius: 8px;
   display: grid;
@@ -770,8 +770,8 @@ select {
 }
 
 .playerMessage.mine {
-  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--primary) 13%, var(--surface));
+  border-color: var(--border);
 }
 
 .playerMessage p {
@@ -830,6 +830,44 @@ select {
 .messageModalFooter span {
   color: var(--muted);
   margin-right: auto;
+}
+
+@media (max-width: 640px) {
+  .messageModal {
+    gap: 12px;
+    margin: 8px;
+    max-height: calc(100dvh - 24px);
+    max-width: none;
+    padding: 16px;
+    width: calc(100vw - 24px);
+  }
+
+  .messageModal .modalHeader h2 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .messageModal textarea {
+    font-size: 16px;
+    min-height: 110px;
+    max-height: min(30dvh, 220px);
+  }
+
+  .messageModalFooter {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+  }
+
+  .messageModalFooter span {
+    align-self: center;
+    margin-right: 0;
+  }
+
+  .messageModalFooter button {
+    min-width: 0;
+    padding-inline: 10px;
+  }
 }
 
 .gameList {
