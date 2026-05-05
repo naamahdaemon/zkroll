@@ -125,11 +125,6 @@ async function client() {
   const nextClient = await clientPromise;
   if (!listenersRegistered) {
     listenersRegistered = true;
-    nextClient.on?.("session_request_sent", (event: any) => {
-      if (methods.includes(event?.request?.method)) {
-        openAuroForRequest();
-      }
-    });
     nextClient.on?.("session_delete", () => {
       session = null;
       currentChainId = null;
@@ -236,6 +231,10 @@ function feeToMina(fee?: number) {
   return (fee / 1_000_000_000).toString();
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function normalizeResult(result: unknown) {
   if (typeof result === "string") return { hash: extractTransactionHash(result) ?? undefined };
   if (!result || typeof result !== "object") return result;
@@ -280,7 +279,7 @@ export function walletConnectProvider(): MinaProvider {
       return { networkID: args.networkID };
     },
 
-    async sendTransaction(args: { transaction: string; feePayer?: { fee?: number; memo?: string } }) {
+    async sendTransaction(args: { transaction: string; feePayer?: { fee?: number; memo?: string }; walletOpenDelayMs?: number }) {
       await connectSession();
       const nextClient = await client();
       const chainId = currentChainId ?? firstAccount()?.chainId;
@@ -288,8 +287,7 @@ export function walletConnectProvider(): MinaProvider {
       const from = accountForChain(chainId);
       if (!from) throw new Error(`No WalletConnect account available for ${chainId}.`);
 
-      openAuroForRequest();
-      const result = await nextClient.request({
+      const requestPromise = nextClient.request({
         topic: session.topic,
         chainId,
         request: {
@@ -304,6 +302,12 @@ export function walletConnectProvider(): MinaProvider {
           }
         }
       });
+      const walletOpenDelayMs = Math.max(0, Number(args.walletOpenDelayMs ?? 0));
+      if (walletOpenDelayMs > 0) {
+        await sleep(walletOpenDelayMs);
+      }
+      openAuroForRequest();
+      const result = await requestPromise;
       promptHandler?.(null);
       return normalizeResult(result) as { hash?: string };
     }

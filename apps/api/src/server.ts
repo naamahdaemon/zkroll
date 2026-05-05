@@ -713,6 +713,10 @@ app.post("/games/:id/reveal", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
+    const game = getGame(id);
+    if (game?.status === "join_pending" && game.joinTxHash) {
+      await resolveTransactionStatus(game.network, game.joinTxHash);
+    }
     return sendUpdatedGame(revealSecret(id, requiredString(body, "publicKey"), requiredString(body, "secret")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

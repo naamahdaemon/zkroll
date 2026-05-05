@@ -68,10 +68,6 @@ function report(callback: ProgressCallback | undefined, label: string, progress:
   callback?.({ label, progress });
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 export function proverMode() {
   return PROVER_MODE;
 }
@@ -290,7 +286,7 @@ function compactGameMemo(action: string, gameId?: string) {
   return `zkroll ${action}${suffix}`.slice(0, 32);
 }
 
-async function sendWithWallet(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback) {
+async function sendWithWallet(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback, walletOpenDelayMs?: number) {
   report(onProgress, "progressWalletSignature", 86);
   let localManualResolver: ((resolution: ManualWalletResolution) => void) | null = null;
   const manualResolutionPromise = new Promise<ManualWalletResolution>((resolve) => {
@@ -298,7 +294,8 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
     manualWalletResolution = resolve;
   });
   const sendPromise = provider.sendTransaction!({
-    transaction: transactionJson
+    transaction: transactionJson,
+    walletOpenDelayMs
   });
 
   const result = await Promise.race([
@@ -349,10 +346,7 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
 
 async function sendServerProverTransaction(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback) {
   report(onProgress, "progressProofGenerated", 84);
-  if (SERVER_PROVER_WALLET_DELAY_MS > 0) {
-    await sleep(SERVER_PROVER_WALLET_DELAY_MS);
-  }
-  return sendWithWallet(provider, transactionJson, onProgress);
+  return sendWithWallet(provider, transactionJson, onProgress, SERVER_PROVER_WALLET_DELAY_MS);
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
