@@ -1610,6 +1610,11 @@ function App() {
     return nextGames;
   }
 
+  function updateGameInState(game: Game) {
+    setGames((current) => current.map((item) => (item.id === game.id ? game : item)));
+    setSelectedGameId(game.id);
+  }
+
   async function refreshUnreadMessages() {
     if (!publicKey) {
       setUnreadMessageCounts({});
@@ -1730,6 +1735,13 @@ function App() {
     return BigInt(game.refundDeadlineSlot) - BigInt(currentSlot);
   }
 
+  async function freshRemainingJoinDeadlineSlots(game: Game) {
+    if (!onchainEnabled || !game.refundDeadlineSlot) return null;
+    const result = await getCurrentSlot(game.network);
+    setCurrentSlots((current) => ({ ...current, [game.network]: result.currentSlot }));
+    return BigInt(game.refundDeadlineSlot) - BigInt(result.currentSlot);
+  }
+
   function hasSafeJoinDeadline(game: Game): boolean {
     const remaining = remainingJoinDeadlineSlots(game);
     if (remaining === null) return true;
@@ -1779,6 +1791,9 @@ function App() {
   function normalizedRefundTimeout() {
     const value = Number(refundTimeoutSlots);
     if (!Number.isInteger(value) || value < 1) throw new Error(t("invalidRefundTimeout"));
+    if (onchainEnabled && value < minJoinDeadlineMarginSlots(network)) {
+      throw new Error(`${t("invalidRefundTimeout")} Minimum: ${minJoinDeadlineMarginSlots(network)} slots.`);
+    }
     return value;
   }
 
@@ -2919,6 +2934,10 @@ function App() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
       if (game.creatorPublicKey === publicKey) throw new Error(t("cannotJoinOwn"));
+      const freshRemaining = await freshRemainingJoinDeadlineSlots(game);
+      if (freshRemaining !== null && freshRemaining < BigInt(minJoinDeadlineMarginSlots(game.network))) {
+        throw new Error(t("joinDeadlineTooClose"));
+      }
       const secret = randomFieldString();
       const gameIdField = game.gameIdField ?? game.id;
       const joinerPseudoHash = onchainEnabled ? await pseudoHash(pseudo) : undefined;
@@ -2990,6 +3009,7 @@ function App() {
       const secret = secretFor(game);
       if (!publicKey || !secret) throw new Error(t("walletSecretRequired"));
       const updatedGame = await revealGame(game.id, { publicKey, secret });
+      updateGameInState(updatedGame);
       if (updatedGame.creatorReveal && updatedGame.joinerReveal) {
         const { creatorDie, joinerDie } = await computeDice(updatedGame);
         await animateDice(updatedGame.id, creatorDie, joinerDie);
