@@ -1,9 +1,10 @@
 import { createSign } from "node:crypto";
-import type { Game } from "@zkroll/shared";
+import type { Game, GameMessage } from "@zkroll/shared";
 import {
   deleteNotificationSubscriptionToken,
   disableGameNotifications,
   listGameNotificationSubscriptions,
+  listNotificationTokensForPublicKey,
   listNewGameNotificationSubscriptions,
   type GameNotificationSubscription,
   type NewGameNotificationSubscription
@@ -158,6 +159,28 @@ async function sendToNewGameSubscription(game: Game, subscription: NewGameNotifi
   );
 }
 
+async function sendMessageToToken(game: Game, message: GameMessage, fcmToken: string, token: string) {
+  const link = notificationUrl(game);
+  return sendToToken(
+    fcmToken,
+    {
+      title: "zkroll",
+      body: `New message in game ${game.id}`,
+      data: {
+        kind: "game_message",
+        gameId: game.id,
+        network: game.network,
+        status: game.status,
+        messageId: message.id,
+        updatedAt: message.createdAt,
+        url: link
+      },
+      link
+    },
+    token
+  );
+}
+
 export async function notifyGameUpdated(game: Game) {
   const subscriptions = listGameNotificationSubscriptions(game.id);
   if (subscriptions.length === 0) return;
@@ -187,5 +210,17 @@ export async function notifyNewGameCreated(game: Game) {
     await Promise.allSettled(subscriptions.map((subscription) => sendToNewGameSubscription(game, subscription, token)));
   } catch (error) {
     console.warn(`Firebase new game notification skipped for game ${game.id}: ${(error as Error).message}`);
+  }
+}
+
+export async function notifyGameMessage(game: Game, message: GameMessage) {
+  const tokens = listNotificationTokensForPublicKey(message.receiverPublicKey);
+  if (tokens.length === 0 || !firebaseConfigured()) return;
+
+  try {
+    const token = await firebaseAccessToken();
+    await Promise.allSettled(tokens.map((fcmToken) => sendMessageToToken(game, message, fcmToken, token)));
+  } catch (error) {
+    console.warn(`Firebase message notification skipped for game ${game.id}: ${(error as Error).message}`);
   }
 }

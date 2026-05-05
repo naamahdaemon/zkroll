@@ -656,8 +656,78 @@ select {
   font-weight: 800;
 }
 
+.settingToggle {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.settingToggle > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.settingToggle strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settingToggle small {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.settingToggle input {
+  inline-size: 1px;
+  opacity: 0;
+  position: absolute;
+}
+
+.switchTrack {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 4%, transparent);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 3px;
+  transition: background 160ms ease, border-color 160ms ease;
+  width: 48px;
+}
+
+.switchThumb {
+  background: var(--muted);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  height: 18px;
+  transition: background 160ms ease, transform 160ms ease;
+  width: 18px;
+}
+
+.settingToggle input:checked + .switchTrack {
+  background: color-mix(in srgb, var(--primary) 28%, var(--surface));
+  border-color: var(--primary);
+}
+
+.settingToggle input:checked + .switchTrack .switchThumb {
+  background: var(--primary);
+  transform: translateX(22px);
+}
+
 .messagesPanel {
   min-height: 0;
+}
+
+.compactHead {
+  margin-top: 18px;
 }
 
 .messageList {
@@ -679,6 +749,87 @@ select {
   margin: 0;
   overflow-wrap: anywhere;
   padding: 10px;
+}
+
+.playerMessageList {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.playerMessage {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.playerMessage.mine {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: var(--accent);
+}
+
+.playerMessage p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.playerMessage span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.unreadBadge,
+.navBadge {
+  align-items: center;
+  background: var(--danger-border);
+  border-radius: 999px;
+  color: white;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 18px;
+  min-width: 18px;
+  padding: 0 5px;
+}
+
+.navIconWithBadge {
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+}
+
+.navBadge {
+  position: absolute;
+  right: -10px;
+  top: -8px;
+}
+
+.messageModal {
+  max-width: 460px;
+}
+
+.messageModal textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.messageModalFooter {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.messageModalFooter span {
+  color: var(--muted);
+  margin-right: auto;
 }
 
 .gameList {

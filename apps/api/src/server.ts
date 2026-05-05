@@ -5,6 +5,7 @@ import { fetchAccount, fetchLastBlock } from "o1js";
 import { assertNetworkId, networks, type Game, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
   createGame,
+  createGameMessage,
   confirmJoinGame,
   failPendingJoin,
   getGameByTransaction,
@@ -14,9 +15,11 @@ import {
   getStoredTransaction,
   getStoredTransactionStatus,
   joinGame,
+  listGameMessages,
   listGames,
   listNewGameNotificationSubscriptionsForPublicKey,
   listNotificationSubscriptionsForPublicKey,
+  markGameMessagesRead,
   markCreationFailed,
   markTransactionFailed,
   reconcileCreationTx,
@@ -24,10 +27,12 @@ import {
   refundGame,
   revealSecret,
   settleGame,
+  setPlayerMessagePreference,
   subscribeNewGameNotification,
   subscribeGameNotification,
   unsubscribeNewGameNotification,
   unsubscribeGameNotification,
+  unreadMessageCounts,
   updateStoredTransactionStatus,
   upsertPlayer
 } from "./db.js";
@@ -42,7 +47,7 @@ import {
   requiredString
 } from "./validation.js";
 import { witnessForGameId } from "./merkle.js";
-import { notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
+import { notifyGameMessage, notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
 import { createProverJob, getProverJob, serverCommitment, serverGameKey, serverProverInfo, serverPseudoHash } from "./serverProver.js";
 
 const app = Fastify({
@@ -452,12 +457,31 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
   return player;
 });
 
+app.patch("/players/:publicKey/message-preference", async (request, reply) => {
+  try {
+    const { publicKey } = request.params as { publicKey: string };
+    const body = asBody(request.body);
+    return setPlayerMessagePreference(publicKey, Boolean(body.acceptMessages));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
 app.get("/notifications/:publicKey", async (request) => {
   const { publicKey } = request.params as { publicKey: string };
   return {
     items: listNotificationSubscriptionsForPublicKey(publicKey),
     newGameItems: listNewGameNotificationSubscriptionsForPublicKey(publicKey)
   };
+});
+
+app.get("/messages/unread/:publicKey", async (request, reply) => {
+  try {
+    const { publicKey } = request.params as { publicKey: string };
+    return { counts: unreadMessageCounts(publicKey) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
 });
 
 app.post("/notifications/new-games", async (request, reply) => {
@@ -625,6 +649,44 @@ app.post("/games", async (request, reply) => {
     const updatedGame = await sendUpdatedGame(game);
     if (updatedGame.status === "created") await notifyNewGameCreated(updatedGame);
     return reply.code(201).send(updatedGame);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.get("/games/:id/messages", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const query = request.query as { publicKey?: string };
+    return { items: listGameMessages(id, requiredString(query, "publicKey")) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/messages/read", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    markGameMessagesRead(id, requiredString(body, "publicKey"));
+    return { ok: true };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/games/:id/messages", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    const result = createGameMessage({
+      id: nanoid(12),
+      gameId: id,
+      senderPublicKey: requiredString(body, "senderPublicKey"),
+      body: requiredString(body, "body")
+    });
+    await notifyGameMessage(result.game, result.message);
+    return reply.code(201).send(result.message);
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

@@ -1,4 +1,4 @@
-import type { Game, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
+import type { Game, GameMessage, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 
@@ -49,6 +49,13 @@ export function getTransactionStatus(network: NetworkId, hash: string) {
   return request<{ hash: string; network: NetworkId; status: TransactionStatus }>(
     `/transactions/${network}/${encodeURIComponent(hash)}/status`
   );
+}
+
+export function setMessagePreference(publicKey: string, acceptMessages: boolean) {
+  return request<Player>(`/players/${encodeURIComponent(publicKey)}/message-preference`, {
+    method: "PATCH",
+    body: JSON.stringify({ acceptMessages })
+  });
 }
 
 export function getTransactionStatuses(items: { network: NetworkId; hash: string }[]) {
@@ -180,6 +187,28 @@ export function refundGame(id: string, input: { refundTxHash: string }) {
     method: "POST",
     body: JSON.stringify(input)
   });
+}
+
+export function listGameMessages(id: string, publicKey: string) {
+  return request<{ items: GameMessage[] }>(`/games/${id}/messages?publicKey=${encodeURIComponent(publicKey)}`);
+}
+
+export function sendGameMessage(id: string, input: { senderPublicKey: string; body: string }) {
+  return request<GameMessage>(`/games/${id}/messages`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function markGameMessagesRead(id: string, publicKey: string) {
+  return request<{ ok: true }>(`/games/${id}/messages/read`, {
+    method: "PATCH",
+    body: JSON.stringify({ publicKey })
+  });
+}
+
+export function getUnreadMessageCounts(publicKey: string) {
+  return request<{ counts: Record<string, number> }>(`/messages/unread/${encodeURIComponent(publicKey)}`);
 }
 
 export type GameNotificationSubscription = {

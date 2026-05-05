@@ -18,7 +18,18 @@ export type TransactionStatus = "PENDING" | "INCLUDED" | "FAILED" | "UNKNOWN";
 export type Player = {
   pseudo: string;
   publicKey: string;
+  acceptMessages: boolean;
   createdAt: string;
+};
+
+export type GameMessage = {
+  id: string;
+  gameId: string;
+  senderPublicKey: string;
+  receiverPublicKey: string;
+  body: string;
+  createdAt: string;
+  readAt: string | null;
 };
 
 export type Game = {

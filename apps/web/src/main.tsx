@@ -14,6 +14,7 @@ import {
   Languages,
   Mail,
   MessageCircle,
+  MessageSquareText,
   List,
   Moon,
   Pencil,
@@ -31,7 +32,7 @@ import {
   X,
   Wallet
 } from "lucide-react";
-import { networks, type Game, type GameStatus, type NetworkId, type TransactionStatus } from "@zkroll/shared";
+import { networks, type Game, type GameMessage, type GameStatus, type NetworkId, type Player, type TransactionStatus } from "@zkroll/shared";
 import {
   createGame,
   createPlayer,
@@ -40,9 +41,12 @@ import {
   getCurrentSlot,
   getPlayerByPublicKey,
   getTransactionStatuses,
+  getUnreadMessageCounts,
   getWalletBalance,
   joinGame,
+  listGameMessages,
   listGames,
+  markGameMessagesRead,
   markTransactionIncluded,
   markCreationFailed,
   reconcileCreationTx,
@@ -50,6 +54,8 @@ import {
   refundGame,
   revealGame,
   settleGame,
+  sendGameMessage,
+  setMessagePreference,
   subscribeGameNotifications,
   subscribeNewGameNotifications,
   unsubscribeGameNotifications,
@@ -271,6 +277,16 @@ const copy: Record<string, Record<string, string>> = {
     newGameTab: "New",
     gamesTab: "Games",
     messages: "Messages",
+    systemMessages: "System messages",
+    playerMessages: "Player messages",
+    sendMessage: "Send message",
+    reply: "Reply",
+    messagePlayer: "Message player",
+    messagePlaceholder: "Write a message...",
+    messageSent: "Message sent.",
+    messagesDisabled: "This player does not accept messages.",
+    acceptMessages: "Accept player messages",
+    noPlayerMessages: "No player messages yet.",
     backToGames: "Back to games",
     walletAddress: "Wallet address",
     chooseNetwork: "Choose network",
@@ -498,6 +514,16 @@ const copy: Record<string, Record<string, string>> = {
     newGameTab: "Nouvelle",
     gamesTab: "Parties",
     messages: "Messages",
+    systemMessages: "Messages systeme",
+    playerMessages: "Messages joueurs",
+    sendMessage: "Envoyer message",
+    reply: "Repondre",
+    messagePlayer: "Message joueur",
+    messagePlaceholder: "Ecris un message...",
+    messageSent: "Message envoye.",
+    messagesDisabled: "Ce joueur n'accepte pas les messages.",
+    acceptMessages: "Accepter les messages joueurs",
+    noPlayerMessages: "Aucun message joueur pour le moment.",
     backToGames: "Retour aux parties",
     walletAddress: "Adresse wallet",
     chooseNetwork: "Choisir reseau",
@@ -1426,6 +1452,7 @@ function App() {
   const [networkMenuOpen, setNetworkMenuOpen] = useState(false);
   const [pseudo, setPseudo] = useState("");
   const [publicKey, setPublicKey] = useState("");
+  const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [pseudoDraft, setPseudoDraft] = useState("");
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
   const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? "devnet");
@@ -1475,6 +1502,11 @@ function App() {
   const t = (key: string) => (copy[locale] ?? englishCopy)[key] ?? englishCopy[key] ?? key;
   const [message, setMessage] = useState(initialMessage);
   const [messageHistory, setMessageHistory] = useState<string[]>(() => [initialMessage]);
+  const [gameMessages, setGameMessages] = useState<Record<string, GameMessage[]>>({});
+  const [unreadMessageCounts, setUnreadMessageCounts] = useState<Record<string, number>>({});
+  const [playerMessagePrefs, setPlayerMessagePrefs] = useState<Record<string, boolean>>({});
+  const [messageDialog, setMessageDialog] = useState<{ game: Game; receiverPublicKey: string; receiverPseudo: string } | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
 
   const visibleGames = useMemo(
     () => games.filter((game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)),
@@ -1531,8 +1563,14 @@ function App() {
     ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash) && isExplorerHash(item.hash));
   }, [selectedGame]);
 
+  const totalUnreadMessages = useMemo(
+    () => Object.values(unreadMessageCounts).reduce((sum, count) => sum + count, 0),
+    [unreadMessageCounts]
+  );
+
   async function refreshGames() {
     const nextGames = await listGames();
+    void refreshUnreadMessages().catch(() => undefined);
     setGames(nextGames);
     setNotificationGameIds((current) => {
       const next = new Set(current);
@@ -1559,6 +1597,23 @@ function App() {
     );
     if (!selectedGameId && nextVisibleGames[0]) setSelectedGameId(nextVisibleGames[0].id);
     return nextGames;
+  }
+
+  async function refreshUnreadMessages() {
+    if (!publicKey) {
+      setUnreadMessageCounts({});
+      return;
+    }
+    const result = await getUnreadMessageCounts(publicKey);
+    setUnreadMessageCounts(result.counts);
+  }
+
+  async function refreshMessagesFor(game: Game | null) {
+    if (!game || !publicKey || (publicKey !== game.creatorPublicKey && publicKey !== game.joinerPublicKey)) return;
+    const result = await listGameMessages(game.id, publicKey);
+    setGameMessages((current) => ({ ...current, [game.id]: result.items }));
+    await markGameMessagesRead(game.id, publicKey);
+    await refreshUnreadMessages();
   }
 
   function statusFor(hash: string | null | undefined): TxStatus {
@@ -1978,6 +2033,33 @@ function App() {
   }, [message]);
 
   useEffect(() => {
+    void refreshUnreadMessages().catch(() => undefined);
+  }, [publicKey]);
+
+  useEffect(() => {
+    if (appScreen === "messages" || appScreen === "detail") {
+      void refreshMessagesFor(selectedGame).catch((error) => setMessage((error as Error).message));
+    }
+  }, [appScreen, publicKey, selectedGame?.id, selectedGame?.updatedAt]);
+
+  useEffect(() => {
+    const keys = [selectedGame?.creatorPublicKey, selectedGame?.joinerPublicKey].filter((item): item is string => {
+      if (!item) return false;
+      return playerMessagePrefs[item] === undefined;
+    });
+    if (keys.length === 0) return;
+    void Promise.allSettled(keys.map((key) => getPlayerByPublicKey(key))).then((results) => {
+      setPlayerMessagePrefs((current) => {
+        const next = { ...current };
+        for (const result of results) {
+          if (result.status === "fulfilled") next[result.value.publicKey] = result.value.acceptMessages;
+        }
+        return next;
+      });
+    });
+  }, [playerMessagePrefs, selectedGame?.creatorPublicKey, selectedGame?.joinerPublicKey]);
+
+  useEffect(() => {
     localStorage.setItem("zkroll:view-mode", viewMode);
     if (viewMode === "app" && appScreen === "detail" && !selectedGameId) {
       setAppScreen("games");
@@ -2276,6 +2358,71 @@ function App() {
     );
   }
 
+  function canMessagePlayer(game: Game, receiverPublicKey: string | null | undefined) {
+    return Boolean(
+      publicKey &&
+        receiverPublicKey &&
+        receiverPublicKey !== publicKey &&
+        (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey) &&
+        (receiverPublicKey === game.creatorPublicKey || receiverPublicKey === game.joinerPublicKey)
+    );
+  }
+
+  function messageButtonFor(game: Game, receiverPublicKey: string | null | undefined, receiverPseudo: string | null | undefined) {
+    if (!canMessagePlayer(game, receiverPublicKey) || !receiverPublicKey || !receiverPseudo) return null;
+    if (playerMessagePrefs[receiverPublicKey] === false) return null;
+    return (
+      <button
+        aria-label={`${t("messagePlayer")} ${receiverPseudo}`}
+        className="tinyIconButton"
+        onClick={() => {
+          setMessageDraft("");
+          setMessageDialog({ game, receiverPublicKey, receiverPseudo });
+        }}
+        type="button"
+      >
+        <MessageSquareText size={14} />
+      </button>
+    );
+  }
+
+  function unreadBadgeFor(game: Game) {
+    const count = unreadMessageCounts[game.id] ?? 0;
+    if (count <= 0) return null;
+    return <span className="unreadBadge">{count > 99 ? "99+" : count}</span>;
+  }
+
+  async function handleSendPlayerMessage(event: FormEvent) {
+    event.preventDefault();
+    if (!messageDialog || !publicKey) return;
+    if (!canMessagePlayer(messageDialog.game, messageDialog.receiverPublicKey)) {
+      setMessage(t("messagesDisabled"));
+      setMessageDialog(null);
+      return;
+    }
+    await runAction(async () => {
+      await sendGameMessage(messageDialog.game.id, {
+        senderPublicKey: publicKey,
+        body: messageDraft.slice(0, 500)
+      });
+      setMessageDialog(null);
+      setMessageDraft("");
+      await refreshMessagesFor(messageDialog.game);
+      await refreshUnreadMessages();
+      setMessage(t("messageSent"));
+    });
+  }
+
+  async function toggleAcceptMessages() {
+    if (!publicKey || !currentPlayer) return;
+    await runAction(async () => {
+      const player = await setMessagePreference(publicKey, !currentPlayer.acceptMessages);
+      setCurrentPlayer(player);
+      setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
+      setMessage(player.acceptMessages ? t("acceptMessages") : t("messagesDisabled"));
+    });
+  }
+
   function handleGameCardSelect(gameId: string) {
     setDeepLinkedGameTarget(null);
     setSelectedGameId(gameId);
@@ -2339,6 +2486,21 @@ function App() {
             <option value="app">{t("appMode")}</option>
           </select>
         </label>
+        {publicKey && currentPlayer && (
+          <div className="settingsInfoBox">
+            <strong>{t("messages")}</strong>
+            <label className="settingToggle">
+              <span>
+                <strong>{t("acceptMessages")}</strong>
+                <small>{currentPlayer.acceptMessages ? t("enabled") : t("disabled")}</small>
+              </span>
+              <input checked={currentPlayer.acceptMessages} onChange={() => void toggleAcceptMessages()} type="checkbox" />
+              <span aria-hidden="true" className="switchTrack">
+                <span className="switchThumb" />
+              </span>
+            </label>
+          </div>
+        )}
         <div className="creditsBox">
           <strong>{t("credits")}</strong>
           {credits.map((item) => {
@@ -2466,11 +2628,14 @@ function App() {
 
     try {
       const player = await getPlayerByPublicKey(account);
+      setCurrentPlayer(player);
+      setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
       setPseudo(player.pseudo);
       setPseudoModalOpen(false);
       localStorage.setItem(autoConnectStorageKey, "true");
       if (!silent) setMessage(`${t("walletFound")} ${player.pseudo}.`);
     } catch {
+      setCurrentPlayer(null);
       setPseudoDraft("");
       setPseudoModalOpen(true);
       localStorage.setItem(autoConnectStorageKey, "true");
@@ -2488,6 +2653,7 @@ function App() {
     }
     setPublicKey("");
     setPseudo("");
+    setCurrentPlayer(null);
     setPseudoDraft("");
     setPseudoModalOpen(false);
     setWalletConnectPrompt(null);
@@ -2500,6 +2666,8 @@ function App() {
     if (!publicKey) return;
     const player = await createPlayer({ pseudo: pseudoDraft.trim(), publicKey });
     const wasEditing = Boolean(pseudo);
+    setCurrentPlayer(player);
+    setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
     setPseudo(player.pseudo);
     setPseudoModalOpen(false);
     setMessage(`${wasEditing ? t("pseudoUpdated") : t("pseudoSaved")} ${player.pseudo}.`);
@@ -3097,6 +3265,38 @@ function App() {
         </div>
       )}
 
+      {messageDialog && (
+        <div className="modalBackdrop" onClick={() => setMessageDialog(null)}>
+          <form className="modal messageModal" onClick={(event) => event.stopPropagation()} onSubmit={handleSendPlayerMessage}>
+            <div className="modalHeader">
+              <h2>
+                {t("messagePlayer")} {messageDialog.receiverPseudo}
+              </h2>
+              <button aria-label={t("cancel")} className="tinyIconButton" onClick={() => setMessageDialog(null)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+            <textarea
+              autoFocus
+              maxLength={500}
+              onChange={(event) => setMessageDraft(event.target.value)}
+              placeholder={t("messagePlaceholder")}
+              value={messageDraft}
+            />
+            <div className="messageModalFooter">
+              <span>{messageDraft.length} / 500</span>
+              <button className="ghostButton" onClick={() => setMessageDialog(null)} type="button">
+                {t("cancel")}
+              </button>
+              <button className="primary" disabled={!messageDraft.trim() || busy} type="submit">
+                <Send size={16} />
+                {t("sendMessage")}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {settingsOpen && (
         <div className="modalBackdrop" onClick={() => setSettingsOpen(false)}>
           <div className="modal settingsModal" onClick={(event) => event.stopPropagation()}>
@@ -3373,7 +3573,41 @@ function App() {
 
         <section className="panel messagesPanel">
           <div className="sectionHead">
-            <h2>{t("messages")}</h2>
+            <h2>{t("playerMessages")}</h2>
+            {selectedGame && unreadBadgeFor(selectedGame)}
+          </div>
+          <div className="playerMessageList">
+            {selectedGame && (gameMessages[selectedGame.id] ?? []).length > 0 ? (
+              (gameMessages[selectedGame.id] ?? []).map((item) => (
+                <div className={item.senderPublicKey === publicKey ? "playerMessage mine" : "playerMessage"} key={item.id}>
+                  <strong>{item.senderPublicKey === publicKey ? pseudo || t("player") : item.senderPublicKey === selectedGame.creatorPublicKey ? selectedGame.creatorPseudo : selectedGame.joinerPseudo}</strong>
+                  <p>{item.body}</p>
+                  <span>{formatDateTime(item.createdAt, locale)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="muted">{t("noPlayerMessages")}</p>
+            )}
+          </div>
+          {selectedGame && publicKey && (publicKey === selectedGame.creatorPublicKey || publicKey === selectedGame.joinerPublicKey) && (
+            <button
+              className="secondaryButton"
+              onClick={() => {
+                const receiverPublicKey = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPublicKey : selectedGame.creatorPublicKey;
+                const receiverPseudo = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPseudo : selectedGame.creatorPseudo;
+                if (receiverPublicKey && receiverPseudo) {
+                  setMessageDraft("");
+                  setMessageDialog({ game: selectedGame, receiverPublicKey, receiverPseudo });
+                }
+              }}
+              type="button"
+            >
+              <MessageSquareText size={16} />
+              {t("reply")}
+            </button>
+          )}
+          <div className="sectionHead compactHead">
+            <h2>{t("systemMessages")}</h2>
             <MessageCircle size={20} />
           </div>
           <div className="messageList">
@@ -3441,6 +3675,7 @@ function App() {
                     <span className={`status ${game.status}`}>{game.status}</span>
                   </div>
                   <span className="gameCardTools">
+                    {unreadBadgeFor(game)}
                     {localSecretIndicator(game)}
                     {shareGameButton(game)}
                     {notificationButton(game)}
@@ -3511,6 +3746,7 @@ function App() {
                     {selectedGame.creatorPseudo}
                     {resultIconFor(selectedGame, "creator")}
                     {secretButtonFor(selectedGame, selectedGame.creatorPublicKey)}
+                    {messageButtonFor(selectedGame, selectedGame.creatorPublicKey, selectedGame.creatorPseudo)}
                   </dd>
                 </div>
                 <div>
@@ -3519,6 +3755,7 @@ function App() {
                     {selectedGame.joinerPseudo ?? t("waiting")}
                     {selectedGame.joinerPseudo && resultIconFor(selectedGame, "joiner")}
                     {secretButtonFor(selectedGame, selectedGame.joinerPublicKey)}
+                    {messageButtonFor(selectedGame, selectedGame.joinerPublicKey, selectedGame.joinerPseudo)}
                   </dd>
                 </div>
                 <div>
@@ -3778,7 +4015,10 @@ function App() {
             <span>{t("gamesTab")}</span>
           </button>
           <button className={appScreen === "messages" ? "active" : ""} onClick={() => setAppScreen("messages")} type="button">
-            <MessageCircle size={20} />
+            <span className="navIconWithBadge">
+              <MessageCircle size={20} />
+              {totalUnreadMessages > 0 && <span className="navBadge">{totalUnreadMessages > 99 ? "99+" : totalUnreadMessages}</span>}
+            </span>
             <span>{t("messages")}</span>
           </button>
           <button className={appScreen === "settings" ? "active" : ""} onClick={() => setAppScreen("settings")} type="button">

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { Game, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
+import type { Game, GameMessage, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
 
 const dbPath = process.env.ZKROLL_DB_PATH ?? "zkroll.db";
 
@@ -11,6 +11,7 @@ db.exec(`
   create table if not exists players (
     pseudo text primary key,
     public_key text not null unique,
+    accept_messages integer not null default 1,
     created_at text not null
   );
 
@@ -77,9 +78,21 @@ db.exec(`
     updated_at text not null,
     primary key (network, public_key, fcm_token)
   );
+
+  create table if not exists game_messages (
+    id text primary key,
+    game_id text not null,
+    sender_public_key text not null,
+    receiver_public_key text not null,
+    body text not null,
+    created_at text not null,
+    read_at text,
+    foreign key (game_id) references games(id) on delete cascade
+  );
 `);
 
 for (const statement of [
+  "alter table players add column accept_messages integer not null default 1",
   "alter table games add column zkapp_address text",
   "alter table games add column game_id_field text",
   "alter table games add column creator_pseudo_hash text",
@@ -158,6 +171,7 @@ db.exec(`
 type PlayerRow = {
   pseudo: string;
   public_key: string;
+  accept_messages: number;
   created_at: string;
 };
 
@@ -236,11 +250,34 @@ type NewGameNotificationSubscriptionRow = {
   updated_at: string;
 };
 
+type GameMessageRow = {
+  id: string;
+  game_id: string;
+  sender_public_key: string;
+  receiver_public_key: string;
+  body: string;
+  created_at: string;
+  read_at: string | null;
+};
+
 function playerFromRow(row: PlayerRow): Player {
   return {
     pseudo: row.pseudo,
     publicKey: row.public_key,
+    acceptMessages: row.accept_messages !== 0,
     createdAt: row.created_at
+  };
+}
+
+function messageFromRow(row: GameMessageRow): GameMessage {
+  return {
+    id: row.id,
+    gameId: row.game_id,
+    senderPublicKey: row.sender_public_key,
+    receiverPublicKey: row.receiver_public_key,
+    body: row.body,
+    createdAt: row.created_at,
+    readAt: row.read_at
   };
 }
 
@@ -327,6 +364,14 @@ export function upsertPlayer(pseudo: string, publicKey: string): Player {
   return getPlayerByPublicKey(publicKey)!;
 }
 
+export function setPlayerMessagePreference(publicKey: string, acceptMessages: boolean): Player {
+  const result = db
+    .prepare("update players set accept_messages = ? where public_key = ?")
+    .run(acceptMessages ? 1 : 0, publicKey);
+  if (result.changes !== 1) throw new Error("Player not found");
+  return getPlayerByPublicKey(publicKey)!;
+}
+
 export function getPlayerByPseudo(pseudo: string): Player | null {
   const row = db.prepare("select * from players where pseudo = ?").get(pseudo) as PlayerRow | undefined;
   return row ? playerFromRow(row) : null;
@@ -335,6 +380,74 @@ export function getPlayerByPseudo(pseudo: string): Player | null {
 export function getPlayerByPublicKey(publicKey: string): Player | null {
   const row = db.prepare("select * from players where public_key = ?").get(publicKey) as PlayerRow | undefined;
   return row ? playerFromRow(row) : null;
+}
+
+function assertGameParticipant(game: Game, publicKey: string) {
+  if (publicKey !== game.creatorPublicKey && publicKey !== game.joinerPublicKey) {
+    throw new Error("Player is not part of this game");
+  }
+}
+
+export function listGameMessages(gameId: string, publicKey: string): GameMessage[] {
+  const game = getGame(gameId);
+  if (!game) throw new Error("Game not found");
+  assertGameParticipant(game, publicKey);
+  const rows = db
+    .prepare("select * from game_messages where game_id = ? order by created_at asc")
+    .all(gameId) as GameMessageRow[];
+  return rows.map(messageFromRow);
+}
+
+export function unreadMessageCounts(publicKey: string): Record<string, number> {
+  const rows = db
+    .prepare(
+      `
+      select game_id as gameId, count(*) as count
+      from game_messages
+      where receiver_public_key = ? and read_at is null
+      group by game_id
+    `
+    )
+    .all(publicKey) as { gameId: string; count: number }[];
+  return Object.fromEntries(rows.map((row) => [row.gameId, row.count]));
+}
+
+export function markGameMessagesRead(gameId: string, publicKey: string): void {
+  const game = getGame(gameId);
+  if (!game) throw new Error("Game not found");
+  assertGameParticipant(game, publicKey);
+  db.prepare("update game_messages set read_at = coalesce(read_at, ?) where game_id = ? and receiver_public_key = ?").run(
+    new Date().toISOString(),
+    gameId,
+    publicKey
+  );
+}
+
+export function createGameMessage(input: {
+  id: string;
+  gameId: string;
+  senderPublicKey: string;
+  body: string;
+}): { game: Game; message: GameMessage } {
+  const game = getGame(input.gameId);
+  if (!game) throw new Error("Game not found");
+  assertGameParticipant(game, input.senderPublicKey);
+  const receiverPublicKey = input.senderPublicKey === game.creatorPublicKey ? game.joinerPublicKey : game.creatorPublicKey;
+  if (!receiverPublicKey) throw new Error("Opponent is not known yet");
+  const receiver = getPlayerByPublicKey(receiverPublicKey);
+  if (receiver && !receiver.acceptMessages) throw new Error("Player does not accept messages");
+  const body = input.body.trim();
+  if (!body) throw new Error("Message is empty");
+  if (body.length > 500) throw new Error("Message is too long");
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    insert into game_messages (id, game_id, sender_public_key, receiver_public_key, body, created_at, read_at)
+    values (?, ?, ?, ?, ?, ?, null)
+  `
+  ).run(input.id, input.gameId, input.senderPublicKey, receiverPublicKey, body, now);
+  const message = db.prepare("select * from game_messages where id = ?").get(input.id) as GameMessageRow;
+  return { game, message: messageFromRow(message) };
 }
 
 export function listGameNotificationSubscriptions(gameId: string): GameNotificationSubscription[] {
@@ -363,6 +476,16 @@ export function listNewGameNotificationSubscriptionsForPublicKey(publicKey: stri
     .prepare("select * from new_game_notification_subscriptions where public_key = ? order by updated_at desc")
     .all(publicKey) as NewGameNotificationSubscriptionRow[];
   return rows.map(newGameSubscriptionFromRow);
+}
+
+export function listNotificationTokensForPublicKey(publicKey: string): string[] {
+  const gameRows = db
+    .prepare("select distinct fcm_token as token from game_notification_subscriptions where public_key = ?")
+    .all(publicKey) as { token: string }[];
+  const newGameRows = db
+    .prepare("select distinct fcm_token as token from new_game_notification_subscriptions where public_key = ?")
+    .all(publicKey) as { token: string }[];
+  return [...new Set([...gameRows, ...newGameRows].map((row) => row.token))];
 }
 
 export function subscribeGameNotification(gameId: string, publicKey: string, fcmToken: string): GameNotificationSubscription {
