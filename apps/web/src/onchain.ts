@@ -7,6 +7,7 @@ const O1JS_BROWSER_CACHE_ENABLED = import.meta.env.VITE_O1JS_BROWSER_CACHE_ENABL
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 const PROVER_MODE = import.meta.env.VITE_PROVER_MODE === "server" ? "server" : "client";
 const SERVER_PROVER_POLL_MS = Number(import.meta.env.VITE_SERVER_PROVER_POLL_MS ?? 1500);
+const SERVER_PROVER_WALLET_DELAY_MS = Number(import.meta.env.VITE_SERVER_PROVER_WALLET_DELAY_MS ?? 2500);
 const CLIENT_O1JS_VERSION = "2.1.0";
 const SERVER_O1JS_VERSION = "2.15.0-rc.0";
 
@@ -65,6 +66,10 @@ export function rejectPendingWalletSignature(reason: string) {
 
 function report(callback: ProgressCallback | undefined, label: string, progress: number) {
   callback?.({ label, progress });
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export function proverMode() {
@@ -342,6 +347,14 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
   return hash;
 }
 
+async function sendServerProverTransaction(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback) {
+  report(onProgress, "progressProofGenerated", 84);
+  if (SERVER_PROVER_WALLET_DELAY_MS > 0) {
+    await sleep(SERVER_PROVER_WALLET_DELAY_MS);
+  }
+  return sendWithWallet(provider, transactionJson, onProgress);
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -371,6 +384,9 @@ async function serverProverJob<T extends Record<string, unknown>>(
 
   while (job.status === "queued" || job.status === "running") {
     await new Promise((resolve) => window.setTimeout(resolve, SERVER_PROVER_POLL_MS));
+    if (job.progress.label === "progressCircuitReady") {
+      report(onProgress, "progressGenerateProof", 54);
+    }
     job = await apiRequest<ServerProverJob>(`/prover/jobs/${encodeURIComponent(job.id)}`);
     report(onProgress, job.progress.label, job.progress.progress);
   }
@@ -453,7 +469,7 @@ export async function createGameOnchain(input: {
       { ...input, provider: undefined, onProgress: undefined },
       input.onProgress
     );
-    const txHash = await sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+    const txHash = await sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
     return {
       txHash,
       zkappAddress: typeof result.zkappAddress === "string" ? result.zkappAddress : ""
@@ -511,7 +527,7 @@ export async function joinGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("join", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
-    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
@@ -557,7 +573,7 @@ export async function settleGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("settle", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
-    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
@@ -605,7 +621,7 @@ export async function refundGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("refund", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
-    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
@@ -658,7 +674,7 @@ export async function cancelCreatedGameOnchain(input: {
       { ...input, provider: undefined, onProgress: undefined },
       input.onProgress
     );
-    return sendWithWallet(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
