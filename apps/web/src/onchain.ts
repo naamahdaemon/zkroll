@@ -286,7 +286,13 @@ function compactGameMemo(action: string, gameId?: string) {
   return `zkroll ${action}${suffix}`.slice(0, 32);
 }
 
-async function sendWithWallet(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback, walletOpenDelayMs?: number) {
+async function sendWithWallet(
+  provider: MinaProvider,
+  transactionJson: string,
+  onProgress?: ProgressCallback,
+  walletOpenDelayMs?: number,
+  memo?: string
+) {
   report(onProgress, "progressWalletSignature", 86);
   let localManualResolver: ((resolution: ManualWalletResolution) => void) | null = null;
   const manualResolutionPromise = new Promise<ManualWalletResolution>((resolve) => {
@@ -295,6 +301,7 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
   });
   const sendPromise = provider.sendTransaction!({
     transaction: transactionJson,
+    feePayer: memo ? { memo } : undefined,
     walletOpenDelayMs
   });
 
@@ -344,9 +351,9 @@ async function sendWithWallet(provider: MinaProvider, transactionJson: string, o
   return hash;
 }
 
-async function sendServerProverTransaction(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback) {
+async function sendServerProverTransaction(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback, memo?: string) {
   report(onProgress, "progressProofGenerated", 84);
-  return sendWithWallet(provider, transactionJson, onProgress, SERVER_PROVER_WALLET_DELAY_MS);
+  return sendWithWallet(provider, transactionJson, onProgress, SERVER_PROVER_WALLET_DELAY_MS, memo);
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -399,6 +406,10 @@ function transactionJsonFromServer(result: Record<string, unknown>) {
     throw new Error("Server prover returned no transaction JSON.");
   }
   return result.transactionJson;
+}
+
+function memoFromServer(result: Record<string, unknown>) {
+  return typeof result.memo === "string" ? result.memo : undefined;
 }
 
 export async function pseudoHash(pseudo: string) {
@@ -463,7 +474,7 @@ export async function createGameOnchain(input: {
       { ...input, provider: undefined, onProgress: undefined },
       input.onProgress
     );
-    const txHash = await sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
+    const txHash = await sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
     return {
       txHash,
       zkappAddress: typeof result.zkappAddress === "string" ? result.zkappAddress : ""
@@ -475,7 +486,8 @@ export async function createGameOnchain(input: {
   const zkappAddress = zkappKey.toPublicKey();
   const contract = new toolkit.ZkDiceGame(zkappAddress);
 
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo: compactGameMemo("create", input.gameId) }, async () => {
+  const memo = compactGameMemo("create", input.gameId);
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
     const accountCreationFee = networks[input.network].accountCreationFeeNanoMina;
     if (accountCreationFee) {
       const funding = toolkit.AccountUpdate.createSigned(sender);
@@ -497,7 +509,7 @@ export async function createGameOnchain(input: {
   await tx.prove();
   tx.sign([zkappKey]);
   report(input.onProgress, "progressProofGenerated", 82);
-  const txHash = await sendWithWallet(provider, tx.toJSON(), input.onProgress);
+  const txHash = await sendWithWallet(provider, tx.toJSON(), input.onProgress, undefined, memo);
   return { txHash, zkappAddress: zkappAddress.toBase58() };
 }
 
@@ -521,13 +533,14 @@ export async function joinGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("join", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
-    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo: compactGameMemo("join", input.gameIdField) }, async () => {
+  const memo = compactGameMemo("join", input.gameIdField);
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
     await contract.joinGame(
       sender,
       toolkit.Field(input.creatorPseudoHash),
@@ -541,7 +554,7 @@ export async function joinGameOnchain(input: {
   report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
   report(input.onProgress, "progressProofGenerated", 82);
-  return sendWithWallet(provider, tx.toJSON(), input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), input.onProgress, undefined, memo);
 }
 
 export async function settleGameOnchain(input: {
@@ -567,7 +580,7 @@ export async function settleGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("settle", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
-    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
@@ -576,7 +589,8 @@ export async function settleGameOnchain(input: {
     ? toolkit.PublicKey.fromBase58(input.winnerPublicKey)
     : (toolkit.PublicKey.empty() as typeof sender);
 
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo: compactGameMemo("settle", input.gameIdField) }, async () => {
+  const memo = compactGameMemo("settle", input.gameIdField);
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
     await contract.settle(
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.joinerPseudoHash),
@@ -591,7 +605,7 @@ export async function settleGameOnchain(input: {
   report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
   report(input.onProgress, "progressProofGenerated", 82);
-  return sendWithWallet(provider, tx.toJSON(), input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), input.onProgress, undefined, memo);
 }
 
 export async function refundGameOnchain(input: {
@@ -615,13 +629,14 @@ export async function refundGameOnchain(input: {
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("refund", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
-    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo: compactGameMemo("refund", input.gameIdField) }, async () => {
+  const memo = compactGameMemo("refund", input.gameIdField);
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
     if (input.status === "created") {
       await contract.refundCreatedGame(
         toolkit.Field(input.creatorPseudoHash),
@@ -646,7 +661,7 @@ export async function refundGameOnchain(input: {
   report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
   report(input.onProgress, "progressProofGenerated", 82);
-  return sendWithWallet(provider, tx.toJSON(), input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), input.onProgress, undefined, memo);
 }
 
 export async function cancelCreatedGameOnchain(input: {
@@ -668,13 +683,14 @@ export async function cancelCreatedGameOnchain(input: {
       { ...input, provider: undefined, onProgress: undefined },
       input.onProgress
     );
-    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress);
+    return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
   }
   const toolkit = await setup(input.network, input.onProgress);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo: compactGameMemo("cancel", input.gameIdField) }, async () => {
+  const memo = compactGameMemo("cancel", input.gameIdField);
+  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
     await (contract as any).cancelCreatedGame(
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.creatorCommitment),
@@ -684,7 +700,7 @@ export async function cancelCreatedGameOnchain(input: {
   report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
   report(input.onProgress, "progressProofGenerated", 82);
-  return sendWithWallet(provider, tx.toJSON(), input.onProgress);
+  return sendWithWallet(provider, tx.toJSON(), input.onProgress, undefined, memo);
 }
 
 export async function diceOutcomeOnchain(creatorSecret: string, joinerSecret: string, gameIdField: string) {

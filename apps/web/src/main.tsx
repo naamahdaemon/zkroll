@@ -204,6 +204,7 @@ const copy: Record<string, Record<string, string>> = {
     allStatuses: "All statuses",
     allNetworks: "All networks",
     searchPlayer: "Search player",
+    searchGameId: "Search game id",
     previous: "Previous",
     next: "Next",
     page: "Page",
@@ -441,6 +442,7 @@ const copy: Record<string, Record<string, string>> = {
     allStatuses: "Tous les etats",
     allNetworks: "Tous les reseaux",
     searchPlayer: "Rechercher joueur",
+    searchGameId: "Rechercher game id",
     previous: "Precedent",
     next: "Suivant",
     page: "Page",
@@ -682,6 +684,7 @@ Object.assign(copy, {
     allStatuses: "全部状态",
     allNetworks: "全部网络",
     searchPlayer: "搜索玩家",
+    searchGameId: "搜索游戏 ID",
     previous: "上一页",
     next: "下一页",
     page: "页",
@@ -896,6 +899,7 @@ Object.assign(copy, {
     myActiveStatuses: "Aktif oyunlarım",
     allStatuses: "Tüm durumlar",
     searchPlayer: "Oyuncu ara",
+    searchGameId: "Oyun ID ara",
     challenge: "Meydan okuma",
     creator: "Oluşturan",
     opponent: "Rakip",
@@ -961,6 +965,7 @@ Object.assign(copy, {
     myActiveStatuses: "Мои активные игры",
     allStatuses: "Все статусы",
     searchPlayer: "Поиск игрока",
+    searchGameId: "Поиск game id",
     challenge: "Вызов",
     creator: "Создатель",
     opponent: "Соперник",
@@ -1031,6 +1036,7 @@ Object.assign(copy, {
     allStatuses: "Alle Status",
     allNetworks: "Alle Netzwerke",
     searchPlayer: "Spieler suchen",
+    searchGameId: "Game-ID suchen",
     previous: "Zuruck",
     next: "Weiter",
     page: "Seite",
@@ -1148,6 +1154,7 @@ Object.assign(copy, {
     myActiveStatuses: "自分のアクティブゲーム",
     allStatuses: "すべての状態",
     searchPlayer: "プレイヤー検索",
+    searchGameId: "ゲームID検索",
     challenge: "チャレンジ",
     creator: "作成者",
     opponent: "対戦相手",
@@ -1219,6 +1226,7 @@ Object.assign(copy, {
     allStatuses: "Todos los estados",
     allNetworks: "Todas las redes",
     searchPlayer: "Buscar jugador",
+    searchGameId: "Buscar game id",
     previous: "Anterior",
     next: "Siguiente",
     page: "Pagina",
@@ -1463,6 +1471,7 @@ function App() {
   const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(() => initialGameTarget);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("mine_active");
   const [playerSearch, setPlayerSearch] = useState("");
+  const [gameIdSearch, setGameIdSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
@@ -1514,7 +1523,8 @@ function App() {
   );
 
   const filteredGames = useMemo(() => {
-    const needle = playerSearch.trim().toLowerCase();
+    const playerNeedle = playerSearch.trim().toLowerCase();
+    const gameIdNeedle = gameIdSearch.trim().toLowerCase();
     return visibleGames
       .filter((game) => {
         const statusMatches =
@@ -1526,13 +1536,14 @@ function App() {
                 (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey)
             : statusFilter === "all" || game.status === statusFilter;
         const searchMatches =
-          !needle ||
-          game.creatorPseudo.toLowerCase().includes(needle) ||
-          (game.joinerPseudo?.toLowerCase().includes(needle) ?? false);
-        return statusMatches && searchMatches;
+          !playerNeedle ||
+          game.creatorPseudo.toLowerCase().includes(playerNeedle) ||
+          (game.joinerPseudo?.toLowerCase().includes(playerNeedle) ?? false);
+        const gameIdMatches = !gameIdNeedle || game.id.toLowerCase().includes(gameIdNeedle);
+        return statusMatches && searchMatches && gameIdMatches;
       })
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-  }, [playerSearch, publicKey, statusFilter, visibleGames]);
+  }, [gameIdSearch, playerSearch, publicKey, statusFilter, visibleGames]);
 
   const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
   const paginatedGames = useMemo(
@@ -1972,6 +1983,7 @@ function App() {
     }
     setStatusFilter("all");
     setPlayerSearch("");
+    setGameIdSearch("");
     setDeepLinkedGameTarget(linkedNetwork ? { id: gameId, network: linkedNetwork } : null);
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
@@ -2013,7 +2025,7 @@ function App() {
 
   useEffect(() => {
     setGamesPage(1);
-  }, [network, playerSearch, statusFilter]);
+  }, [gameIdSearch, network, playerSearch, statusFilter]);
 
   useEffect(() => {
     setGamesPage((current) => Math.min(current, totalGamePages));
@@ -3653,6 +3665,17 @@ function App() {
                   value={playerSearch}
                   onChange={(event) => setPlayerSearch(event.target.value)}
                   placeholder={t("pseudo")}
+                />
+              </span>
+            </label>
+            <label>
+              {t("searchGameId")}
+              <span className="searchInput">
+                <Search size={16} />
+                <input
+                  value={gameIdSearch}
+                  onChange={(event) => setGameIdSearch(event.target.value)}
+                  placeholder="123..."
                 />
               </span>
             </label>
