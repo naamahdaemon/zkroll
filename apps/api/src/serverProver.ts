@@ -16,6 +16,7 @@ import { createNativeMinaNetwork, diceOutcome, NativeZkDiceGame } from "./native
 
 const feeNanoMina = Number(process.env.ZKROLL_PROVER_FEE_NANOMINA ?? process.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const maxWorkers = Math.max(1, Number(process.env.ZKROLL_PROVER_WORKERS ?? 2));
+const minaAccountCreationFeeNanoMina = "1000000000";
 
 type Progress = {
   label: string;
@@ -109,8 +110,8 @@ type CancelInput = {
 const jobs = new Map<string, ProverJob>();
 const queue: ProverJob[] = [];
 let running = 0;
-let compilePromise: Promise<{ verificationKey: VerificationKey }> | null = null;
-let verificationKey: VerificationKey | null = null;
+const compilePromises = new Map<NetworkId, Promise<{ verificationKey: VerificationKey }>>();
+const verificationKeys = new Map<NetworkId, VerificationKey>();
 
 function now() {
   return new Date().toISOString();
@@ -146,6 +147,10 @@ function payoutModeField(mode: PayoutMode | undefined) {
   return Field(mode === "opponent_takes_all" ? 1 : 0);
 }
 
+function accountCreationFeeFor(network: NetworkId) {
+  return networks[network].accountCreationFeeNanoMina ?? minaAccountCreationFeeNanoMina;
+}
+
 function setProgress(job: ProverJob, label: string, progress: number) {
   job.progress = { label, progress };
   job.updatedAt = now();
@@ -153,10 +158,12 @@ function setProgress(job: ProverJob, label: string, progress: number) {
 
 async function setup(job: ProverJob, network: NetworkId) {
   Mina.setActiveInstance(createNativeMinaNetwork(network));
-  if (!compilePromise) setProgress(job, "progressCompileCircuit", 12);
-  compilePromise ??= NativeZkDiceGame.compile() as Promise<{ verificationKey: VerificationKey }>;
-  const compiled = await compilePromise;
-  verificationKey = compiled.verificationKey;
+  if (!compilePromises.has(network)) {
+    setProgress(job, "progressCompileCircuit", 12);
+    compilePromises.set(network, NativeZkDiceGame.compile() as Promise<{ verificationKey: VerificationKey }>);
+  }
+  const compiled = await compilePromises.get(network)!;
+  verificationKeys.set(network, compiled.verificationKey);
   setProgress(job, "progressCircuitReady", 38);
 }
 
@@ -174,8 +181,8 @@ async function proveCreate(job: ProverJob, input: CreateInput) {
   const zkappKey = PrivateKey.fromBase58(input.zkappPrivateKey);
   const zkappAddress = zkappKey.toPublicKey();
   const contract = new NativeZkDiceGame(zkappAddress);
-  if (!verificationKey) throw new Error("Contract verification key is not compiled.");
-  const compiledVerificationKey = verificationKey;
+  const compiledVerificationKey = verificationKeys.get(input.network);
+  if (!compiledVerificationKey) throw new Error("Contract verification key is not compiled.");
   const gameId = Field(input.gameIdField);
   const creatorPseudoHash = pseudoHashValue(input.pseudo);
   const creatorCommitment = Field(serverCommitment(input.secret, input.senderPublicKey, input.gameIdField));
@@ -183,13 +190,8 @@ async function proveCreate(job: ProverJob, input: CreateInput) {
 
   const memo = compactGameMemo("create", input.gameId);
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
-    const accountCreationFee = networks[input.network].accountCreationFeeNanoMina;
-    if (accountCreationFee) {
-      const funding = AccountUpdate.createSigned(sender);
-      funding.balance.subInPlace(UInt64.from(accountCreationFee));
-    } else {
-      AccountUpdate.fundNewAccount(sender);
-    }
+    const funding = AccountUpdate.createSigned(sender);
+    funding.balance.subInPlace(UInt64.from(accountCreationFeeFor(input.network)));
     await contract.deploy({ verificationKey: compiledVerificationKey });
     await contract.createGame(
       gameId,
