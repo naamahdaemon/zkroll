@@ -15,6 +15,7 @@ const creatorPseudoHash = readField("CREATOR_PSEUDO_HASH");
 const joinerPseudoHash = readField("JOINER_PSEUDO_HASH");
 const creatorCommitment = readField("CREATOR_COMMITMENT");
 const joinerCommitment = readField("JOINER_COMMITMENT");
+const payoutMode = Field(process.env.PAYOUT_MODE === "opponent_takes_all" ? 1 : 0);
 const refundDeadlineSlot = readUInt32("REFUND_DEADLINE_SLOT");
 const outcome = diceOutcome(creatorSecret, joinerSecret, gameId);
 const creatorDie = Number(outcome.creatorDie.toString());
@@ -28,14 +29,26 @@ await ZkDiceGame.compile();
 
 console.log("Building settle transaction...");
 const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async () => {
-  await zkapp.settle(
+  const commonArgs = [
     creatorPseudoHash,
     joinerPseudoHash,
     creatorCommitment,
     joinerCommitment,
     creatorSecret,
     joinerSecret,
-    expectedWinner,
+    expectedWinner
+  ] as const;
+  if (process.env.PAYOUT_MODE === "opponent_takes_all") {
+    if (expectedWinner.equals(joiner).toBoolean()) {
+      await zkapp.settleOpponentJoinerWins(...commonArgs, refundDeadlineSlot);
+      return;
+    }
+    await zkapp.settleOpponentCreatorKeeps(...commonArgs, refundDeadlineSlot);
+    return;
+  }
+  await zkapp.settle(
+    ...commonArgs,
+    payoutMode,
     refundDeadlineSlot
   );
 });

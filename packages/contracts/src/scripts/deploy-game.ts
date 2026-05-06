@@ -24,6 +24,7 @@ const zkappAddress = zkappKey.toPublicKey();
 const creatorPseudo = readEnv("CREATOR_PSEUDO");
 const creatorSecret = Field(readEnv("CREATOR_SECRET"));
 const stake = readUInt64("STAKE_NANOMINA");
+const payoutMode = Field(process.env.PAYOUT_MODE === "opponent_takes_all" ? 1 : 0);
 const refundDeadlineSlot = readUInt32("REFUND_DEADLINE_SLOT");
 const gameId = process.env.GAME_ID_FIELD ? Field(process.env.GAME_ID_FIELD) : gameIdFromZkapp(zkappAddress);
 const zkapp = new ZkDiceGame(zkappAddress);
@@ -41,6 +42,7 @@ const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async ()
     pseudoHash(creatorPseudo),
     stake,
     commitment(creatorSecret, creator, gameId),
+    payoutMode,
     refundDeadlineSlot
   );
 });
@@ -59,6 +61,7 @@ const output = {
   creatorPseudoHash: pseudoHash(creatorPseudo).toString(),
   creatorCommitment: commitment(creatorSecret, creator, gameId).toString(),
   stakeNanoMina: stake.toString(),
+  payoutMode: process.env.PAYOUT_MODE === "opponent_takes_all" ? "opponent_takes_all" : "classic",
   refundDeadlineSlot: refundDeadlineSlot.toString()
 };
 
@@ -70,6 +73,7 @@ const indexedGame = await postIndexer("/games", {
   creatorPublicKey: output.creatorPublicKey,
   creatorPseudoHash: output.creatorPseudoHash,
   stakeNanoMina: output.stakeNanoMina,
+  payoutMode: output.payoutMode,
   creatorCommitment: output.creatorCommitment,
   refundTimeoutSlots: Number(process.env.REFUND_TIMEOUT_SLOTS ?? 120),
   refundDeadlineSlot: output.refundDeadlineSlot,

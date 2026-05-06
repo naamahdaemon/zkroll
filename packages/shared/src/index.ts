@@ -14,6 +14,7 @@ export type GameStatus =
   | "cancelled";
 
 export type TransactionStatus = "PENDING" | "INCLUDED" | "FAILED" | "UNKNOWN";
+export type PayoutMode = "classic" | "opponent_takes_all";
 
 export type Player = {
   pseudo: string;
@@ -44,6 +45,7 @@ export type Game = {
   joinerPublicKey: string | null;
   joinerPseudoHash: string | null;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   joinerCommitment: string | null;
   creatorReveal: string | null;
@@ -89,6 +91,7 @@ export type CreateGameRequest = {
   creatorPublicKey: string;
   creatorPseudoHash?: string;
   stakeNanoMina: string;
+  payoutMode?: PayoutMode;
   creatorCommitment: string;
   refundTimeoutSlots: number;
   refundDeadlineSlot?: string;
@@ -172,6 +175,12 @@ export function assertNetworkId(value: string): NetworkId {
   }
 
   throw new Error(`Unsupported network: ${value}`);
+}
+
+export function assertPayoutMode(value: unknown): PayoutMode {
+  if (value === undefined || value === null || value === "") return "classic";
+  if (value === "classic" || value === "opponent_takes_all") return value;
+  throw new Error(`Unsupported payout mode: ${String(value)}`);
 }
 
 export function isOpenGame(game: Game): boolean {

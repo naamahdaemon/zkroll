@@ -11,7 +11,7 @@ import {
   getBackendPreference,
   type VerificationKey
 } from "o1js-native";
-import { networks, type GameStatus, type NetworkId } from "@zkroll/shared";
+import { networks, type GameStatus, type NetworkId, type PayoutMode } from "@zkroll/shared";
 import { createNativeMinaNetwork, diceOutcome, NativeZkDiceGame } from "./nativeZkDiceGame.js";
 
 const feeNanoMina = Number(process.env.ZKROLL_PROVER_FEE_NANOMINA ?? process.env.VITE_FEE_NANOMINA ?? 100_000_000);
@@ -45,6 +45,7 @@ type CreateInput = {
   secret: string;
   gameIdField: string;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   refundDeadlineSlot: string;
 };
 
@@ -57,6 +58,7 @@ type JoinInput = {
   zkappAddress: string;
   creatorPseudoHash: string;
   creatorCommitment: string;
+  payoutMode: PayoutMode;
   currentRefundDeadlineSlot: string;
   nextRefundDeadlineSlot: string;
 };
@@ -70,6 +72,7 @@ type SettleInput = {
   creatorPseudoHash: string;
   joinerPublicKey: string;
   joinerPseudoHash: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   joinerCommitment: string;
   creatorSecret: string;
@@ -86,6 +89,7 @@ type RefundInput = {
   zkappAddress: string;
   creatorPseudoHash: string;
   joinerPseudoHash: string | null;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   joinerCommitment: string | null;
   refundDeadlineSlot: string;
@@ -98,6 +102,7 @@ type CancelInput = {
   zkappAddress: string;
   creatorPseudoHash: string;
   creatorCommitment: string;
+  payoutMode: PayoutMode;
   refundDeadlineSlot: string;
 };
 
@@ -137,6 +142,10 @@ function compactGameMemo(action: string, gameId?: string) {
   return `zkroll ${action}${suffix}`.slice(0, 32);
 }
 
+function payoutModeField(mode: PayoutMode | undefined) {
+  return Field(mode === "opponent_takes_all" ? 1 : 0);
+}
+
 function setProgress(job: ProverJob, label: string, progress: number) {
   job.progress = { label, progress };
   job.updatedAt = now();
@@ -170,6 +179,7 @@ async function proveCreate(job: ProverJob, input: CreateInput) {
   const gameId = Field(input.gameIdField);
   const creatorPseudoHash = pseudoHashValue(input.pseudo);
   const creatorCommitment = Field(serverCommitment(input.secret, input.senderPublicKey, input.gameIdField));
+  const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("create", input.gameId);
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
@@ -187,6 +197,7 @@ async function proveCreate(job: ProverJob, input: CreateInput) {
       creatorPseudoHash,
       UInt64.from(input.stakeNanoMina),
       creatorCommitment,
+      payoutMode,
       UInt32.from(input.refundDeadlineSlot)
     );
   });
@@ -208,6 +219,7 @@ async function proveJoin(job: ProverJob, input: JoinInput) {
   const contract = new NativeZkDiceGame(PublicKey.fromBase58(input.zkappAddress));
   const joinerPseudoHash = pseudoHashValue(input.pseudo);
   const joinerCommitment = Field(serverCommitment(input.secret, input.senderPublicKey, input.gameIdField));
+  const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("join", input.gameIdField);
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
@@ -215,6 +227,7 @@ async function proveJoin(job: ProverJob, input: JoinInput) {
       sender,
       Field(input.creatorPseudoHash),
       Field(input.creatorCommitment),
+      payoutMode,
       UInt32.from(input.currentRefundDeadlineSlot),
       joinerPseudoHash,
       joinerCommitment,
@@ -238,19 +251,28 @@ async function proveSettle(job: ProverJob, input: SettleInput) {
   const joiner = PublicKey.fromBase58(input.joinerPublicKey);
   const contract = new NativeZkDiceGame(PublicKey.fromBase58(input.zkappAddress));
   const winner = input.winnerPublicKey ? PublicKey.fromBase58(input.winnerPublicKey) : (PublicKey.empty() as PublicKey);
+  const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("settle", input.gameIdField);
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
-    await contract.settle(
+    const commonArgs = [
       Field(input.creatorPseudoHash),
       Field(input.joinerPseudoHash),
       Field(input.creatorCommitment),
       Field(input.joinerCommitment),
       Field(input.creatorSecret),
       Field(input.joinerSecret),
-      winner,
-      UInt32.from(input.refundDeadlineSlot)
-    );
+      winner
+    ] as const;
+    if (input.payoutMode === "opponent_takes_all") {
+      if (input.winnerPublicKey === input.joinerPublicKey) {
+        await contract.settleOpponentJoinerWins(...commonArgs, UInt32.from(input.refundDeadlineSlot));
+        return;
+      }
+      await contract.settleOpponentCreatorKeeps(...commonArgs, UInt32.from(input.refundDeadlineSlot));
+      return;
+    }
+    await contract.settle(...commonArgs, payoutMode, UInt32.from(input.refundDeadlineSlot));
   });
 
   const outcome = diceOutcome(Field(input.creatorSecret), Field(input.joinerSecret), Field(input.gameIdField));
@@ -269,11 +291,17 @@ async function proveRefund(job: ProverJob, input: RefundInput) {
   await setup(job, input.network);
   const sender = PublicKey.fromBase58(input.senderPublicKey);
   const contract = new NativeZkDiceGame(PublicKey.fromBase58(input.zkappAddress));
+  const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("refund", input.gameIdField);
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
     if (input.status === "created") {
-      await contract.refundCreatedGame(Field(input.creatorPseudoHash), Field(input.creatorCommitment), UInt32.from(input.refundDeadlineSlot));
+      await contract.refundCreatedGame(
+        Field(input.creatorPseudoHash),
+        Field(input.creatorCommitment),
+        payoutMode,
+        UInt32.from(input.refundDeadlineSlot)
+      );
       return;
     }
     if (!input.joinerPseudoHash || !input.joinerCommitment) throw new Error("Incomplete joined game refund input.");
@@ -282,6 +310,7 @@ async function proveRefund(job: ProverJob, input: RefundInput) {
       Field(input.joinerPseudoHash),
       Field(input.creatorCommitment),
       Field(input.joinerCommitment),
+      payoutMode,
       UInt32.from(input.refundDeadlineSlot)
     );
   });
@@ -296,10 +325,16 @@ async function proveCancel(job: ProverJob, input: CancelInput) {
   await setup(job, input.network);
   const sender = PublicKey.fromBase58(input.senderPublicKey);
   const contract = new NativeZkDiceGame(PublicKey.fromBase58(input.zkappAddress));
+  const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("cancel", input.gameIdField);
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
-    await contract.cancelCreatedGame(Field(input.creatorPseudoHash), Field(input.creatorCommitment), UInt32.from(input.refundDeadlineSlot));
+    await contract.cancelCreatedGame(
+      Field(input.creatorPseudoHash),
+      Field(input.creatorCommitment),
+      payoutMode,
+      UInt32.from(input.refundDeadlineSlot)
+    );
   });
 
   setProgress(job, "progressGenerateProof", 54);

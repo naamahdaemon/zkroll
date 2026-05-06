@@ -489,6 +489,7 @@ select {
 }
 
 .secondaryButton,
+.failoverButton,
 .ghostButton,
 .warningButton,
 .dangerButton {
@@ -507,6 +508,18 @@ select {
   border-color: color-mix(in srgb, var(--border-strong) 72%, var(--primary) 28%);
   color: var(--text);
   font-weight: 800;
+}
+
+.failoverButton {
+  background: #eceff1;
+  border-color: #b7bec4;
+  color: #1f2a30;
+  font-weight: 800;
+}
+
+.failoverButton:not(:disabled):hover {
+  background: #e0e5e8;
+  border-color: #8d99a3;
 }
 
 .ghostButton {
@@ -538,6 +551,17 @@ select {
   background: #3c2b12;
   border-color: #9f7331;
   color: #ffd58f;
+}
+
+[data-theme="dark"] .failoverButton {
+  background: #2b3438;
+  border-color: #58656b;
+  color: #e7ecef;
+}
+
+[data-theme="dark"] .failoverButton:not(:disabled):hover {
+  background: #344046;
+  border-color: #738088;
 }
 
 .actionLink {
@@ -1067,10 +1091,10 @@ select {
   font-weight: 800;
 }
 
-.actions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
-.modalActions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
-.inlineActions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
-.missingSecretActions button:not(.primary):not(.secondaryButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.actions button:not(.primary):not(.secondaryButton):not(.failoverButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.modalActions button:not(.primary):not(.secondaryButton):not(.failoverButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.inlineActions button:not(.primary):not(.secondaryButton):not(.failoverButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
+.missingSecretActions button:not(.primary):not(.secondaryButton):not(.failoverButton):not(.warningButton):not(.dangerButton):not(.ghostButton),
 .pagination button {
   background: color-mix(in srgb, var(--surface-soft) 90%, var(--primary) 10%);
   border-color: color-mix(in srgb, var(--border-strong) 78%, var(--primary) 22%);
@@ -1448,6 +1472,31 @@ dd {
   display: grid;
   gap: 10px;
   padding: 12px;
+}
+
+.manualRecoveryHelp {
+  background: color-mix(in srgb, var(--surface-soft) 88%, var(--border) 12%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.manualRecoveryHelp p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.manualRecoveryHelp code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  padding: 8px;
 }
 
 .progress {

@@ -32,11 +32,22 @@ import {
   X,
   Wallet
 } from "lucide-react";
-import { networks, type Game, type GameMessage, type GameStatus, type NetworkId, type Player, type TransactionStatus } from "@zkroll/shared";
+import {
+  networks,
+  type Game,
+  type GameMessage,
+  type GameStatus,
+  type NetworkId,
+  type PayoutMode,
+  type Player,
+  type TransactionStatus
+} from "@zkroll/shared";
 import {
   createGame,
   createPlayer,
   confirmJoinGame,
+  clearPendingRefundTx,
+  clearPendingSettlementTx,
   failPendingJoin,
   getCurrentSlot,
   getPlayerByPublicKey,
@@ -49,6 +60,8 @@ import {
   markGameMessagesRead,
   markTransactionIncluded,
   markCreationFailed,
+  prepareRefundTx,
+  prepareSettlementTx,
   reconcileCreationTx,
   reconcileJoinTx,
   refundGame,
@@ -75,6 +88,7 @@ import {
   hasPendingWalletSignature,
   joinGameOnchain,
   nextRefundDeadlineSlot,
+  nextStrictRefundDeadlineSlot,
   o1jsVersion,
   pseudoHash,
   proverMode,
@@ -128,6 +142,7 @@ type ViewMode = "cards" | "app";
 type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "settings";
 type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
 type WalletConnectQrMode = "auro" | "wc";
+const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
 const gameStatuses: GameStatus[] = [
   "pending_signature",
   "created",
@@ -197,6 +212,10 @@ const copy: Record<string, Record<string, string>> = {
     walletConnected: "Wallet connected",
     newChallenge: "New challenge",
     stake: "Stake in MINA",
+    payoutMode: "Payout mode",
+    classicPayout: "Classic pot",
+    opponentTakesAll: "Opponent takes it all",
+    opponentTakesAllHint: "The opponent deposits no stake. If they win, they take the creator stake; otherwise the creator is refunded.",
     refundTimeout: "Refund timeout (slots)",
     create: "Create",
     games: "Games",
@@ -241,6 +260,9 @@ const copy: Record<string, Record<string, string>> = {
     enterSettlementHash: "Enter settlement hash",
     pasteSettlementHash: "Paste the settlement transaction hash visible in Auro or the explorer.",
     settlementHashSaved: "Settlement hash saved. On-chain sync will be checked.",
+    enterRefundHash: "Enter refund/cancel hash",
+    pasteRefundHash: "Paste the refund or cancel transaction hash visible in Auro or the explorer.",
+    refundHashSaved: "Refund/cancel hash saved. On-chain sync will be checked.",
     refundedGame: "Game refunded",
     failedGame: "Creation failed",
     noLockedFunds: "No funds were locked by the contract.",
@@ -359,6 +381,8 @@ const copy: Record<string, Record<string, string>> = {
     manualSignatureFailed: "Signature failed in Auro",
     manualSignatureFailedMessage: "Signature marked as failed locally. You can re-sign this game later.",
     manualSignatureHint: "Use these options if Auro accepted or rejected the transaction without returning control to the page.",
+    walletRecoveryExplorerHint: "If the transaction was accepted in Auro but the page did not receive the hash, open the zkApp explorer and find the zkApp transaction whose memo matches:",
+    openZkappExplorer: "Open zkApp explorer",
     walletAndPseudoRequired: "Pseudo and wallet required.",
     createdOnchain: "Challenge created on-chain and indexed.",
     createdMock: "Challenge created in simulation mode.",
@@ -435,6 +459,10 @@ const copy: Record<string, Record<string, string>> = {
     walletConnected: "Wallet connecte",
     newChallenge: "Nouveau defi",
     stake: "Mise en MINA",
+    payoutMode: "Mode de gain",
+    classicPayout: "Pot classique",
+    opponentTakesAll: "L'adversaire rafle tout",
+    opponentTakesAllHint: "L'adversaire ne depose pas de mise. S'il gagne, il prend la mise du createur ; sinon le createur est rembourse.",
     refundTimeout: "Timeout refund (slots)",
     create: "Creer",
     games: "Parties",
@@ -479,6 +507,9 @@ const copy: Record<string, Record<string, string>> = {
     enterSettlementHash: "Renseigner le hash settlement",
     pasteSettlementHash: "Colle le hash de la transaction settlement visible dans Auro ou l'explorateur.",
     settlementHashSaved: "Hash settlement renseigne. La synchronisation on-chain va etre verifiee.",
+    enterRefundHash: "Renseigner le hash refund/cancel",
+    pasteRefundHash: "Colle le hash de la transaction refund ou cancel visible dans Auro ou l'explorateur.",
+    refundHashSaved: "Hash refund/cancel renseigne. La synchronisation on-chain va etre verifiee.",
     refundedGame: "Partie remboursee",
     failedGame: "Creation echouee",
     noLockedFunds: "Aucun fonds n'a ete verrouille par le contrat.",
@@ -597,6 +628,8 @@ const copy: Record<string, Record<string, string>> = {
     manualSignatureFailed: "Signature echouee dans Auro",
     manualSignatureFailedMessage: "Signature marquee comme echouee localement. Tu pourras resigner cette partie plus tard.",
     manualSignatureHint: "Utilise ces options si Auro a accepte ou rejete la transaction sans rendre la main a la page.",
+    walletRecoveryExplorerHint: "Si la transaction a ete acceptee dans Auro mais que la page n'a pas recu le hash, ouvre l'explorateur zkApp et retrouve la transaction zkApp dont le memo correspond a :",
+    openZkappExplorer: "Ouvrir l'explorateur zkApp",
     walletAndPseudoRequired: "Pseudo et wallet requis.",
     createdOnchain: "Defi cree on-chain et indexe.",
     createdMock: "Defi cree en mode simulation.",
@@ -677,6 +710,10 @@ Object.assign(copy, {
     walletConnected: "钱包已连接",
     newChallenge: "新挑战",
     stake: "MINA 下注",
+    payoutMode: "支付模式",
+    classicPayout: "经典奖池",
+    opponentTakesAll: "对手赢者通吃",
+    opponentTakesAllHint: "对手不存入下注。如果对手获胜，将获得创建者的下注；否则创建者退款。",
     refundTimeout: "退款超时（slot）",
     create: "创建",
     games: "游戏",
@@ -894,6 +931,10 @@ Object.assign(copy, {
     walletConnected: "Cüzdan bağlı",
     newChallenge: "Yeni meydan okuma",
     stake: "MINA bahsi",
+    payoutMode: "Ödeme modu",
+    classicPayout: "Klasik pot",
+    opponentTakesAll: "Rakip hepsini alır",
+    opponentTakesAllHint: "Rakip bahis yatırmaz. Kazanırsa oluşturanın bahsini alır; aksi halde oluşturan iade alır.",
     create: "Oluştur",
     games: "Oyunlar",
     activeStatuses: "Aktif oyunlar",
@@ -960,6 +1001,10 @@ Object.assign(copy, {
     walletConnected: "Кошелек подключен",
     newChallenge: "Новый вызов",
     stake: "Ставка в MINA",
+    payoutMode: "Режим выплаты",
+    classicPayout: "Классический банк",
+    opponentTakesAll: "Соперник забирает все",
+    opponentTakesAllHint: "Соперник не вносит ставку. Если он выигрывает, получает ставку создателя; иначе создатель получает возврат.",
     create: "Создать",
     games: "Игры",
     activeStatuses: "Активные игры",
@@ -1029,6 +1074,10 @@ Object.assign(copy, {
     walletConnected: "Wallet verbunden",
     newChallenge: "Neue Challenge",
     stake: "Einsatz in MINA",
+    payoutMode: "Auszahlungsmodus",
+    classicPayout: "Klassischer Pot",
+    opponentTakesAll: "Gegner gewinnt alles",
+    opponentTakesAllHint: "Der Gegner zahlt keinen Einsatz ein. Gewinnt er, erhalt er den Einsatz des Erstellers; sonst wird der Ersteller refunded.",
     refundTimeout: "Refund-Timeout (Slots)",
     create: "Erstellen",
     games: "Spiele",
@@ -1148,6 +1197,10 @@ Object.assign(copy, {
     walletConnected: "ウォレット接続済み",
     newChallenge: "新しいチャレンジ",
     stake: "MINA ベット",
+    payoutMode: "支払いモード",
+    classicPayout: "通常ポット",
+    opponentTakesAll: "相手が総取り",
+    opponentTakesAllHint: "相手はベットを預けません。相手が勝つと作成者のベットを受け取り、それ以外は作成者へ返金されます。",
     refundTimeout: "返金タイムアウト（slot）",
     create: "作成",
     games: "ゲーム",
@@ -1219,6 +1272,10 @@ Object.assign(copy, {
     walletConnected: "Wallet conectada",
     newChallenge: "Nuevo desafio",
     stake: "Apuesta en MINA",
+    payoutMode: "Modo de pago",
+    classicPayout: "Bote clasico",
+    opponentTakesAll: "El oponente se lleva todo",
+    opponentTakesAllHint: "El oponente no deposita apuesta. Si gana, recibe la apuesta del creador; si no, el creador recibe el reembolso.",
     refundTimeout: "Timeout de reembolso (slots)",
     create: "Crear",
     games: "Partidas",
@@ -1402,6 +1459,11 @@ function networkFromString(value: string | null): NetworkId | null {
   return value && value in networks ? (value as NetworkId) : null;
 }
 
+function savedNetwork(): NetworkId {
+  if (typeof window === "undefined") return "devnet";
+  return networkFromString(localStorage.getItem("zkroll:network")) ?? "devnet";
+}
+
 function initialDeepLinkedGameTarget(): { id: string; network: NetworkId } | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
@@ -1415,9 +1477,9 @@ async function refundDeadlineForCreate(network: NetworkId, timeoutSlots: number)
   return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
 }
 
-async function refundDeadlineForJoin(network: NetworkId, timeoutSlots: number) {
-  const currentSlot = (await getCurrentSlot(network)).currentSlot;
-  return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
+async function strictRefundDeadlineForJoin(network: NetworkId, timeoutSlots: number, previousDeadlineSlot: string) {
+  const currentSlot = (await getCurrentSlot(network, { refresh: true })).currentSlot;
+  return nextStrictRefundDeadlineSlot(currentSlot, timeoutSlots, previousDeadlineSlot);
 }
 
 type PendingCreationMaterial = {
@@ -1464,8 +1526,9 @@ function App() {
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [pseudoDraft, setPseudoDraft] = useState("");
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
-  const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? "devnet");
+  const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? savedNetwork());
   const [stake, setStake] = useState("1");
+  const [payoutMode, setPayoutMode] = useState<PayoutMode>("classic");
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(() => initialGameTarget?.id ?? null);
@@ -1672,6 +1735,30 @@ function App() {
   function accountExplorerUrl(networkId: NetworkId, address: string) {
     if (networkId === "zeko") return `https://zekoscan.io/account/${encodeURIComponent(address)}`;
     return `https://minascan.io/${networkId}/account/${encodeURIComponent(address)}/zk-txs`;
+  }
+
+  function compactGameMemo(action: string, gameId?: string | null) {
+    const suffix = gameId ? ` ${gameId.slice(0, 12)}` : "";
+    return `zkroll ${action}${suffix}`.slice(0, 32);
+  }
+
+  function pendingRecoveryMemo(game: Game) {
+    if (game.status === "pending_signature" && game.creationTxHash.startsWith("pending:")) {
+      return compactGameMemo("create", game.id);
+    }
+    if (game.status === "join_pending" && game.joinTxHash?.startsWith("pending:")) {
+      return compactGameMemo("join", game.gameIdField);
+    }
+    if (game.settlementTxHash?.startsWith("pending:settle:")) {
+      return compactGameMemo("settle", game.gameIdField);
+    }
+    if (game.refundTxHash?.startsWith("pending:cancel:")) {
+      return compactGameMemo("cancel", game.gameIdField);
+    }
+    if (game.refundTxHash?.startsWith("pending:refund:")) {
+      return compactGameMemo("refund", game.gameIdField);
+    }
+    return null;
   }
 
   function displayTx(networkId: NetworkId, hash: string | null | undefined, status?: TxStatus) {
@@ -1882,6 +1969,18 @@ function App() {
     );
   }
 
+  function hasPendingSettlement(game: Game) {
+    return Boolean(game.settlementTxHash?.startsWith("pending:"));
+  }
+
+  function hasPendingRefund(game: Game) {
+    return Boolean(game.refundTxHash?.startsWith("pending:"));
+  }
+
+  function canCancelOrRefund(game: Game): boolean {
+    return canCancelCreatedGame(game) || canRefund(game);
+  }
+
   function gameAwaitsPlayerAction(game: Game) {
     return (
       game.status === "created" ||
@@ -2038,6 +2137,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("zkroll:locale", locale);
   }, [locale]);
+
+  useEffect(() => {
+    localStorage.setItem("zkroll:network", network);
+  }, [network]);
 
   useEffect(() => {
     setGamesPage(1);
@@ -2821,6 +2924,7 @@ function App() {
         secret: material.secret,
         gameIdField: game.gameIdField,
         stakeNanoMina: game.stakeNanoMina,
+        payoutMode: game.payoutMode,
         refundDeadlineSlot: game.refundDeadlineSlot,
         onProgress: updateOnchainProgress
       });
@@ -2893,6 +2997,7 @@ function App() {
         creatorPublicKey: publicKey,
         creatorPseudoHash,
         stakeNanoMina,
+        payoutMode,
         creatorCommitment,
         refundTimeoutSlots: refundTimeout,
         refundDeadlineSlot,
@@ -2915,6 +3020,7 @@ function App() {
           secret,
           gameIdField,
           stakeNanoMina,
+          payoutMode,
           refundDeadlineSlot,
           onProgress: updateOnchainProgress
         });
@@ -2945,7 +3051,10 @@ function App() {
       const joinerCommitment = onchainEnabled
         ? await onchainCommitment(secret, publicKey, gameIdField)
         : await temporaryCommitment(secret, publicKey, game.id);
-      const refundDeadlineSlot = onchainEnabled ? await refundDeadlineForJoin(game.network, game.refundTimeoutSlots) : "0";
+      const refundDeadlineSlot =
+        onchainEnabled && game.refundDeadlineSlot
+          ? await strictRefundDeadlineForJoin(game.network, game.refundTimeoutSlots, game.refundDeadlineSlot)
+          : "0";
       let txHash = fakeTxHash("join");
       let joined = await joinGame(game.id, {
         joinerPseudo: pseudo,
@@ -2960,23 +3069,39 @@ function App() {
 
       if (onchainEnabled) {
         if (!game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot || !game.zkappAddress) throw new Error(t("incompatibleOnchain"));
-        txHash = await joinGameOnchain({
-          provider: walletProvider(),
-          network: game.network,
-          senderPublicKey: publicKey,
-          pseudo,
-          secret,
-          gameIdField: game.gameIdField,
-          zkappAddress: game.zkappAddress,
-          creatorPublicKey: game.creatorPublicKey,
-          creatorPseudoHash: game.creatorPseudoHash,
-          stakeNanoMina: game.stakeNanoMina,
-          creatorCommitment: game.creatorCommitment,
-          currentRefundDeadlineSlot: game.refundDeadlineSlot,
-          nextRefundDeadlineSlot: refundDeadlineSlot,
-          onProgress: updateOnchainProgress
-        });
-        joined = await reconcileJoinTx(joined.id, requiredTransactionHash(txHash));
+        let walletSignatureRequested = false;
+        const joinProgress = (progress: OnchainProgress) => {
+          if (progress.label === "progressWalletSignature") {
+            walletSignatureRequested = true;
+          }
+          updateOnchainProgress(progress);
+        };
+        try {
+          txHash = await joinGameOnchain({
+            provider: walletProvider(),
+            network: game.network,
+            senderPublicKey: publicKey,
+            pseudo,
+            secret,
+            gameIdField: game.gameIdField,
+            zkappAddress: game.zkappAddress,
+            creatorPublicKey: game.creatorPublicKey,
+            creatorPseudoHash: game.creatorPseudoHash,
+            stakeNanoMina: game.stakeNanoMina,
+            payoutMode: game.payoutMode,
+            creatorCommitment: game.creatorCommitment,
+            currentRefundDeadlineSlot: game.refundDeadlineSlot,
+            nextRefundDeadlineSlot: refundDeadlineSlot,
+            onProgress: joinProgress
+          });
+          joined = await reconcileJoinTx(joined.id, requiredTransactionHash(txHash));
+        } catch (error) {
+          if (!walletSignatureRequested) {
+            const released = await failPendingJoin(joined.id, (error as Error).message);
+            setSelectedGameId(released.id);
+          }
+          throw error;
+        }
       }
 
       const indexedGame = onchainEnabled ? joined : await confirmJoinGame(joined.id);
@@ -3047,25 +3172,40 @@ function App() {
         ) {
           throw new Error(t("incompleteSettlement"));
         }
-        txHash = await settleGameOnchain({
-          provider: walletProvider(),
-          network: game.network,
-          senderPublicKey: publicKey,
-          gameIdField: game.gameIdField,
-          zkappAddress: game.zkappAddress,
-          creatorPublicKey: game.creatorPublicKey,
-          creatorPseudoHash: game.creatorPseudoHash,
-          joinerPublicKey: game.joinerPublicKey,
-          joinerPseudoHash: game.joinerPseudoHash,
-          stakeNanoMina: game.stakeNanoMina,
-          creatorCommitment: game.creatorCommitment,
-          joinerCommitment: game.joinerCommitment,
-          creatorSecret: game.creatorReveal,
-          joinerSecret: game.joinerReveal,
-          winnerPublicKey,
-          refundDeadlineSlot: game.refundDeadlineSlot,
-          onProgress: updateOnchainProgress
-        });
+        const pending = await prepareSettlementTx(game.id, `pending:settle:${game.id}`);
+        updateGameInState(pending);
+        let walletSignatureRequested = false;
+        const settleProgress = (progress: OnchainProgress) => {
+          if (progress.label === "progressWalletSignature") walletSignatureRequested = true;
+          updateOnchainProgress(progress);
+        };
+        try {
+          txHash = await settleGameOnchain({
+            provider: walletProvider(),
+            network: game.network,
+            senderPublicKey: publicKey,
+            gameIdField: game.gameIdField,
+            zkappAddress: game.zkappAddress,
+            creatorPublicKey: game.creatorPublicKey,
+            creatorPseudoHash: game.creatorPseudoHash,
+            joinerPublicKey: game.joinerPublicKey,
+            joinerPseudoHash: game.joinerPseudoHash,
+            stakeNanoMina: game.stakeNanoMina,
+            payoutMode: game.payoutMode,
+            creatorCommitment: game.creatorCommitment,
+            joinerCommitment: game.joinerCommitment,
+            creatorSecret: game.creatorReveal,
+            joinerSecret: game.joinerReveal,
+            winnerPublicKey,
+            refundDeadlineSlot: game.refundDeadlineSlot,
+            onProgress: settleProgress
+          });
+        } catch (error) {
+          if (!walletSignatureRequested) {
+            updateGameInState(await clearPendingSettlementTx(game.id, (error as Error).message));
+          }
+          throw error;
+        }
       }
 
       await settleGame(game.id, {
@@ -3080,7 +3220,7 @@ function App() {
 
   async function handleReconcileSettlement(game: Game) {
     await runAction(async () => {
-      if (!canSettle(game)) throw new Error(t("incompleteSettlement"));
+      if (!canSettle(game) && !hasPendingSettlement(game)) throw new Error(t("incompleteSettlement"));
       const settlementTxHash = window.prompt(t("pasteSettlementHash"));
       if (!settlementTxHash?.trim()) return;
 
@@ -3100,6 +3240,25 @@ function App() {
     });
   }
 
+  async function handleReconcileRefund(game: Game) {
+    await runAction(async () => {
+      if (!publicKey) throw new Error(t("walletRequired"));
+      if (!hasPendingRefund(game) && game.creatorPublicKey !== publicKey && game.joinerPublicKey !== publicKey) {
+        throw new Error(t("playerOnlyRefund"));
+      }
+
+      const txHashInput = window.prompt(t("pasteRefundHash"));
+      if (!txHashInput?.trim()) return;
+
+      const refundTxHash = requiredTransactionHash(txHashInput);
+      const refunded = await refundGame(game.id, { refundTxHash });
+      setSelectedGameId(refunded.id);
+      setTxStatuses((current) => ({ ...current, [refundTxHash]: refunded.refundTxStatus ?? "PENDING" }));
+      setMessage(t("refundHashSaved"));
+      await refreshGames();
+    });
+  }
+
   async function handleRefund(game: Game) {
     await runAction(async () => {
       if (!publicKey) throw new Error(t("walletRequired"));
@@ -3113,23 +3272,38 @@ function App() {
         if (!game.gameIdField || !game.zkappAddress || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
           throw new Error(t("incompleteRefund"));
         }
-        txHash = await refundGameOnchain({
-          provider: walletProvider(),
-          network: game.network,
-          senderPublicKey: publicKey,
-          status: game.status,
-          gameIdField: game.gameIdField,
-          zkappAddress: game.zkappAddress,
-          creatorPublicKey: game.creatorPublicKey,
-          creatorPseudoHash: game.creatorPseudoHash,
-          joinerPublicKey: game.joinerPublicKey,
-          joinerPseudoHash: game.joinerPseudoHash,
-          stakeNanoMina: game.stakeNanoMina,
-          creatorCommitment: game.creatorCommitment,
-          joinerCommitment: game.joinerCommitment,
-          refundDeadlineSlot: game.refundDeadlineSlot,
-          onProgress: updateOnchainProgress
-        });
+        const pending = await prepareRefundTx(game.id, `pending:refund:${game.id}`);
+        updateGameInState(pending);
+        let walletSignatureRequested = false;
+        const refundProgress = (progress: OnchainProgress) => {
+          if (progress.label === "progressWalletSignature") walletSignatureRequested = true;
+          updateOnchainProgress(progress);
+        };
+        try {
+          txHash = await refundGameOnchain({
+            provider: walletProvider(),
+            network: game.network,
+            senderPublicKey: publicKey,
+            status: game.status,
+            gameIdField: game.gameIdField,
+            zkappAddress: game.zkappAddress,
+            creatorPublicKey: game.creatorPublicKey,
+            creatorPseudoHash: game.creatorPseudoHash,
+            joinerPublicKey: game.joinerPublicKey,
+            joinerPseudoHash: game.joinerPseudoHash,
+            stakeNanoMina: game.stakeNanoMina,
+            payoutMode: game.payoutMode,
+            creatorCommitment: game.creatorCommitment,
+            joinerCommitment: game.joinerCommitment,
+            refundDeadlineSlot: game.refundDeadlineSlot,
+            onProgress: refundProgress
+          });
+        } catch (error) {
+          if (!walletSignatureRequested) {
+            updateGameInState(await clearPendingRefundTx(game.id, (error as Error).message));
+          }
+          throw error;
+        }
       }
 
       await refundGame(game.id, { refundTxHash: txHash });
@@ -3147,17 +3321,32 @@ function App() {
         if (!game.gameIdField || !game.zkappAddress || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
           throw new Error(t("incompleteRefund"));
         }
-        txHash = await cancelCreatedGameOnchain({
-          provider: walletProvider(),
-          network: game.network,
-          senderPublicKey: publicKey,
-          gameIdField: game.gameIdField,
-          zkappAddress: game.zkappAddress,
-          creatorPseudoHash: game.creatorPseudoHash,
-          creatorCommitment: game.creatorCommitment,
-          refundDeadlineSlot: game.refundDeadlineSlot,
-          onProgress: updateOnchainProgress
-        });
+        const pending = await prepareRefundTx(game.id, `pending:cancel:${game.id}`);
+        updateGameInState(pending);
+        let walletSignatureRequested = false;
+        const cancelProgress = (progress: OnchainProgress) => {
+          if (progress.label === "progressWalletSignature") walletSignatureRequested = true;
+          updateOnchainProgress(progress);
+        };
+        try {
+          txHash = await cancelCreatedGameOnchain({
+            provider: walletProvider(),
+            network: game.network,
+            senderPublicKey: publicKey,
+            gameIdField: game.gameIdField,
+            zkappAddress: game.zkappAddress,
+            creatorPseudoHash: game.creatorPseudoHash,
+            creatorCommitment: game.creatorCommitment,
+            payoutMode: game.payoutMode,
+            refundDeadlineSlot: game.refundDeadlineSlot,
+            onProgress: cancelProgress
+          });
+        } catch (error) {
+          if (!walletSignatureRequested) {
+            updateGameInState(await clearPendingRefundTx(game.id, (error as Error).message));
+          }
+          throw error;
+        }
       }
 
       const refunded = await refundGame(game.id, { refundTxHash: txHash });
@@ -3165,6 +3354,14 @@ function App() {
       setMessage(t("cancelSent"));
       await refreshGames();
     });
+  }
+
+  async function handleCancelOrRefund(game: Game) {
+    if (canCancelCreatedGame(game)) {
+      await handleCancelCreatedGame(game);
+      return;
+    }
+    await handleRefund(game);
   }
 
   return (
@@ -3398,6 +3595,15 @@ function App() {
               <div className="manualSignatureBox">
                 <strong>{t("manualSignatureTitle")}</strong>
                 <p className="notice">{t("manualSignatureHint")}</p>
+                {selectedGame?.zkappAddress && pendingRecoveryMemo(selectedGame) && (
+                  <div className="manualRecoveryHelp">
+                    <p>{t("walletRecoveryExplorerHint")}</p>
+                    <code>{pendingRecoveryMemo(selectedGame)}</code>
+                    <a className="failoverButton" href={accountExplorerUrl(selectedGame.network, selectedGame.zkappAddress)} rel="noreferrer" target="_blank">
+                      {t("openZkappExplorer")}
+                    </a>
+                  </div>
+                )}
                 <label>
                   {t("manualSignatureHash")}
                   <input
@@ -3407,7 +3613,7 @@ function App() {
                   />
                 </label>
                 <div className="modalActions">
-                  <button className="secondaryButton" disabled={!manualSignatureHash.trim()} onClick={handleManualSignatureHash} type="button">
+                  <button className="failoverButton" disabled={!manualSignatureHash.trim()} onClick={handleManualSignatureHash} type="button">
                     {t("manualSignatureUseHash")}
                   </button>
                   <button className="dangerButton" onClick={handleManualSignatureFailed} type="button">
@@ -3588,6 +3794,17 @@ function App() {
             <input min="0.1" step="0.1" type="number" value={stake} onChange={(event) => setStake(event.target.value)} />
           </label>
           <label>
+            {t("payoutMode")}
+            <select value={payoutMode} onChange={(event) => setPayoutMode(event.target.value as PayoutMode)}>
+              {payoutModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode === "opponent_takes_all" ? t("opponentTakesAll") : t("classicPayout")}
+                </option>
+              ))}
+            </select>
+          </label>
+          {payoutMode === "opponent_takes_all" && <p className="notice compactNotice">{t("opponentTakesAllHint")}</p>}
+          <label>
             {t("refundTimeout")}
             <input
               min="1"
@@ -3741,6 +3958,7 @@ function App() {
                   <span className={game.joinerReveal ? "revealDot done" : "revealDot"} title={t("joinerRevealedAt")} />
                 </div>
                 <span>{formatMina(game.stakeNanoMina)} MINA</span>
+                {game.payoutMode === "opponent_takes_all" && <small>{t("opponentTakesAll")}</small>}
                 <small>{networks[game.network].label}</small>
                 <small>{t("updatedAt")}: {formatDateTime(game.updatedAt, locale)}</small>
               </div>
@@ -3805,6 +4023,10 @@ function App() {
                 <div>
                   <dt>{t("stake")}</dt>
                   <dd>{formatMina(selectedGame.stakeNanoMina)} MINA</dd>
+                </div>
+                <div>
+                  <dt>{t("payoutMode")}</dt>
+                  <dd>{selectedGame.payoutMode === "opponent_takes_all" ? t("opponentTakesAll") : t("classicPayout")}</dd>
                 </div>
                 {connectedPlayerCanUseSecret(selectedGame) && !secretFor(selectedGame) && (
                   <div className="detailWide">
@@ -3907,7 +4129,7 @@ function App() {
 
               {selectedGame.status === "pending_signature" && (
                 <div className="actions">
-                  <button className="secondaryButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
+                  <button className="failoverButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
                     {t("enterHash")}
                   </button>
                   <button
@@ -3929,9 +4151,14 @@ function App() {
                     <Dices size={18} />
                     {t("join")}
                   </button>
-                  <button className="warningButton" disabled={busy || !canCancelCreatedGame(selectedGame)} onClick={() => void handleCancelCreatedGame(selectedGame)}>
-                    {t("cancelGame")}
+                  <button className="warningButton" disabled={busy || !canCancelOrRefund(selectedGame) || hasPendingRefund(selectedGame)} onClick={() => void handleCancelOrRefund(selectedGame)}>
+                    {canCancelCreatedGame(selectedGame) ? t("cancelGame") : t("refund")}
                   </button>
+                  {hasPendingRefund(selectedGame) && (
+                    <button className="failoverButton" disabled={busy} onClick={() => void handleReconcileRefund(selectedGame)}>
+                      {t("enterRefundHash")}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -3944,7 +4171,7 @@ function App() {
               {selectedGame.status === "join_pending" && (
                 <div className="actions">
                   <button
-                    className="secondaryButton"
+                    className="failoverButton"
                     disabled={busy || selectedGame.joinerPublicKey !== publicKey || !selectedGame.joinTxHash?.startsWith("pending:")}
                     onClick={() => void handleReconcileJoin(selectedGame)}
                   >
@@ -3987,22 +4214,23 @@ function App() {
                   <button disabled={busy || !canReveal(selectedGame)} onClick={() => void handleReveal(selectedGame)} className="primary">
                     {t("reveal")}
                   </button>
-                  <button className="secondaryButton" disabled={busy || !canSettle(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
+                  <button className="secondaryButton" disabled={busy || !canSettle(selectedGame) || hasPendingSettlement(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
                     {t("settle")}
                   </button>
-                  <button className="secondaryButton" disabled={busy || !canSettle(selectedGame)} onClick={() => void handleReconcileSettlement(selectedGame)}>
-                    {t("enterSettlementHash")}
-                  </button>
-                  <button className="warningButton" disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
+                  {hasPendingSettlement(selectedGame) && (
+                    <button className="failoverButton" disabled={busy} onClick={() => void handleReconcileSettlement(selectedGame)}>
+                      {t("enterSettlementHash")}
+                    </button>
+                  )}
+                  <button className="warningButton" disabled={busy || !canRefund(selectedGame) || hasPendingRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
                     {t("refund")}
                   </button>
+                  {hasPendingRefund(selectedGame) && (
+                    <button className="failoverButton" disabled={busy} onClick={() => void handleReconcileRefund(selectedGame)}>
+                      {t("enterRefundHash")}
+                    </button>
+                  )}
                 </div>
-              )}
-
-              {selectedGame.status === "created" && (
-                <button className="warningButton" disabled={busy || !canRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
-                  {t("refund")}
-                </button>
               )}
 
               {selectedGame.status === "settled" && (

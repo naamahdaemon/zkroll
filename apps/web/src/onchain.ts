@@ -1,4 +1,4 @@
-import { networks, type GameStatus, type NetworkId } from "@zkroll/shared";
+import { networks, type GameStatus, type NetworkId, type PayoutMode } from "@zkroll/shared";
 import type { MinaProvider } from "./types";
 
 const FEE_NANOMINA = Number(import.meta.env.VITE_FEE_NANOMINA ?? 100_000_000);
@@ -351,6 +351,10 @@ async function sendWithWallet(
   return hash;
 }
 
+function payoutModeValue(mode: PayoutMode | undefined) {
+  return mode === "opponent_takes_all" ? 1 : 0;
+}
+
 async function sendServerProverTransaction(provider: MinaProvider, transactionJson: string, onProgress?: ProgressCallback, memo?: string) {
   report(onProgress, "progressProofGenerated", 84);
   return sendWithWallet(provider, transactionJson, onProgress, SERVER_PROVER_WALLET_DELAY_MS, memo);
@@ -441,6 +445,12 @@ export function nextRefundDeadlineSlot(currentSlot: string, timeoutSlots: number
   return (BigInt(currentSlot) + BigInt(timeoutSlots)).toString();
 }
 
+export function nextStrictRefundDeadlineSlot(currentSlot: string, timeoutSlots: number, previousDeadlineSlot: string) {
+  const candidate = BigInt(currentSlot) + BigInt(timeoutSlots);
+  const minimum = BigInt(previousDeadlineSlot) + 1n;
+  return (candidate > minimum ? candidate : minimum).toString();
+}
+
 export async function generateGameZkappKey() {
   if (usesServerProver()) {
     return apiRequest<{ privateKey: string; address: string }>("/prover/keygen", { method: "POST", body: "{}" });
@@ -463,6 +473,7 @@ export async function createGameOnchain(input: {
   secret: string;
   gameIdField: string;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   refundDeadlineSlot: string;
   onProgress?: ProgressCallback;
 }) {
@@ -502,6 +513,7 @@ export async function createGameOnchain(input: {
       toolkit.Poseidon.hash(toolkit.Encoding.stringToFields(input.pseudo)),
       toolkit.UInt64.from(input.stakeNanoMina),
       toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField)),
+      toolkit.Field(payoutModeValue(input.payoutMode)),
       toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
@@ -524,6 +536,7 @@ export async function joinGameOnchain(input: {
   creatorPublicKey: string;
   creatorPseudoHash: string;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   currentRefundDeadlineSlot: string;
   nextRefundDeadlineSlot: string;
@@ -545,6 +558,7 @@ export async function joinGameOnchain(input: {
       sender,
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.creatorCommitment),
+      toolkit.Field(payoutModeValue(input.payoutMode)),
       toolkit.UInt32.from(input.currentRefundDeadlineSlot),
       toolkit.Poseidon.hash(toolkit.Encoding.stringToFields(input.pseudo)),
       toolkit.Field(await commitment(input.secret, input.senderPublicKey, input.gameIdField)),
@@ -568,6 +582,7 @@ export async function settleGameOnchain(input: {
   joinerPublicKey: string;
   joinerPseudoHash: string;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   joinerCommitment: string;
   creatorSecret: string;
@@ -591,16 +606,24 @@ export async function settleGameOnchain(input: {
 
   const memo = compactGameMemo("settle", input.gameIdField);
   const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
-    await contract.settle(
+    const commonArgs = [
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.joinerPseudoHash),
       toolkit.Field(input.creatorCommitment),
       toolkit.Field(input.joinerCommitment),
       toolkit.Field(input.creatorSecret),
       toolkit.Field(input.joinerSecret),
-      winner,
-      toolkit.UInt32.from(input.refundDeadlineSlot)
-    );
+      winner
+    ] as const;
+    if (input.payoutMode === "opponent_takes_all") {
+      if (input.winnerPublicKey === input.joinerPublicKey) {
+        await contract.settleOpponentJoinerWins(...commonArgs, toolkit.UInt32.from(input.refundDeadlineSlot));
+        return;
+      }
+      await contract.settleOpponentCreatorKeeps(...commonArgs, toolkit.UInt32.from(input.refundDeadlineSlot));
+      return;
+    }
+    await contract.settle(...commonArgs, toolkit.Field(payoutModeValue(input.payoutMode)), toolkit.UInt32.from(input.refundDeadlineSlot));
   });
   report(input.onProgress, "progressGenerateProof", 54);
   await tx.prove();
@@ -620,6 +643,7 @@ export async function refundGameOnchain(input: {
   joinerPublicKey: string | null;
   joinerPseudoHash: string | null;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   joinerCommitment: string | null;
   refundDeadlineSlot: string;
@@ -641,6 +665,7 @@ export async function refundGameOnchain(input: {
       await contract.refundCreatedGame(
         toolkit.Field(input.creatorPseudoHash),
         toolkit.Field(input.creatorCommitment),
+        toolkit.Field(payoutModeValue(input.payoutMode)),
         toolkit.UInt32.from(input.refundDeadlineSlot)
       );
       return;
@@ -655,6 +680,7 @@ export async function refundGameOnchain(input: {
       toolkit.Field(input.joinerPseudoHash),
       toolkit.Field(input.creatorCommitment),
       toolkit.Field(input.joinerCommitment),
+      toolkit.Field(payoutModeValue(input.payoutMode)),
       toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });
@@ -672,6 +698,7 @@ export async function cancelCreatedGameOnchain(input: {
   zkappAddress: string;
   creatorPseudoHash: string;
   creatorCommitment: string;
+  payoutMode: PayoutMode;
   refundDeadlineSlot: string;
   onProgress?: ProgressCallback;
 }) {
@@ -694,6 +721,7 @@ export async function cancelCreatedGameOnchain(input: {
     await (contract as any).cancelCreatedGame(
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.creatorCommitment),
+      toolkit.Field(payoutModeValue(input.payoutMode)),
       toolkit.UInt32.from(input.refundDeadlineSlot)
     );
   });

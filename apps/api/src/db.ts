@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { Game, GameMessage, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
+import type { Game, GameMessage, GameStatus, NetworkId, PayoutMode, Player, TransactionStatus } from "@zkroll/shared";
 
 const dbPath = process.env.ZKROLL_DB_PATH ?? "zkroll.db";
 
@@ -27,6 +27,7 @@ db.exec(`
     joiner_public_key text,
     joiner_pseudo_hash text,
     stake_nano_mina text not null,
+    payout_mode text not null default 'classic',
     creator_commitment text not null,
     joiner_commitment text,
     creator_reveal text,
@@ -97,6 +98,7 @@ for (const statement of [
   "alter table games add column game_id_field text",
   "alter table games add column creator_pseudo_hash text",
   "alter table games add column joiner_pseudo_hash text",
+  "alter table games add column payout_mode text not null default 'classic'",
   "alter table games add column refund_timeout_slots integer not null default 120",
   "alter table games add column refund_deadline_slot text",
   "alter table games add column pending_join_refund_deadline_slot text",
@@ -187,6 +189,7 @@ type GameRow = {
   joiner_public_key: string | null;
   joiner_pseudo_hash: string | null;
   stake_nano_mina: string;
+  payout_mode: PayoutMode;
   creator_commitment: string;
   joiner_commitment: string | null;
   creator_reveal: string | null;
@@ -294,6 +297,7 @@ function gameFromRow(row: GameRow): Game {
     joinerPublicKey: row.joiner_public_key,
     joinerPseudoHash: row.joiner_pseudo_hash,
     stakeNanoMina: row.stake_nano_mina,
+    payoutMode: row.payout_mode ?? "classic",
     creatorCommitment: row.creator_commitment,
     joinerCommitment: row.joiner_commitment,
     creatorReveal: row.creator_reveal,
@@ -576,6 +580,7 @@ export function createGame(input: {
   creatorPublicKey: string;
   creatorPseudoHash?: string;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   refundTimeoutSlots: number;
   refundDeadlineSlot?: string;
@@ -589,9 +594,9 @@ export function createGame(input: {
   db.prepare(
     `
     insert into games (
-      id, network, zkapp_address, game_id_field, creator_pseudo, creator_public_key, creator_pseudo_hash, stake_nano_mina,
+      id, network, zkapp_address, game_id_field, creator_pseudo, creator_public_key, creator_pseudo_hash, stake_nano_mina, payout_mode,
       creator_commitment, refund_timeout_slots, refund_deadline_slot, status, creation_tx_hash, creation_tx_status, created_at, updated_at
-    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `
   ).run(
     input.id,
@@ -602,6 +607,7 @@ export function createGame(input: {
     input.creatorPublicKey,
     input.creatorPseudoHash ?? null,
     input.stakeNanoMina,
+    input.payoutMode,
     input.creatorCommitment,
     input.refundTimeoutSlots,
     input.refundDeadlineSlot ?? null,
@@ -959,6 +965,100 @@ export function failPendingJoin(id: string, reason?: string): Game {
   return getGame(id)!;
 }
 
+export function prepareSettlementTx(id: string, settlementTxHash: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set settlement_tx_hash = ?,
+          settlement_tx_status = 'PENDING',
+          updated_at = ?
+      where id = ?
+        and creator_reveal is not null
+        and joiner_reveal is not null
+        and status in ('joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed')
+        and (settlement_tx_hash is null or settlement_tx_hash like 'pending:%' or settlement_tx_status = 'FAILED')
+    `
+    )
+    .run(settlementTxHash, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Settlement transaction cannot be prepared");
+  }
+
+  return getGame(id)!;
+}
+
+export function clearPendingSettlementTx(id: string, reason?: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set settlement_tx_hash = null,
+          settlement_tx_status = 'FAILED',
+          failure_reason = ?,
+          updated_at = ?
+      where id = ?
+        and settlement_tx_hash like 'pending:%'
+    `
+    )
+    .run(reason ?? null, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Pending settlement transaction cannot be cleared");
+  }
+
+  return getGame(id)!;
+}
+
+export function prepareRefundTx(id: string, refundTxHash: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set refund_tx_hash = ?,
+          refund_tx_status = 'PENDING',
+          updated_at = ?
+      where id = ?
+        and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed')
+        and (refund_tx_hash is null or refund_tx_hash like 'pending:%' or refund_tx_status = 'FAILED')
+    `
+    )
+    .run(refundTxHash, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Refund transaction cannot be prepared");
+  }
+
+  return getGame(id)!;
+}
+
+export function clearPendingRefundTx(id: string, reason?: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set refund_tx_hash = null,
+          refund_tx_status = 'FAILED',
+          failure_reason = ?,
+          updated_at = ?
+      where id = ?
+        and refund_tx_hash like 'pending:%'
+    `
+    )
+    .run(reason ?? null, now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Pending refund transaction cannot be cleared");
+  }
+
+  return getGame(id)!;
+}
+
 export function refundGame(id: string, input: { refundTxHash: string }): Game {
   const now = new Date().toISOString();
   const refundTxStatus: TransactionStatus =
@@ -974,6 +1074,7 @@ export function refundGame(id: string, input: { refundTxHash: string }): Game {
           updated_at = ?
       where id = ?
         and status in ('created', 'joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed')
+        and (refund_tx_hash is null or refund_tx_hash like 'pending:%' or refund_tx_status = 'FAILED')
     `
     )
     .run(input.refundTxHash, refundTxStatus, now, now, id);
@@ -1065,7 +1166,7 @@ export function settleGame(
           updated_at = ?
       where id = ? and creator_reveal is not null and joiner_reveal is not null
         and status in ('joined', 'player_one_revealed', 'player_two_revealed', 'both_revealed')
-        and (settlement_tx_hash is null or settlement_tx_status = 'FAILED')
+        and (settlement_tx_hash is null or settlement_tx_hash like 'pending:%' or settlement_tx_status = 'FAILED')
     `
     )
     .run(input.creatorDie, input.joinerDie, input.winnerPublicKey, input.settlementTxHash, settlementTxStatus, now, now, id);

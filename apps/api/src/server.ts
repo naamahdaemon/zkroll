@@ -2,8 +2,10 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { nanoid } from "nanoid";
 import { fetchAccount, fetchLastBlock } from "o1js";
-import { assertNetworkId, networks, type Game, type NetworkId, type TransactionStatus } from "@zkroll/shared";
+import { assertNetworkId, assertPayoutMode, networks, type Game, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
+  clearPendingRefundTx,
+  clearPendingSettlementTx,
   createGame,
   createGameMessage,
   confirmJoinGame,
@@ -22,6 +24,8 @@ import {
   markGameMessagesRead,
   markCreationFailed,
   markTransactionFailed,
+  prepareRefundTx,
+  prepareSettlementTx,
   reconcileCreationTx,
   reconcileJoinTx,
   refundGame,
@@ -648,6 +652,7 @@ app.post("/games", async (request, reply) => {
         creatorPublicKey,
         creatorPseudoHash: optionalString(body, "creatorPseudoHash"),
         stakeNanoMina: requiredPositiveIntegerString(body, "stakeNanoMina"),
+        payoutMode: assertPayoutMode(body.payoutMode),
         creatorCommitment: requiredString(body, "creatorCommitment"),
         refundTimeoutSlots: requiredPositiveIntegerNumber(body, "refundTimeoutSlots"),
         refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
@@ -809,6 +814,26 @@ app.post("/games/:id/settle", async (request, reply) => {
   }
 });
 
+app.patch("/games/:id/settlement-pending", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return sendUpdatedGame(prepareSettlementTx(id, requiredString(body, "settlementTxHash")));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/settlement-pending/clear", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return sendUpdatedGame(clearPendingSettlementTx(id, optionalString(body, "reason")));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
 app.post("/games/:id/refund", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
@@ -816,6 +841,26 @@ app.post("/games/:id/refund", async (request, reply) => {
     return sendUpdatedGame(refundGame(id, {
       refundTxHash: requiredString(body, "refundTxHash")
     }));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/refund-pending", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return sendUpdatedGame(prepareRefundTx(id, requiredString(body, "refundTxHash")));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/refund-pending/clear", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    return sendUpdatedGame(clearPendingRefundTx(id, optionalString(body, "reason")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

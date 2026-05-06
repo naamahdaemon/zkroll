@@ -1,4 +1,4 @@
-import type { Game, GameMessage, GameStatus, NetworkId, Player, TransactionStatus } from "@zkroll/shared";
+import type { Game, GameMessage, GameStatus, NetworkId, PayoutMode, Player, TransactionStatus } from "@zkroll/shared";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 
@@ -98,6 +98,7 @@ export function createGame(input: {
   creatorPublicKey: string;
   creatorPseudoHash?: string;
   stakeNanoMina: string;
+  payoutMode: PayoutMode;
   creatorCommitment: string;
   refundTimeoutSlots: number;
   refundDeadlineSlot?: string;
@@ -183,10 +184,38 @@ export function settleGame(
   });
 }
 
+export function prepareSettlementTx(id: string, settlementTxHash: string) {
+  return request<Game>(`/games/${id}/settlement-pending`, {
+    method: "PATCH",
+    body: JSON.stringify({ settlementTxHash })
+  });
+}
+
+export function clearPendingSettlementTx(id: string, reason?: string) {
+  return request<Game>(`/games/${id}/settlement-pending/clear`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason })
+  });
+}
+
 export function refundGame(id: string, input: { refundTxHash: string }) {
   return request<Game>(`/games/${id}/refund`, {
     method: "POST",
     body: JSON.stringify(input)
+  });
+}
+
+export function prepareRefundTx(id: string, refundTxHash: string) {
+  return request<Game>(`/games/${id}/refund-pending`, {
+    method: "PATCH",
+    body: JSON.stringify({ refundTxHash })
+  });
+}
+
+export function clearPendingRefundTx(id: string, reason?: string) {
+  return request<Game>(`/games/${id}/refund-pending/clear`, {
+    method: "PATCH",
+    body: JSON.stringify({ reason })
   });
 }
 

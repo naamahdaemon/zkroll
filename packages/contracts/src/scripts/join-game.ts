@@ -25,6 +25,7 @@ const joinerSecret = Field(readEnv("JOINER_SECRET"));
 const gameId = readField("GAME_ID_FIELD");
 const creatorPseudoHash = readField("CREATOR_PSEUDO_HASH");
 const creatorCommitment = readField("CREATOR_COMMITMENT");
+const payoutMode = Field(process.env.PAYOUT_MODE === "opponent_takes_all" ? 1 : 0);
 const currentRefundDeadlineSlot = readUInt32("CURRENT_REFUND_DEADLINE_SLOT");
 const refundDeadlineSlot = readUInt32("REFUND_DEADLINE_SLOT");
 const zkapp = new ZkDiceGame(zkappAddress);
@@ -38,6 +39,7 @@ const tx = await Mina.transaction({ sender: feePayer, fee: readFee() }, async ()
     joiner,
     creatorPseudoHash,
     creatorCommitment,
+    payoutMode,
     currentRefundDeadlineSlot,
     pseudoHash(joinerPseudo),
     commitment(joinerSecret, joiner, gameId),

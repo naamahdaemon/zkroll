@@ -21,15 +21,24 @@ const JOINED = Field(2);
 const SETTLED = Field(3);
 const REFUNDED = Field(4);
 const EMPTY = Field(0);
+export const PAYOUT_CLASSIC: Field = Field(0);
+export const PAYOUT_OPPONENT_TAKES_ALL: Field = Field(1);
 
 export { commitmentFor, diceOutcome, type DiceOutcome } from "./dice.js";
 
 export function createdDataHash(input: {
   creatorPseudoHash: Field;
   creatorCommitment: Field;
+  payoutMode: Field;
   refundDeadlineSlot: UInt32;
 }): Field {
-  return Poseidon.hash([CREATED, input.creatorPseudoHash, input.creatorCommitment, input.refundDeadlineSlot.value]);
+  return Poseidon.hash([
+    CREATED,
+    input.creatorPseudoHash,
+    input.creatorCommitment,
+    input.payoutMode,
+    input.refundDeadlineSlot.value
+  ]);
 }
 
 export function joinedDataHash(input: {
@@ -37,6 +46,7 @@ export function joinedDataHash(input: {
   creatorCommitment: Field;
   joinerPseudoHash: Field;
   joinerCommitment: Field;
+  payoutMode: Field;
   refundDeadlineSlot: UInt32;
 }): Field {
   return Poseidon.hash([
@@ -45,6 +55,7 @@ export function joinedDataHash(input: {
     input.creatorCommitment,
     input.joinerPseudoHash,
     input.joinerCommitment,
+    input.payoutMode,
     input.refundDeadlineSlot.value
   ]);
 }
@@ -57,6 +68,7 @@ export function settledDataHash(input: {
   creatorDie: Field;
   joinerDie: Field;
   winner: PublicKey;
+  payoutMode: Field;
   refundDeadlineSlot: UInt32;
 }): Field {
   return Poseidon.hash([
@@ -68,6 +80,7 @@ export function settledDataHash(input: {
     input.creatorDie,
     input.joinerDie,
     ...input.winner.toFields(),
+    input.payoutMode,
     input.refundDeadlineSlot.value
   ]);
 }
@@ -77,6 +90,10 @@ export function refundedDataHash(input: {
   refundDeadlineSlot: UInt32;
 }): Field {
   return Poseidon.hash([REFUNDED, input.previousDataHash, input.refundDeadlineSlot.value]);
+}
+
+function assertValidPayoutMode(payoutMode: Field) {
+  payoutMode.equals(PAYOUT_CLASSIC).or(payoutMode.equals(PAYOUT_OPPONENT_TAKES_ALL)).assertTrue();
 }
 
 export class ZkDiceGame extends SmartContract {
@@ -115,10 +132,12 @@ export class ZkDiceGame extends SmartContract {
     creatorPseudoHash: Field,
     stake: UInt64,
     creatorCommitment: Field,
+    payoutMode: Field,
     refundDeadlineSlot: UInt32
   ) {
     this.account.provedState.requireEquals(Bool(false));
     stake.assertGreaterThan(UInt64.zero);
+    assertValidPayoutMode(payoutMode);
     this.currentSlot.requireBetween(UInt32.zero, refundDeadlineSlot);
 
     AccountUpdate.createSigned(creator).send({ to: this.address, amount: stake });
@@ -127,7 +146,7 @@ export class ZkDiceGame extends SmartContract {
     this.creator.set(creator);
     this.joiner.set(PublicKey.empty() as PublicKey);
     this.stake.set(stake);
-    this.dataHash.set(createdDataHash({ creatorPseudoHash, creatorCommitment, refundDeadlineSlot }));
+    this.dataHash.set(createdDataHash({ creatorPseudoHash, creatorCommitment, payoutMode, refundDeadlineSlot }));
     this.status.set(CREATED);
   }
 
@@ -135,6 +154,7 @@ export class ZkDiceGame extends SmartContract {
     joiner: PublicKey,
     creatorPseudoHash: Field,
     creatorCommitment: Field,
+    payoutMode: Field,
     currentRefundDeadlineSlot: UInt32,
     joinerPseudoHash: Field,
     joinerCommitment: Field,
@@ -146,10 +166,12 @@ export class ZkDiceGame extends SmartContract {
     const dataHash = this.dataHash.getAndRequireEquals();
 
     status.assertEquals(CREATED);
+    assertValidPayoutMode(payoutMode);
     dataHash.assertEquals(
       createdDataHash({
         creatorPseudoHash,
         creatorCommitment,
+        payoutMode,
         refundDeadlineSlot: currentRefundDeadlineSlot
       })
     );
@@ -157,7 +179,9 @@ export class ZkDiceGame extends SmartContract {
     this.currentSlot.requireBetween(UInt32.zero, currentRefundDeadlineSlot);
     nextRefundDeadlineSlot.assertGreaterThan(currentRefundDeadlineSlot);
 
-    AccountUpdate.createSigned(joiner).send({ to: this.address, amount: stake });
+    const joinerUpdate = AccountUpdate.createSigned(joiner);
+    const opponentTakesAll = payoutMode.equals(PAYOUT_OPPONENT_TAKES_ALL);
+    joinerUpdate.send({ to: this.address, amount: Provable.if(opponentTakesAll, UInt64, UInt64.zero, stake) });
 
     this.joiner.set(joiner);
     this.dataHash.set(
@@ -166,6 +190,7 @@ export class ZkDiceGame extends SmartContract {
         creatorCommitment,
         joinerPseudoHash,
         joinerCommitment,
+        payoutMode,
         refundDeadlineSlot: nextRefundDeadlineSlot
       })
     );
@@ -173,6 +198,73 @@ export class ZkDiceGame extends SmartContract {
   }
 
   async settle(
+    creatorPseudoHash: Field,
+    joinerPseudoHash: Field,
+    creatorCommitment: Field,
+    joinerCommitment: Field,
+    creatorSecret: Field,
+    joinerSecret: Field,
+    expectedWinner: PublicKey,
+    payoutMode: Field,
+    refundDeadlineSlot: UInt32
+  ) {
+    const status = this.status.getAndRequireEquals();
+    const gameId = this.gameId.getAndRequireEquals();
+    const creator = this.creator.getAndRequireEquals();
+    const joiner = this.joiner.getAndRequireEquals();
+    const stake = this.stake.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
+
+    status.assertEquals(JOINED);
+    assertValidPayoutMode(payoutMode);
+    dataHash.assertEquals(
+      joinedDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        payoutMode,
+        refundDeadlineSlot
+      })
+    );
+    commitmentFor(creatorSecret, creator, gameId).assertEquals(creatorCommitment);
+    commitmentFor(joinerSecret, joiner, gameId).assertEquals(joinerCommitment);
+
+    const outcome = diceOutcome(creatorSecret, joinerSecret, gameId);
+    const classicPot = stake.add(stake);
+    const empty = PublicKey.empty() as PublicKey;
+
+    expectedWinner.equals(creator).assertEquals(outcome.creatorWins);
+    expectedWinner.equals(joiner).assertEquals(outcome.joinerWins);
+    expectedWinner.equals(empty).assertEquals(outcome.draw);
+
+    const classicCreatorPayout = Provable.if(outcome.creatorWins, UInt64, classicPot, stake);
+    const classicJoinerPayout = Provable.if(outcome.joinerWins, UInt64, classicPot, stake);
+    const classicCreatorSend = Provable.if(outcome.joinerWins, UInt64, UInt64.zero, classicCreatorPayout);
+    const classicJoinerSend = Provable.if(outcome.creatorWins, UInt64, UInt64.zero, classicJoinerPayout);
+    const opponentTakesAll = payoutMode.equals(PAYOUT_OPPONENT_TAKES_ALL);
+    const opponentCreatorSend = Provable.if(outcome.joinerWins, UInt64, UInt64.zero, stake);
+    const opponentJoinerSend = Provable.if(outcome.joinerWins, UInt64, stake, UInt64.zero);
+    this.send({ to: creator, amount: Provable.if(opponentTakesAll, UInt64, opponentCreatorSend, classicCreatorSend) });
+    this.send({ to: joiner, amount: Provable.if(opponentTakesAll, UInt64, opponentJoinerSend, classicJoinerSend) });
+
+    this.dataHash.set(
+      settledDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        creatorDie: outcome.creatorDie,
+        joinerDie: outcome.joinerDie,
+        winner: expectedWinner,
+        payoutMode,
+        refundDeadlineSlot
+      })
+    );
+    this.status.set(SETTLED);
+  }
+
+  async settleOpponentJoinerWins(
     creatorPseudoHash: Field,
     joinerPseudoHash: Field,
     creatorCommitment: Field,
@@ -188,6 +280,7 @@ export class ZkDiceGame extends SmartContract {
     const joiner = this.joiner.getAndRequireEquals();
     const stake = this.stake.getAndRequireEquals();
     const dataHash = this.dataHash.getAndRequireEquals();
+    const payoutMode = PAYOUT_OPPONENT_TAKES_ALL;
 
     status.assertEquals(JOINED);
     dataHash.assertEquals(
@@ -196,6 +289,7 @@ export class ZkDiceGame extends SmartContract {
         creatorCommitment,
         joinerPseudoHash,
         joinerCommitment,
+        payoutMode,
         refundDeadlineSlot
       })
     );
@@ -203,18 +297,10 @@ export class ZkDiceGame extends SmartContract {
     commitmentFor(joinerSecret, joiner, gameId).assertEquals(joinerCommitment);
 
     const outcome = diceOutcome(creatorSecret, joinerSecret, gameId);
-    const pot = stake.add(stake);
-    const empty = PublicKey.empty() as PublicKey;
+    outcome.joinerWins.assertTrue();
+    expectedWinner.equals(joiner).assertTrue();
 
-    expectedWinner.equals(creator).assertEquals(outcome.creatorWins);
-    expectedWinner.equals(joiner).assertEquals(outcome.joinerWins);
-    expectedWinner.equals(empty).assertEquals(outcome.draw);
-
-    const creatorPayout = Provable.if(outcome.creatorWins, UInt64, pot, stake);
-    const joinerPayout = Provable.if(outcome.joinerWins, UInt64, pot, stake);
-    this.send({ to: creator, amount: Provable.if(outcome.joinerWins, UInt64, UInt64.zero, creatorPayout) });
-    this.send({ to: joiner, amount: Provable.if(outcome.creatorWins, UInt64, UInt64.zero, joinerPayout) });
-
+    this.send({ to: joiner, amount: stake });
     this.dataHash.set(
       settledDataHash({
         creatorPseudoHash,
@@ -224,18 +310,75 @@ export class ZkDiceGame extends SmartContract {
         creatorDie: outcome.creatorDie,
         joinerDie: outcome.joinerDie,
         winner: expectedWinner,
+        payoutMode,
         refundDeadlineSlot
       })
     );
     this.status.set(SETTLED);
   }
 
-  async refundCreatedGame(creatorPseudoHash: Field, creatorCommitment: Field, refundDeadlineSlot: UInt32) {
+  async settleOpponentCreatorKeeps(
+    creatorPseudoHash: Field,
+    joinerPseudoHash: Field,
+    creatorCommitment: Field,
+    joinerCommitment: Field,
+    creatorSecret: Field,
+    joinerSecret: Field,
+    expectedWinner: PublicKey,
+    refundDeadlineSlot: UInt32
+  ) {
+    const status = this.status.getAndRequireEquals();
+    const gameId = this.gameId.getAndRequireEquals();
+    const creator = this.creator.getAndRequireEquals();
+    const joiner = this.joiner.getAndRequireEquals();
+    const stake = this.stake.getAndRequireEquals();
+    const dataHash = this.dataHash.getAndRequireEquals();
+    const payoutMode = PAYOUT_OPPONENT_TAKES_ALL;
+
+    status.assertEquals(JOINED);
+    dataHash.assertEquals(
+      joinedDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        payoutMode,
+        refundDeadlineSlot
+      })
+    );
+    commitmentFor(creatorSecret, creator, gameId).assertEquals(creatorCommitment);
+    commitmentFor(joinerSecret, joiner, gameId).assertEquals(joinerCommitment);
+
+    const outcome = diceOutcome(creatorSecret, joinerSecret, gameId);
+    const empty = PublicKey.empty() as PublicKey;
+    outcome.joinerWins.assertFalse();
+    expectedWinner.equals(creator).assertEquals(outcome.creatorWins);
+    expectedWinner.equals(empty).assertEquals(outcome.draw);
+
+    this.send({ to: creator, amount: stake });
+    this.dataHash.set(
+      settledDataHash({
+        creatorPseudoHash,
+        creatorCommitment,
+        joinerPseudoHash,
+        joinerCommitment,
+        creatorDie: outcome.creatorDie,
+        joinerDie: outcome.joinerDie,
+        winner: expectedWinner,
+        payoutMode,
+        refundDeadlineSlot
+      })
+    );
+    this.status.set(SETTLED);
+  }
+
+  async refundCreatedGame(creatorPseudoHash: Field, creatorCommitment: Field, payoutMode: Field, refundDeadlineSlot: UInt32) {
     const status = this.status.getAndRequireEquals();
     const creator = this.creator.getAndRequireEquals();
     const stake = this.stake.getAndRequireEquals();
     const dataHash = this.dataHash.getAndRequireEquals();
-    const currentDataHash = createdDataHash({ creatorPseudoHash, creatorCommitment, refundDeadlineSlot });
+    assertValidPayoutMode(payoutMode);
+    const currentDataHash = createdDataHash({ creatorPseudoHash, creatorCommitment, payoutMode, refundDeadlineSlot });
 
     status.assertEquals(CREATED);
     dataHash.assertEquals(currentDataHash);
@@ -247,12 +390,13 @@ export class ZkDiceGame extends SmartContract {
     this.status.set(REFUNDED);
   }
 
-  async cancelCreatedGame(creatorPseudoHash: Field, creatorCommitment: Field, refundDeadlineSlot: UInt32) {
+  async cancelCreatedGame(creatorPseudoHash: Field, creatorCommitment: Field, payoutMode: Field, refundDeadlineSlot: UInt32) {
     const status = this.status.getAndRequireEquals();
     const creator = this.creator.getAndRequireEquals();
     const stake = this.stake.getAndRequireEquals();
     const dataHash = this.dataHash.getAndRequireEquals();
-    const currentDataHash = createdDataHash({ creatorPseudoHash, creatorCommitment, refundDeadlineSlot });
+    assertValidPayoutMode(payoutMode);
+    const currentDataHash = createdDataHash({ creatorPseudoHash, creatorCommitment, payoutMode, refundDeadlineSlot });
 
     status.assertEquals(CREATED);
     dataHash.assertEquals(currentDataHash);
@@ -269,6 +413,7 @@ export class ZkDiceGame extends SmartContract {
     joinerPseudoHash: Field,
     creatorCommitment: Field,
     joinerCommitment: Field,
+    payoutMode: Field,
     refundDeadlineSlot: UInt32
   ) {
     const status = this.status.getAndRequireEquals();
@@ -276,11 +421,13 @@ export class ZkDiceGame extends SmartContract {
     const joiner = this.joiner.getAndRequireEquals();
     const stake = this.stake.getAndRequireEquals();
     const dataHash = this.dataHash.getAndRequireEquals();
+    assertValidPayoutMode(payoutMode);
     const currentDataHash = joinedDataHash({
       creatorPseudoHash,
       creatorCommitment,
       joinerPseudoHash,
       joinerCommitment,
+      payoutMode,
       refundDeadlineSlot
     });
 
@@ -289,8 +436,9 @@ export class ZkDiceGame extends SmartContract {
     stake.assertGreaterThan(UInt64.zero);
     this.currentSlot.requireBetween(refundDeadlineSlot, UInt32.MAXINT());
 
+    const opponentTakesAll = payoutMode.equals(PAYOUT_OPPONENT_TAKES_ALL);
     this.send({ to: creator, amount: stake });
-    this.send({ to: joiner, amount: stake });
+    this.send({ to: joiner, amount: Provable.if(opponentTakesAll, UInt64, UInt64.zero, stake) });
     this.dataHash.set(refundedDataHash({ previousDataHash: currentDataHash, refundDeadlineSlot }));
     this.status.set(REFUNDED);
   }
@@ -306,10 +454,12 @@ declareState(ZkDiceGame, {
 });
 
 declareMethods(ZkDiceGame, {
-  createGame: [Field, PublicKey, Field, UInt64, Field, UInt32] as any,
-  joinGame: [PublicKey, Field, Field, UInt32, Field, Field, UInt32] as any,
-  settle: [Field, Field, Field, Field, Field, Field, PublicKey, UInt32] as any,
-  refundCreatedGame: [Field, Field, UInt32] as any,
-  cancelCreatedGame: [Field, Field, UInt32] as any,
-  refundJoinedGame: [Field, Field, Field, Field, UInt32] as any
+  createGame: [Field, PublicKey, Field, UInt64, Field, Field, UInt32] as any,
+  joinGame: [PublicKey, Field, Field, Field, UInt32, Field, Field, UInt32] as any,
+  settle: [Field, Field, Field, Field, Field, Field, PublicKey, Field, UInt32] as any,
+  settleOpponentJoinerWins: [Field, Field, Field, Field, Field, Field, PublicKey, UInt32] as any,
+  settleOpponentCreatorKeeps: [Field, Field, Field, Field, Field, Field, PublicKey, UInt32] as any,
+  refundCreatedGame: [Field, Field, Field, UInt32] as any,
+  cancelCreatedGame: [Field, Field, Field, UInt32] as any,
+  refundJoinedGame: [Field, Field, Field, Field, Field, UInt32] as any
 });
