@@ -136,6 +136,34 @@ const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_0
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
 const autoConnectStorageKey = "zkroll:auto-connect-wallet";
+const pseudoAdjectives = [
+  "Brave",
+  "Lucky",
+  "Cosmic",
+  "Swift",
+  "Clever",
+  "Bright",
+  "Silent",
+  "Golden",
+  "Mystic",
+  "Wild",
+  "Velvet",
+  "Electric"
+];
+const pseudoNames = [
+  "Roller",
+  "Oracle",
+  "Comet",
+  "Voyager",
+  "Cipher",
+  "Wizard",
+  "Nomad",
+  "Pilot",
+  "Keeper",
+  "Spark",
+  "Mina",
+  "Zeko"
+];
 type TxStatus = TransactionStatus;
 type Locale = "en" | "fr" | "zh" | "tr" | "ru" | "de" | "ja" | "es";
 type Theme = "light" | "dark";
@@ -1469,6 +1497,13 @@ function savedNetwork(): NetworkId {
   return networkFromString(localStorage.getItem("zkroll:network")) ?? "devnet";
 }
 
+function randomPseudo() {
+  const adjective = pseudoAdjectives[Math.floor(Math.random() * pseudoAdjectives.length)];
+  const name = pseudoNames[Math.floor(Math.random() * pseudoNames.length)];
+  const suffix = Math.floor(10 + Math.random() * 90);
+  return `${adjective}${name}${suffix}`;
+}
+
 function initialDeepLinkedGameTarget(): { id: string; network: NetworkId } | null {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
@@ -2775,7 +2810,7 @@ function App() {
       if (!silent) setMessage(`${t("walletFound")} ${player.pseudo}.`);
     } catch {
       setCurrentPlayer(null);
-      setPseudoDraft("");
+      setPseudoDraft(randomPseudo());
       setPseudoModalOpen(true);
       localStorage.setItem(autoConnectStorageKey, "true");
       if (!silent) setMessage(t("choosePseudoMessage"));
@@ -2816,6 +2851,15 @@ function App() {
     if (!publicKey) return;
     setPseudoDraft(pseudo);
     setPseudoModalOpen(true);
+  }
+
+  async function cancelPseudoRegistration() {
+    if (pseudo) {
+      setPseudoModalOpen(false);
+      setPseudoDraft(pseudo);
+      return;
+    }
+    await disconnectWallet();
   }
 
   async function runAction(action: () => Promise<void>) {
@@ -3399,6 +3443,9 @@ function App() {
             </label>
             <button className="primary" disabled={!pseudoDraft.trim()} type="submit">
               {t("save")}
+            </button>
+            <button className="ghostButton" onClick={() => void cancelPseudoRegistration()} type="button">
+              {t("cancel")}
             </button>
           </form>
         </div>
