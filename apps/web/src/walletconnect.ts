@@ -121,7 +121,11 @@ async function client() {
       name: "zkroll",
       description: "Mina / Zeko zk dice challenge",
       url: window.location.origin,
-      icons: [`${window.location.origin}/zkroll-logo.svg`]
+      icons: [`${window.location.origin}/zkroll-logo.svg`],
+      redirect: {
+        native: window.location.origin,
+        universal: window.location.origin
+      }
     },
     logger: "warn"
   });
