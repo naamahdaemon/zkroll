@@ -224,3 +224,36 @@ export async function notifyGameMessage(game: Game, message: GameMessage) {
     console.warn(`Firebase message notification skipped for game ${game.id}: ${(error as Error).message}`);
   }
 }
+
+export async function notifyGameInvite(game: Game, inviteePublicKey: string) {
+  const tokens = listNotificationTokensForPublicKey(inviteePublicKey);
+  if (tokens.length === 0 || !firebaseConfigured()) return;
+
+  const link = notificationUrl(game);
+  try {
+    const token = await firebaseAccessToken();
+    await Promise.allSettled(
+      tokens.map((fcmToken) =>
+        sendToToken(
+          fcmToken,
+          {
+            title: "zkroll",
+            body: `${game.creatorPseudo} invited you to game ${game.id}`,
+            data: {
+              kind: "game_invite",
+              gameId: game.id,
+              network: game.network,
+              status: game.status,
+              updatedAt: game.updatedAt,
+              url: link
+            },
+            link
+          },
+          token
+        )
+      )
+    );
+  } catch (error) {
+    console.warn(`Firebase invite notification skipped for game ${game.id}: ${(error as Error).message}`);
+  }
+}

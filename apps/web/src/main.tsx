@@ -54,7 +54,9 @@ import {
   getTransactionStatuses,
   getUnreadMessageCounts,
   getWalletBalance,
+  inviteGame,
   joinGame,
+  listPreviousOpponents,
   listGameMessages,
   listGames,
   markGameMessagesRead,
@@ -245,6 +247,10 @@ const copy: Record<string, Record<string, string>> = {
     classicPayout: "Classic pot",
     opponentTakesAll: "Opponent takes it all",
     opponentTakesAllHint: "The opponent deposits no stake. If they win, they take the creator stake; otherwise the creator is refunded.",
+    inviteOpponent: "Invite player",
+    noInvite: "No invitation",
+    inviteSent: "Invitation sent.",
+    inviteSkipped: "Game created, but the invitation could not be sent.",
     refundTimeout: "Refund timeout (slots)",
     create: "Create",
     games: "Games",
@@ -494,6 +500,10 @@ const copy: Record<string, Record<string, string>> = {
     classicPayout: "Pot classique",
     opponentTakesAll: "L'adversaire rafle tout",
     opponentTakesAllHint: "L'adversaire ne depose pas de mise. S'il gagne, il prend la mise du createur ; sinon le createur est rembourse.",
+    inviteOpponent: "Inviter un joueur",
+    noInvite: "Aucune invitation",
+    inviteSent: "Invitation envoyee.",
+    inviteSkipped: "Partie creee, mais l'invitation n'a pas pu etre envoyee.",
     refundTimeout: "Timeout refund (slots)",
     create: "Creer",
     games: "Parties",
@@ -1570,6 +1580,8 @@ function App() {
   const [stake, setStake] = useState("1");
   const [payoutMode, setPayoutMode] = useState<PayoutMode>("classic");
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
+  const [previousOpponents, setPreviousOpponents] = useState<Player[]>([]);
+  const [inviteePublicKey, setInviteePublicKey] = useState("");
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(() => initialGameTarget?.id ?? null);
   const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(() => initialGameTarget);
@@ -2225,6 +2237,23 @@ function App() {
   useEffect(() => {
     void refreshUnreadMessages().catch(() => undefined);
   }, [publicKey]);
+
+  useEffect(() => {
+    if (!publicKey) {
+      setPreviousOpponents([]);
+      setInviteePublicKey("");
+      return;
+    }
+    void listPreviousOpponents(publicKey)
+      .then((result) => {
+        setPreviousOpponents(result.items);
+        setInviteePublicKey((current) => (result.items.some((player) => player.publicKey === current) ? current : ""));
+      })
+      .catch(() => {
+        setPreviousOpponents([]);
+        setInviteePublicKey("");
+      });
+  }, [publicKey, games]);
 
   useEffect(() => {
     const messagesVisible = viewMode === "cards" || appScreen === "messages" || appScreen === "detail";
@@ -3062,6 +3091,7 @@ function App() {
   async function handleCreateGame() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
+      const invitedPublicKey = inviteePublicKey;
       const secret = randomFieldString();
       const gameIdField = randomFieldString();
       const creatorPseudoHash = onchainEnabled ? await pseudoHash(pseudo) : undefined;
@@ -3113,13 +3143,25 @@ function App() {
         const reconciled = await reconcileCreationTx(created.id, txHash);
         removePendingCreationMaterial(reconciled);
         setSelectedGameId(reconciled.id);
+        if (invitedPublicKey) await sendGameInvite(reconciled, invitedPublicKey);
         if (viewMode === "app") setAppScreen("detail");
-      } else if (viewMode === "app") {
-        setAppScreen("detail");
+      } else {
+        if (invitedPublicKey) await sendGameInvite(created, invitedPublicKey);
+        if (viewMode === "app") setAppScreen("detail");
       }
 
-      setMessage(onchainEnabled ? t("createdOnchain") : t("createdMock"));
+      if (!invitedPublicKey) setMessage(onchainEnabled ? t("createdOnchain") : t("createdMock"));
+      setInviteePublicKey("");
     });
+  }
+
+  async function sendGameInvite(game: Game, invitedPublicKey: string) {
+    try {
+      await inviteGame(game.id, { inviterPublicKey: publicKey, inviteePublicKey: invitedPublicKey });
+      setMessage(t("inviteSent"));
+    } catch {
+      setMessage(t("inviteSkipped"));
+    }
   }
 
   async function handleJoinGame(game: Game) {
@@ -3911,6 +3953,17 @@ function App() {
             </select>
           </label>
           {payoutMode === "opponent_takes_all" && <p className="notice compactNotice">{t("opponentTakesAllHint")}</p>}
+          <label>
+            {t("inviteOpponent")}
+            <select value={inviteePublicKey} onChange={(event) => setInviteePublicKey(event.target.value)}>
+              <option value="">{t("noInvite")}</option>
+              {previousOpponents.map((player) => (
+                <option key={player.publicKey} value={player.publicKey}>
+                  {player.pseudo}
+                </option>
+              ))}
+            </select>
+          </label>
           <label>
             {t("refundTimeout")}
             <input

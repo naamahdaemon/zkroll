@@ -21,6 +21,7 @@ import {
   listGames,
   listNewGameNotificationSubscriptionsForPublicKey,
   listNotificationSubscriptionsForPublicKey,
+  listPreviousOpponents,
   markGameMessagesRead,
   markCreationFailed,
   markTransactionFailed,
@@ -51,7 +52,7 @@ import {
   requiredString
 } from "./validation.js";
 import { witnessForGameId } from "./merkle.js";
-import { notifyGameMessage, notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
+import { notifyGameInvite, notifyGameMessage, notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
 import { createProverJob, getProverJob, serverCommitment, serverGameKey, serverProverInfo, serverPseudoHash } from "./serverProver.js";
 
 const app = Fastify({
@@ -467,6 +468,15 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
   return player;
 });
 
+app.get("/players/:publicKey/previous-opponents", async (request, reply) => {
+  try {
+    const { publicKey } = request.params as { publicKey: string };
+    return { items: listPreviousOpponents(publicKey) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
 app.patch("/players/:publicKey/message-preference", async (request, reply) => {
   try {
     const { publicKey } = request.params as { publicKey: string };
@@ -699,6 +709,25 @@ app.post("/games/:id/messages", async (request, reply) => {
     });
     await notifyGameMessage(result.game, result.message);
     return reply.code(201).send(result.message);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/games/:id/invite", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    const inviterPublicKey = requiredString(body, "inviterPublicKey");
+    const inviteePublicKey = requiredString(body, "inviteePublicKey");
+    const game = getGame(id);
+    if (!game) throw new Error("Game not found");
+    if (game.creatorPublicKey !== inviterPublicKey) throw new Error("Only the creator can invite a player");
+    if (game.joinerPublicKey) throw new Error("Game already has an opponent");
+    const allowed = listPreviousOpponents(inviterPublicKey).some((player) => player.publicKey === inviteePublicKey);
+    if (!allowed) throw new Error("Invitee is not a previous opponent");
+    await notifyGameInvite(game, inviteePublicKey);
+    return { ok: true };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

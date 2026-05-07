@@ -30,6 +30,10 @@ export function getPlayerByPublicKey(publicKey: string) {
   return request<Player>(`/players/by-public-key/${encodeURIComponent(publicKey)}`);
 }
 
+export function listPreviousOpponents(publicKey: string) {
+  return request<{ items: Player[] }>(`/players/${encodeURIComponent(publicKey)}/previous-opponents`);
+}
+
 export function createPlayer(input: { pseudo: string; publicKey: string }) {
   return request<Player>("/players", {
     method: "POST",
@@ -105,6 +109,13 @@ export function createGame(input: {
   creationTxHash?: string;
 }) {
   return request<Game>("/games", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function inviteGame(id: string, input: { inviterPublicKey: string; inviteePublicKey: string }) {
+  return request<{ ok: true }>(`/games/${id}/invite`, {
     method: "POST",
     body: JSON.stringify(input)
   });

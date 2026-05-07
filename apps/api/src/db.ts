@@ -386,6 +386,29 @@ export function getPlayerByPublicKey(publicKey: string): Player | null {
   return row ? playerFromRow(row) : null;
 }
 
+export function listPreviousOpponents(publicKey: string): Player[] {
+  const rows = db
+    .prepare(
+      `
+      select distinct p.*
+      from players p
+      join (
+        select joiner_public_key as opponent_public_key
+        from games
+        where creator_public_key = ? and joiner_public_key is not null
+        union
+        select creator_public_key as opponent_public_key
+        from games
+        where joiner_public_key = ?
+      ) opponents on opponents.opponent_public_key = p.public_key
+      where p.public_key != ?
+      order by p.pseudo asc
+    `
+    )
+    .all(publicKey, publicKey, publicKey) as PlayerRow[];
+  return rows.map(playerFromRow);
+}
+
 function assertGameParticipant(game: Game, publicKey: string) {
   if (publicKey !== game.creatorPublicKey && publicKey !== game.joinerPublicKey) {
     throw new Error("Player is not part of this game");
