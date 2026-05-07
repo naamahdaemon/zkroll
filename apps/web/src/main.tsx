@@ -102,6 +102,7 @@ import {
   type ProvingCompatibilityIssueCode
 } from "./onchain";
 import {
+  auroInstallUrl,
   cancelWalletConnectPrompt,
   disconnectWalletConnect,
   mobileBrowserCanUseWalletConnect,
@@ -419,14 +420,16 @@ const copy: Record<string, Record<string, string>> = {
     openInBrowser: "Open in browser",
     copyPageUrl: "Copy page URL",
     openAuro: "Open Auro",
-    openAuroFallback: "Open Auro directly",
+    installAuro: "Install Auro",
+    auroInstallHint: "Auro did not seem to open. Install Auro, then retry the connection.",
     cancel: "Cancel",
     copyWalletConnectUri: "Copy Auro WalletConnect URL",
     showWalletConnectQr: "Show connection QR code",
     hideWalletConnectQr: "Hide connection QR code",
     walletConnectQrAuro: "Auro link",
     walletConnectQrWc: "WC URI",
-    walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here. If Auro opens without a connection screen, use the direct open button and the copied URI from Auro WalletConnect.",
+    walletConnectPreparing: "Preparing the WalletConnect request...",
+    walletConnectPrompt: "Approve the WalletConnect request in Auro, then return here. If Auro does not open, install it or scan the WalletConnect QR code.",
     walletConnectNotConfigured: "Mobile WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID.",
     createdAt: "Created",
     updatedAt: "Updated",
@@ -666,14 +669,16 @@ const copy: Record<string, Record<string, string>> = {
     openInBrowser: "Ouvrir dans le navigateur",
     copyPageUrl: "Copier l'URL",
     openAuro: "Ouvrir Auro",
-    openAuroFallback: "Ouvrir Auro directement",
+    installAuro: "Installer Auro",
+    auroInstallHint: "Auro ne semble pas s'etre ouvert. Installe Auro, puis relance la connexion.",
     cancel: "Annuler",
     copyWalletConnectUri: "Copier l'URL WalletConnect Auro",
     showWalletConnectQr: "Afficher le QRCode de connexion",
     hideWalletConnectQr: "Masquer le QRCode de connexion",
     walletConnectQrAuro: "Lien Auro",
     walletConnectQrWc: "URI WC",
-    walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici. Si Auro s'ouvre sans mire de connexion, utilise l'ouverture directe et l'URI copiee depuis WalletConnect dans Auro.",
+    walletConnectPreparing: "Preparation de la demande WalletConnect...",
+    walletConnectPrompt: "Valide la demande WalletConnect dans Auro, puis reviens ici. Si Auro ne s'ouvre pas, installe-le ou scanne le QRCode WalletConnect.",
     walletConnectNotConfigured: "WalletConnect mobile n'est pas configure. Renseigne VITE_WALLETCONNECT_PROJECT_ID.",
     createdAt: "Creee",
     updatedAt: "Mise a jour",
@@ -1571,7 +1576,8 @@ function App() {
   const [provingCompatibility, setProvingCompatibility] = useState<ProvingCompatibility | null>(null);
   const [walletConnectPrompt, setWalletConnectPrompt] = useState<WalletConnectPrompt | null>(null);
   const [walletConnectQrDataUrl, setWalletConnectQrDataUrl] = useState<string | null>(null);
-  const [walletConnectQrMode, setWalletConnectQrMode] = useState<WalletConnectQrMode>("auro");
+  const [walletConnectQrMode, setWalletConnectQrMode] = useState<WalletConnectQrMode>("wc");
+  const [showAuroInstall, setShowAuroInstall] = useState(false);
   const t = (key: string) => (copy[locale] ?? englishCopy)[key] ?? englishCopy[key] ?? key;
   const [message, setMessage] = useState(initialMessage);
   const [messageHistory, setMessageHistory] = useState<string[]>(() => [initialMessage]);
@@ -2285,7 +2291,9 @@ function App() {
 
   useEffect(() => {
     setWalletConnectQrDataUrl(null);
-  }, [walletConnectPrompt?.openUrl]);
+    setWalletConnectQrMode("wc");
+    setShowAuroInstall(false);
+  }, [walletConnectPrompt?.uri, walletConnectPrompt?.openUrl]);
 
   useEffect(() => {
     txStatusesRef.current = txStatuses;
@@ -2855,7 +2863,16 @@ function App() {
 
   function walletConnectQrValue(mode = walletConnectQrMode) {
     if (!walletConnectPrompt) return null;
-    return mode === "auro" ? walletConnectPrompt.openUrl : walletConnectPrompt.uri ?? null;
+    return mode === "auro" ? walletConnectPrompt.openUrl ?? null : walletConnectPrompt.uri ?? null;
+  }
+
+  function scheduleAuroInstallHint() {
+    setShowAuroInstall(false);
+    window.setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        setShowAuroInstall(true);
+      }
+    }, 1800);
   }
 
   async function updateWalletConnectQrMode(mode: WalletConnectQrMode) {
@@ -3391,21 +3408,40 @@ function App() {
         <div className="modalBackdrop">
           <div className="modal">
             <h2>WalletConnect</h2>
-            <p className="notice">{t("walletConnectPrompt")}</p>
-            <a className="primary actionLink" href={walletConnectPrompt.openUrl} rel="noreferrer">
-              {t("openAuro")}
-            </a>
-            {walletConnectPrompt.fallbackOpenUrl && (
-              <a className="secondaryButton actionLink" href={walletConnectPrompt.fallbackOpenUrl} rel="noreferrer">
-                {t("openAuroFallback")}
+            {walletConnectPrompt.isPreparing ? (
+              <div className="walletConnectPreparing">
+                <span className="inlineSpinner" aria-hidden="true" />
+                <p className="notice">{t("walletConnectPreparing")}</p>
+              </div>
+            ) : (
+              <p className="notice">{t("walletConnectPrompt")}</p>
+            )}
+            {walletConnectPrompt.openUrl && (
+              <a
+                className="primary actionLink"
+                href={walletConnectPrompt.openUrl}
+                onClick={scheduleAuroInstallHint}
+                rel="noreferrer"
+              >
+                {t("openAuro")}
               </a>
+            )}
+            {showAuroInstall && (
+              <div className="walletConnectInstallHint">
+                <p>{t("auroInstallHint")}</p>
+                <a className="secondaryButton actionLink" href={auroInstallUrl()} rel="noreferrer" target="_blank">
+                  {t("installAuro")}
+                </a>
+              </div>
             )}
             {walletConnectPrompt.uri && (
               <button
                 className="secondaryButton"
                 type="button"
                 onClick={() => {
-                  void navigator.clipboard?.writeText(walletConnectPrompt.openUrl);
+                  if (walletConnectPrompt.openUrl) {
+                    void navigator.clipboard?.writeText(walletConnectPrompt.openUrl);
+                  }
                 }}
               >
                 {t("copyWalletConnectUri")}

@@ -17,8 +17,8 @@ const chains = Object.values(chainIds);
 export type WalletConnectPrompt = {
   kind: "connect" | "request";
   uri?: string;
-  openUrl: string;
-  fallbackOpenUrl?: string;
+  openUrl?: string;
+  isPreparing?: boolean;
 };
 
 type PromptHandler = (prompt: WalletConnectPrompt | null) => void;
@@ -96,6 +96,10 @@ function connectOpenUrl(uri: string) {
 
 function requestOpenUrl() {
   return "aurowallet://";
+}
+
+export function auroInstallUrl() {
+  return "https://www.aurowallet.com/download/";
 }
 
 function openAuroForRequest() {
@@ -198,11 +202,14 @@ function cancellableApproval<T>(approval: () => Promise<T>) {
 }
 
 async function connectSession(targetChainId = preferredChainId) {
+  promptHandler?.({ kind: "connect", isPreparing: true });
   const nextClient = await client();
   const restored = await restoreSession();
   if (restored) {
+    promptHandler?.(null);
     if (!targetChainId || accountForChain(targetChainId)) return restored;
     await disconnectCurrentSession();
+    promptHandler?.({ kind: "connect", isPreparing: true });
   }
 
   const { uri, approval } = await nextClient.connect({
@@ -216,7 +223,7 @@ async function connectSession(targetChainId = preferredChainId) {
   });
 
   if (uri) {
-    promptHandler?.({ kind: "connect", uri, openUrl: connectOpenUrl(uri), fallbackOpenUrl: requestOpenUrl() });
+    promptHandler?.({ kind: "connect", uri, openUrl: connectOpenUrl(uri) });
   }
 
   session = await cancellableApproval(approval);
