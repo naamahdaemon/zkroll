@@ -1737,6 +1737,24 @@ function App() {
     await refreshUnreadMessages();
   }
 
+  async function refreshVisiblePlayerMessages() {
+    if (!publicKey) return;
+    const playerGames = visibleGames.filter((game) => publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey);
+    if (playerGames.length === 0) return;
+    const results = await Promise.allSettled(playerGames.map((game) => listGameMessages(game.id, publicKey)));
+    setGameMessages((current) => {
+      const next = { ...current };
+      for (let index = 0; index < playerGames.length; index += 1) {
+        const game = playerGames[index];
+        const result = results[index];
+        if (game && result?.status === "fulfilled") {
+          next[game.id] = result.value.items;
+        }
+      }
+      return next;
+    });
+  }
+
   function statusFor(hash: string | null | undefined): TxStatus {
     if (!onchainEnabled) return "INCLUDED";
     if (
@@ -2209,10 +2227,16 @@ function App() {
   }, [publicKey]);
 
   useEffect(() => {
-    if (appScreen === "messages" || appScreen === "detail") {
+    const messagesVisible = viewMode === "cards" || appScreen === "messages" || appScreen === "detail";
+    if (messagesVisible) {
       void refreshMessagesFor(selectedGame).catch((error) => setMessage((error as Error).message));
     }
-  }, [appScreen, publicKey, selectedGame?.id, selectedGame?.updatedAt]);
+  }, [appScreen, publicKey, selectedGame?.id, selectedGame?.updatedAt, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "cards") return;
+    void refreshVisiblePlayerMessages().catch((error) => setMessage((error as Error).message));
+  }, [publicKey, visibleGames, viewMode]);
 
   useEffect(() => {
     const keys = [selectedGame?.creatorPublicKey, selectedGame?.joinerPublicKey].filter((item): item is string => {
