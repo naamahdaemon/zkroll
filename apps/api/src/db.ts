@@ -9,8 +9,8 @@ db.pragma("foreign_keys = ON");
 
 db.exec(`
   create table if not exists players (
-    pseudo text primary key,
-    public_key text not null unique,
+    public_key text primary key,
+    pseudo text not null unique,
     accept_messages integer not null default 1,
     created_at text not null
   );
@@ -57,8 +57,8 @@ db.exec(`
     refunded_at text,
     failed_at text,
     cancelled_at text,
-    foreign key (creator_pseudo) references players(pseudo),
-    foreign key (joiner_pseudo) references players(pseudo)
+    foreign key (creator_public_key) references players(public_key),
+    foreign key (joiner_public_key) references players(public_key)
   );
 
   create table if not exists game_notification_subscriptions (
@@ -359,11 +359,11 @@ export function upsertPlayer(pseudo: string, publicKey: string): Player {
 
   db.prepare(
     `
-    insert into players (pseudo, public_key, created_at)
+    insert into players (public_key, pseudo, created_at)
     values (?, ?, ?)
     on conflict(public_key) do update set pseudo = excluded.pseudo
   `
-  ).run(pseudo, publicKey, now);
+  ).run(publicKey, pseudo, now);
 
   return getPlayerByPublicKey(publicKey)!;
 }
