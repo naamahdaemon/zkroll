@@ -357,13 +357,26 @@ export function upsertPlayer(pseudo: string, publicKey: string): Player {
     throw new Error("Pseudo already used by another wallet");
   }
 
-  db.prepare(
+  const existingPlayer = getPlayerByPublicKey(publicKey);
+  if (!existingPlayer) {
+    db.prepare(
+      `
+      insert into players (pseudo, public_key, created_at)
+      values (?, ?, ?)
     `
-    insert into players (pseudo, public_key, created_at)
-    values (?, ?, ?)
-    on conflict(public_key) do update set pseudo = excluded.pseudo
-  `
-  ).run(pseudo, publicKey, now);
+    ).run(pseudo, publicKey, now);
+
+    return getPlayerByPublicKey(publicKey)!;
+  }
+
+  if (existingPlayer.pseudo !== pseudo) {
+    db.transaction(() => {
+      db.pragma("defer_foreign_keys = ON");
+      db.prepare("update games set creator_pseudo = ? where creator_public_key = ?").run(pseudo, publicKey);
+      db.prepare("update games set joiner_pseudo = ? where joiner_public_key = ?").run(pseudo, publicKey);
+      db.prepare("update players set pseudo = ? where public_key = ?").run(pseudo, publicKey);
+    })();
+  }
 
   return getPlayerByPublicKey(publicKey)!;
 }
