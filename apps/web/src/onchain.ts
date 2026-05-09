@@ -90,6 +90,15 @@ export function getProvingCompatibility(): ProvingCompatibility {
   const isWalletWebView = /Auro|Wallet|wv\)|; wv|WebView/i.test(ua);
   const issues: ProvingCompatibilityIssue[] = [];
 
+  if (usesServerProver()) {
+    return {
+      ok: true,
+      isMobile,
+      isWalletWebView,
+      issues
+    };
+  }
+
   if (typeof WebAssembly === "undefined") {
     issues.push({ code: "noWebAssembly", severity: "error" });
   }
