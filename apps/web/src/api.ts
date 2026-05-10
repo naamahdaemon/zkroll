@@ -115,7 +115,7 @@ export function createGame(input: {
 }
 
 export function inviteGame(id: string, input: { inviterPublicKey: string; inviteePublicKey: string }) {
-  return request<{ ok: true }>(`/games/${id}/invite`, {
+  return request<Game>(`/games/${id}/invite`, {
     method: "POST",
     body: JSON.stringify(input)
   });

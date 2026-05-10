@@ -893,7 +893,15 @@ export function joinGame(
           join_at = ?,
           status = 'join_pending',
           updated_at = ?
-      where id = ? and status = 'created'
+      where id = ?
+        and (
+          status = 'created'
+          or (
+            status = 'join_pending'
+            and join_tx_hash like 'pending:invite:%'
+            and joiner_public_key = ?
+          )
+        )
     `
     )
     .run(
@@ -905,8 +913,39 @@ export function joinGame(
       input.joinTxHash,
       now,
       now,
-      id
+      id,
+      input.joinerPublicKey
     );
+
+  if (result.changes !== 1) {
+    throw new Error("Game is not open");
+  }
+
+  return getGame(id)!;
+}
+
+export function reserveJoinInvitation(id: string, invitee: Player): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set joiner_pseudo = ?,
+          joiner_public_key = ?,
+          joiner_pseudo_hash = null,
+          joiner_commitment = null,
+          pending_join_refund_deadline_slot = null,
+          join_tx_hash = ?,
+          join_tx_status = 'PENDING',
+          join_at = null,
+          status = 'join_pending',
+          updated_at = ?
+      where id = ?
+        and status = 'created'
+        and joiner_public_key is null
+    `
+    )
+    .run(invitee.pseudo, invitee.publicKey, `pending:invite:${id}`, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Game is not open");

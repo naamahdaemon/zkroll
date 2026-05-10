@@ -30,6 +30,7 @@ import {
   reconcileCreationTx,
   reconcileJoinTx,
   refundGame,
+  reserveJoinInvitation,
   revealSecret,
   settleGame,
   setPlayerMessagePreference,
@@ -752,8 +753,11 @@ app.post("/games/:id/invite", async (request, reply) => {
     if (game.joinerPublicKey) throw new Error("Game already has an opponent");
     const allowed = listPreviousOpponents(inviterPublicKey).some((player) => player.publicKey === inviteePublicKey);
     if (!allowed) throw new Error("Invitee is not a previous opponent");
-    await notifyGameInvite(game, inviteePublicKey);
-    return { ok: true };
+    const invitee = getPlayerByPublicKey(inviteePublicKey);
+    if (!invitee) throw new Error("Invitee not found");
+    const reserved = await sendUpdatedGame(reserveJoinInvitation(id, invitee));
+    await notifyGameInvite(reserved, inviteePublicKey);
+    return reserved;
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

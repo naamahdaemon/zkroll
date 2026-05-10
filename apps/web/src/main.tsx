@@ -262,6 +262,7 @@ const copy: Record<string, Record<string, string>> = {
     noInvite: "No invitation",
     inviteSent: "Invitation sent.",
     inviteSkipped: "Game created, but the invitation could not be sent.",
+    invitedOnly: "Only the invited player can join this challenge.",
     refundTimeout: "Refund timeout (slots)",
     create: "Create",
     games: "Games",
@@ -537,6 +538,7 @@ const copy: Record<string, Record<string, string>> = {
     noInvite: "Aucune invitation",
     inviteSent: "Invitation envoyee.",
     inviteSkipped: "Partie creee, mais l'invitation n'a pas pu etre envoyee.",
+    invitedOnly: "Seul le joueur invite peut rejoindre ce defi.",
     refundTimeout: "Timeout refund (slots)",
     create: "Creer",
     games: "Parties",
@@ -1596,6 +1598,7 @@ async function strictRefundDeadlineForJoin(network: NetworkId, timeoutSlots: num
 type PendingCreationMaterial = {
   zkappPrivateKey: string;
   secret: string;
+  invitedPublicKey?: string;
   createdAt: string;
 };
 
@@ -1637,10 +1640,10 @@ function loadPendingJoinMaterial(game: Game, publicKey: string): PendingJoinMate
   }
 }
 
-function savePendingCreationMaterial(game: Game, secret: string, zkappPrivateKey: string) {
+function savePendingCreationMaterial(game: Game, secret: string, zkappPrivateKey: string, invitedPublicKey?: string) {
   localStorage.setItem(
     pendingCreationStorageKey(game.id, game.creatorPublicKey),
-    JSON.stringify({ zkappPrivateKey, secret, createdAt: new Date().toISOString() } satisfies PendingCreationMaterial)
+    JSON.stringify({ zkappPrivateKey, secret, invitedPublicKey: invitedPublicKey || undefined, createdAt: new Date().toISOString() } satisfies PendingCreationMaterial)
   );
 }
 
@@ -1873,7 +1876,11 @@ function App() {
   }
 
   function updateGameInState(game: Game) {
-    setGames((current) => current.map((item) => (item.id === game.id ? game : item)));
+    setGames((current) => {
+      const existingIndex = current.findIndex((item) => item.id === game.id);
+      if (existingIndex === -1) return [game, ...current];
+      return current.map((item) => (item.id === game.id ? game : item));
+    });
     setSelectedGameId(game.id);
   }
 
@@ -2015,7 +2022,7 @@ function App() {
       creationStatusFor(game) !== "INCLUDED";
     const canChangeJoin =
       kind === "join" &&
-      ((game.status === "join_pending" && game.joinerPublicKey === publicKey && statusFor(game.joinTxHash) !== "INCLUDED") ||
+      ((game.status === "join_pending" && !isReservedInvite(game) && game.joinerPublicKey === publicKey && statusFor(game.joinTxHash) !== "INCLUDED") ||
         canRecoverReleasedJoin(game));
     const canChangeSettlement = kind === "settlement" && (hasPendingSettlement(game) || canSettle(game));
     const canChangeRefund = kind === "refund" && (hasPendingRefund(game) || canCancelOrRefund(game) || canRefund(game));
@@ -2189,8 +2196,14 @@ function App() {
     return game.status === "failed" ? "FAILED" : statusFor(game.creationTxHash);
   }
 
+  function isReservedInvite(game: Game) {
+    return game.status === "join_pending" && Boolean(game.joinTxHash?.startsWith("pending:invite:"));
+  }
+
   function canJoin(game: Game): boolean {
-    return game.status === "created" && creationStatusFor(game) === "INCLUDED" && hasSafeJoinDeadline(game);
+    const openToCurrentPlayer =
+      game.status === "created" || (isReservedInvite(game) && Boolean(publicKey) && game.joinerPublicKey === publicKey);
+    return openToCurrentPlayer && creationStatusFor(game) === "INCLUDED" && hasSafeJoinDeadline(game);
   }
 
   function minJoinDeadlineMarginSlots(networkId: NetworkId) {
@@ -2228,7 +2241,7 @@ function App() {
   }
 
   function canConfirmJoin(game: Game): boolean {
-    return game.status === "join_pending" && statusFor(game.joinTxHash) === "INCLUDED";
+    return game.status === "join_pending" && !isReservedInvite(game) && statusFor(game.joinTxHash) === "INCLUDED";
   }
 
   function canSettle(game: Game): boolean {
@@ -2850,6 +2863,11 @@ function App() {
     return publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey;
   }
 
+  function shouldShowMissingSecret(game: Game) {
+    if (!connectedPlayerCanUseSecret(game) || secretFor(game)) return false;
+    return !(isReservedInvite(game) && publicKey === game.joinerPublicKey);
+  }
+
   async function openSecretModal(game: Game) {
     const secret = secretFor(game);
     if (!secret) return;
@@ -3330,12 +3348,17 @@ function App() {
       if (game.creatorPublicKey !== publicKey) {
         throw new Error(t("creatorOnlyHash"));
       }
+      const material = loadPendingCreationMaterial(game, publicKey);
       const txHash = window.prompt(t("pasteCreationHash"));
       if (!txHash?.trim()) return;
       const reconciled = await reconcileCreationTx(game.id, requiredTransactionHash(txHash));
+      updateGameInState(reconciled);
+      if (material?.invitedPublicKey) {
+        await sendGameInvite(reconciled, material.invitedPublicKey);
+      } else {
+        setMessage(t("hashSaved"));
+      }
       removePendingCreationMaterial(reconciled);
-      setSelectedGameId(reconciled.id);
-      setMessage(t("hashSaved"));
     });
   }
 
@@ -3416,10 +3439,14 @@ function App() {
         onProgress: updateOnchainProgress
       });
       const reconciled = await reconcileCreationTx(game.id, result.txHash);
-      removePendingCreationMaterial(reconciled);
+      updateGameInState(reconciled);
       rememberSecret(reconciled.id, material.secret);
-      setSelectedGameId(reconciled.id);
-      setMessage(t("creationResigned"));
+      if (material.invitedPublicKey) {
+        await sendGameInvite(reconciled, material.invitedPublicKey);
+      } else {
+        setMessage(t("creationResigned"));
+      }
+      removePendingCreationMaterial(reconciled);
     });
   }
 
@@ -3493,8 +3520,9 @@ function App() {
       });
       rememberSecret(created.id, secret);
       if (onchainEnabled && gameKey) {
-        savePendingCreationMaterial(created, secret, gameKey.privateKey);
+        savePendingCreationMaterial(created, secret, gameKey.privateKey, invitedPublicKey);
       }
+      updateGameInState(created);
       setSelectedGameId(created.id);
 
       if (onchainEnabled) {
@@ -3515,7 +3543,7 @@ function App() {
         txHash = result.txHash;
         const reconciled = await reconcileCreationTx(created.id, txHash);
         removePendingCreationMaterial(reconciled);
-        setSelectedGameId(reconciled.id);
+        updateGameInState(reconciled);
         if (invitedPublicKey) await sendGameInvite(reconciled, invitedPublicKey);
         if (viewMode === "app") setAppScreen("detail");
       } else {
@@ -3530,7 +3558,8 @@ function App() {
 
   async function sendGameInvite(game: Game, invitedPublicKey: string) {
     try {
-      await inviteGame(game.id, { inviterPublicKey: publicKey, inviteePublicKey: invitedPublicKey });
+      const reserved = await inviteGame(game.id, { inviterPublicKey: publicKey, inviteePublicKey: invitedPublicKey });
+      updateGameInState(reserved);
       setMessage(t("inviteSent"));
     } catch {
       setMessage(t("inviteSkipped"));
@@ -3541,6 +3570,7 @@ function App() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
       if (game.creatorPublicKey === publicKey) throw new Error(t("cannotJoinOwn"));
+      if (isReservedInvite(game) && game.joinerPublicKey !== publicKey) throw new Error(t("invitedOnly"));
       const freshRemaining = await freshRemainingJoinDeadlineSlots(game);
       if (freshRemaining !== null && freshRemaining <= BigInt(minJoinDeadlineMarginSlots(game.network))) {
         throw new Error(t("joinDeadlineTooClose"));
@@ -4594,7 +4624,7 @@ function App() {
                   <dt>{t("payoutMode")}</dt>
                   <dd>{selectedGame.payoutMode === "opponent_takes_all" ? t("opponentTakesAll") : t("classicPayout")}</dd>
                 </div>
-                {connectedPlayerCanUseSecret(selectedGame) && !secretFor(selectedGame) && (
+                {shouldShowMissingSecret(selectedGame) && (
                   <div className="detailWide">
                     <dt>{t("secret")}</dt>
                     <dd className="missingSecretActions">
@@ -4675,15 +4705,17 @@ function App() {
                 )}
               </dl>
 
-              {selectedGame.status === "created" && (
+              {(selectedGame.status === "created" || isReservedInvite(selectedGame)) && (
                 <div className="actions">
                   <button disabled={busy || !canJoin(selectedGame)} onClick={() => void handleJoinGame(selectedGame)} className="primary">
                     <Dices size={18} />
                     {t("join")}
                   </button>
-                  <button className="warningButton" disabled={busy || !canCancelOrRefund(selectedGame) || hasPendingRefund(selectedGame)} onClick={() => void handleCancelOrRefund(selectedGame)}>
-                    {canCancelCreatedGame(selectedGame) ? t("cancelGame") : t("refund")}
-                  </button>
+                  {selectedGame.status === "created" && (
+                    <button className="warningButton" disabled={busy || !canCancelOrRefund(selectedGame) || hasPendingRefund(selectedGame)} onClick={() => void handleCancelOrRefund(selectedGame)}>
+                      {canCancelCreatedGame(selectedGame) ? t("cancelGame") : t("refund")}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -4693,7 +4725,7 @@ function App() {
                 </button>
               )}
 
-              {selectedGame.status === "join_pending" && (
+              {selectedGame.status === "join_pending" && !isReservedInvite(selectedGame) && (
                 <div className="actions">
                   <button disabled={busy || !canConfirmJoin(selectedGame)} onClick={() => void handleConfirmJoin(selectedGame)} className="primary">
                     {t("confirmJoin")}
