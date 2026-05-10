@@ -2565,6 +2565,20 @@ function App() {
   }, [message]);
 
   useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled || busy || document.visibilityState !== "visible") return;
+      await refreshGames().catch(() => undefined);
+    };
+
+    const interval = window.setInterval(() => void poll(), txPollIntervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [busy, network, publicKey, selectedGameId]);
+
+  useEffect(() => {
     void refreshUnreadMessages().catch(() => undefined);
   }, [publicKey]);
 
