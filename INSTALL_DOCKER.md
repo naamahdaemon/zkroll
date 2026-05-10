@@ -141,14 +141,14 @@ Important:
 Server prover cache diagnostics:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
-docker compose -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
+docker compose --env-file .env.production -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
 ```
 
 The admin UI cache clear refuses to run while a prover job is active. If a native o1js error persists after clearing the cache, restart the API:
 
 ```bash
-docker compose -f docker-compose.prod.yml restart api
+docker compose --env-file .env.production -f docker-compose.prod.yml restart api
 ```
 - Zeko Testnet is supported, but its public GraphQL API is not identical to Mina Devnet/Mainnet. The backend avoids Mina-only `bestChain` transaction scans on Zeko and relies on per-game zkApp state instead.
 - Zeko refund/cancel deadlines use a Mina L1 current-slot source. Keep `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` for Zeko Testnet unless Zeko documents another L1 slot source.
@@ -389,6 +389,33 @@ Test local placeholder transaction status. It should answer immediately:
 curl -sS "https://zkroll.naamahdaemon.eu/api/transactions/devnet/pending:123/status"
 ```
 
+Join recovery logs:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api | grep "Join recovery material"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api | grep "GAME_ID_OR_JOIN_TX_HASH"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --since "2026-05-10T12:45:00" --until "2026-05-10T13:00:00" api
+```
+
+The `Join recovery material` line is emitted by `POST /games/:id/join`. It intentionally does not include player secrets or clear-text pseudos. It includes:
+
+```text
+gameId
+joinerPublicKey
+joinerPseudoHash
+joinerCommitment
+refundDeadlineSlot
+joinTxHash
+```
+
+Use those values when a join transaction was included on-chain but the app lost or later released the pending join record. For a joined game, refund/settle compilation must use the exact `joinerPseudoHash`, `joinerCommitment`, and joined `refundDeadlineSlot` used by the on-chain join transaction.
+
+If Docker logs were rotated or the join happened before this log existed, check the invited player's browser storage for the pending join material:
+
+```js
+localStorage.getItem("zkroll:pending-join:GAME_ID:JOINER_PUBLIC_KEY")
+```
+
 ## 12. SQLite Operations
 
 Open the DB from the host:
@@ -417,6 +444,37 @@ Dump:
 
 ```bash
 sqlite3 data/api/zkroll-mainnet.db ".dump" > "backups/zkroll-mainnet-$(date +%Y%m%d-%H%M%S).sql"
+```
+
+Inspect a game row:
+
+```bash
+sqlite3 -header -column data/api/zkroll-mainnet.db "select id, network, zkapp_address, game_id_field, status, creator_public_key, joiner_public_key, creator_pseudo_hash, joiner_pseudo_hash, creator_commitment, joiner_commitment, refund_deadline_slot, pending_join_refund_deadline_slot, creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash, creation_tx_status, join_tx_status, settlement_tx_status, refund_tx_status, failure_reason from games where id = 'GAME_ID';"
+```
+
+Before manually patching a recovery row, stop the API and make a backup:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml stop api
+mkdir -p backups
+cp data/api/zkroll-mainnet.db "backups/zkroll-mainnet-before-recovery-$(date +%Y%m%d-%H%M%S).db"
+sqlite3 data/api/zkroll-mainnet.db
+docker compose --env-file .env.production -f docker-compose.prod.yml start api
+```
+
+Example joined-game recovery patch. Replace every placeholder with values from `Join recovery material`, browser localStorage, or verified on-chain account updates:
+
+```sql
+update games
+set joiner_pseudo_hash = 'JOINER_PSEUDO_HASH',
+    joiner_commitment = 'JOINER_COMMITMENT',
+    refund_deadline_slot = 'JOIN_REFUND_DEADLINE_SLOT',
+    pending_join_refund_deadline_slot = null,
+    refund_tx_hash = null,
+    refund_tx_status = null,
+    failure_reason = null,
+    updated_at = datetime('now')
+where id = 'GAME_ID';
 ```
 
 Restore from DB file:
@@ -669,14 +727,14 @@ Important :
 Diagnostic cache prover serveur :
 
 ```bash
-docker compose -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
-docker compose -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
+docker compose --env-file .env.production -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
 ```
 
 L'action admin de purge refuse de tourner pendant une preuve serveur active. Si une erreur native o1js persiste apres purge, redemarre l'API :
 
 ```bash
-docker compose -f docker-compose.prod.yml restart api
+docker compose --env-file .env.production -f docker-compose.prod.yml restart api
 ```
 - Zeko Testnet est supporte, mais son API GraphQL publique n'est pas identique a Mina Devnet/Mainnet. Le backend evite les scans `bestChain` propres a Mina sur Zeko et s'appuie plutot sur l'etat zkApp de chaque partie.
 - Les deadlines refund/cancel Zeko utilisent une source de slot courant Mina L1. Garde `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` pour Zeko Testnet sauf indication contraire de Zeko.
@@ -917,6 +975,33 @@ Tester un placeholder local. Il doit repondre immediatement :
 curl -sS "https://zkroll.naamahdaemon.eu/api/transactions/devnet/pending:123/status"
 ```
 
+Logs de recovery join :
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api | grep "Join recovery material"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api | grep "GAME_ID_OR_JOIN_TX_HASH"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --since "2026-05-10T12:45:00" --until "2026-05-10T13:00:00" api
+```
+
+La ligne `Join recovery material` est emise par `POST /games/:id/join`. Elle ne contient volontairement ni secret joueur ni pseudo en clair. Elle contient :
+
+```text
+gameId
+joinerPublicKey
+joinerPseudoHash
+joinerCommitment
+refundDeadlineSlot
+joinTxHash
+```
+
+Utilise ces valeurs quand une transaction join a ete incluse on-chain mais que l'app a perdu ou libere le pending join. Pour une partie deja join, la compilation refund/settle doit utiliser exactement les `joinerPseudoHash`, `joinerCommitment` et `refundDeadlineSlot` du join on-chain.
+
+Si les logs Docker ont ete rotates ou si le join date d'avant ce log, regarde le storage du navigateur du joueur invite :
+
+```js
+localStorage.getItem("zkroll:pending-join:GAME_ID:JOINER_PUBLIC_KEY")
+```
+
 ## 12. Operations SQLite
 
 Ouvrir la base depuis l'hote :
@@ -945,6 +1030,37 @@ Dump SQL :
 
 ```bash
 sqlite3 data/api/zkroll-mainnet.db ".dump" > "backups/zkroll-mainnet-$(date +%Y%m%d-%H%M%S).sql"
+```
+
+Inspecter une ligne de partie :
+
+```bash
+sqlite3 -header -column data/api/zkroll-mainnet.db "select id, network, zkapp_address, game_id_field, status, creator_public_key, joiner_public_key, creator_pseudo_hash, joiner_pseudo_hash, creator_commitment, joiner_commitment, refund_deadline_slot, pending_join_refund_deadline_slot, creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash, creation_tx_status, join_tx_status, settlement_tx_status, refund_tx_status, failure_reason from games where id = 'GAME_ID';"
+```
+
+Avant de patcher une ligne de recovery a la main, arrete l'API et fais une sauvegarde :
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml stop api
+mkdir -p backups
+cp data/api/zkroll-mainnet.db "backups/zkroll-mainnet-before-recovery-$(date +%Y%m%d-%H%M%S).db"
+sqlite3 data/api/zkroll-mainnet.db
+docker compose --env-file .env.production -f docker-compose.prod.yml start api
+```
+
+Exemple de patch pour une partie deja join. Remplace chaque placeholder par les valeurs issues de `Join recovery material`, du localStorage navigateur ou des account updates on-chain verifies :
+
+```sql
+update games
+set joiner_pseudo_hash = 'JOINER_PSEUDO_HASH',
+    joiner_commitment = 'JOINER_COMMITMENT',
+    refund_deadline_slot = 'JOIN_REFUND_DEADLINE_SLOT',
+    pending_join_refund_deadline_slot = null,
+    refund_tx_hash = null,
+    refund_tx_status = null,
+    failure_reason = null,
+    updated_at = datetime('now')
+where id = 'GAME_ID';
 ```
 
 Restaurer un fichier DB :

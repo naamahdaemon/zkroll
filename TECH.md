@@ -27,6 +27,7 @@ SQLite is an indexer and UX cache. It stores:
 - games and their local workflow status;
 - transaction hashes and cached transaction statuses;
 - reveal data needed by the UI flow.
+- non-secret join recovery material in API logs when a join is submitted.
 
 The chain remains the source of truth for:
 
@@ -34,6 +35,8 @@ The chain remains the source of truth for:
 - commitments;
 - joined/settled/refunded contract status;
 - settlement payouts and refunds.
+
+For joined-game refund and settlement, SQLite must match the exact join data used on-chain: `joinerPseudoHash`, `joinerCommitment`, and the joined `refundDeadlineSlot`. If a pending join is released after the transaction was included, later refund/settle proof generation can fail with a `Field.assertEquals()` data-hash mismatch. The API logs `Join recovery material` for future joins so operators can repair the local row without storing player secrets.
 
 ## On-Chain State
 

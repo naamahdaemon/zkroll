@@ -369,7 +369,9 @@ SQLite can contain games for several networks at the same time. Transaction stat
 
 `failed` games are local/indexer cleanup records. Use this status when a signature failed before broadcast or when a creation transaction failed on-chain, for example with `Valid_while_precondition_unsatisfied`. The UI asks for a failure reason so later debugging can distinguish local wallet failures from on-chain failures.
 
-`join_pending` games keep the joiner data and transaction hash locally. This prevents two browser sessions from locally joining the same open game at the same time. If the join transaction fails, use `Release join` to return the game to `created`.
+`join_pending` games keep the joiner data and transaction hash locally. This prevents two browser sessions from locally joining the same open game at the same time. Invitation reservations also use `join_pending` with an internal `pending:invite:*` hash until the invited wallet creates the real join transaction.
+
+If the join transaction fails, use `Release join` to return the game to `created`. If the join transaction was included on-chain but the app lost or released the local pending join, recover it with the original join material. The API logs non-secret recovery data on `POST /games/:id/join` under `Join recovery material`: `gameId`, `joinerPublicKey`, `joinerPseudoHash`, `joinerCommitment`, `refundDeadlineSlot`, and `joinTxHash`. In Docker production, see `INSTALL_DOCKER.md` for the exact log, SQLite backup, inspection, and manual patch commands.
 
 ## 11. ZK Compilation UX
 
