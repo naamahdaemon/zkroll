@@ -2593,9 +2593,9 @@ function App() {
   }, [appScreen, publicKey, selectedGame?.id, selectedGame?.updatedAt, viewMode]);
 
   useEffect(() => {
-    if (viewMode !== "cards") return;
+    if (viewMode !== "cards" && !(viewMode === "app" && appScreen === "games")) return;
     void refreshVisiblePlayerMessages().catch((error) => setMessage((error as Error).message));
-  }, [publicKey, visibleGames, viewMode]);
+  }, [appScreen, publicKey, visibleGames, viewMode]);
 
   useEffect(() => {
     const keys = [selectedGame?.creatorPublicKey, selectedGame?.joinerPublicKey].filter((item): item is string => {
