@@ -1599,8 +1599,22 @@ type PendingCreationMaterial = {
   createdAt: string;
 };
 
+type PendingJoinMaterial = {
+  pseudo: string;
+  joinerPublicKey: string;
+  secret: string;
+  joinerPseudoHash?: string;
+  joinerCommitment: string;
+  refundDeadlineSlot: string;
+  createdAt: string;
+};
+
 function pendingCreationStorageKey(gameId: string, creatorPublicKey: string) {
   return `zkroll:pending-creation:${gameId}:${creatorPublicKey}`;
+}
+
+function pendingJoinStorageKey(gameId: string, joinerPublicKey: string) {
+  return `zkroll:pending-join:${gameId}:${joinerPublicKey}`;
 }
 
 function loadPendingCreationMaterial(game: Game, publicKey: string): PendingCreationMaterial | null {
@@ -1613,10 +1627,27 @@ function loadPendingCreationMaterial(game: Game, publicKey: string): PendingCrea
   }
 }
 
+function loadPendingJoinMaterial(game: Game, publicKey: string): PendingJoinMaterial | null {
+  if (!publicKey || game.creatorPublicKey === publicKey) return null;
+  try {
+    const value = localStorage.getItem(pendingJoinStorageKey(game.id, publicKey));
+    return value ? (JSON.parse(value) as PendingJoinMaterial) : null;
+  } catch {
+    return null;
+  }
+}
+
 function savePendingCreationMaterial(game: Game, secret: string, zkappPrivateKey: string) {
   localStorage.setItem(
     pendingCreationStorageKey(game.id, game.creatorPublicKey),
     JSON.stringify({ zkappPrivateKey, secret, createdAt: new Date().toISOString() } satisfies PendingCreationMaterial)
+  );
+}
+
+function savePendingJoinMaterial(game: Game, input: Omit<PendingJoinMaterial, "createdAt">) {
+  localStorage.setItem(
+    pendingJoinStorageKey(game.id, input.joinerPublicKey),
+    JSON.stringify({ ...input, createdAt: new Date().toISOString() } satisfies PendingJoinMaterial)
   );
 }
 
@@ -1970,7 +2001,7 @@ function App() {
         !game.joinTxHash &&
         publicKey &&
         game.creatorPublicKey !== publicKey &&
-        secretFor(game)
+        (secretFor(game) || loadPendingJoinMaterial(game, publicKey))
     );
   }
 
@@ -3314,25 +3345,27 @@ function App() {
       if (!txHash?.trim()) return;
 
       if (game.status === "created") {
-        const secret = secretFor(game);
-        if (!pseudo || !publicKey || !secret || publicKey === game.creatorPublicKey || !game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
+        const pendingJoin = publicKey ? loadPendingJoinMaterial(game, publicKey) : null;
+        const secret = pendingJoin?.secret ?? secretFor(game);
+        const recoveredPseudo = pendingJoin?.pseudo ?? pseudo;
+        if (!recoveredPseudo || !publicKey || !secret || publicKey === game.creatorPublicKey || !game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
           throw new Error(t("invalidJoinRecovery"));
         }
-        const suggestedDeadline = await strictRefundDeadlineForJoin(game.network, game.refundTimeoutSlots, game.refundDeadlineSlot).catch(
-          () => game.refundDeadlineSlot!
-        );
-        const refundDeadlineSlot = window.prompt(t("pasteJoinRefundDeadlineSlot"), suggestedDeadline);
+        const suggestedDeadline =
+          pendingJoin?.refundDeadlineSlot ??
+          (await strictRefundDeadlineForJoin(game.network, game.refundTimeoutSlots, game.refundDeadlineSlot).catch(() => game.refundDeadlineSlot!));
+        const refundDeadlineSlot = pendingJoin ? suggestedDeadline : window.prompt(t("pasteJoinRefundDeadlineSlot"), suggestedDeadline);
         if (refundDeadlineSlot === null) return;
         const normalizedRefundDeadlineSlot = refundDeadlineSlot.trim() || suggestedDeadline;
         if (!/^\d+$/.test(normalizedRefundDeadlineSlot)) {
           throw new Error(t("invalidRefundTimeout"));
         }
-        const joinerPseudoHash = onchainEnabled ? await pseudoHash(pseudo) : undefined;
-        const joinerCommitment = onchainEnabled
-          ? await onchainCommitment(secret, publicKey, game.gameIdField)
-          : await temporaryCommitment(secret, publicKey, game.id);
+        const joinerPseudoHash = pendingJoin?.joinerPseudoHash ?? (onchainEnabled ? await pseudoHash(recoveredPseudo) : undefined);
+        const joinerCommitment =
+          pendingJoin?.joinerCommitment ??
+          (onchainEnabled ? await onchainCommitment(secret, publicKey, game.gameIdField) : await temporaryCommitment(secret, publicKey, game.id));
         const recovered = await joinGame(game.id, {
-          joinerPseudo: pseudo,
+          joinerPseudo: recoveredPseudo,
           joinerPublicKey: publicKey,
           joinerPseudoHash,
           joinerCommitment,
@@ -3532,6 +3565,14 @@ function App() {
         joinTxHash: onchainEnabled ? `pending:join:${game.id}` : txHash
       });
       rememberSecret(joined.id, secret);
+      savePendingJoinMaterial(joined, {
+        pseudo,
+        joinerPublicKey: publicKey,
+        secret,
+        joinerPseudoHash,
+        joinerCommitment,
+        refundDeadlineSlot
+      });
       setSelectedGameId(joined.id);
 
       if (onchainEnabled) {
