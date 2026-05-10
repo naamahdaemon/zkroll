@@ -791,15 +791,31 @@ app.post("/games/:id/join", async (request, reply) => {
     const body = asBody(request.body);
     const joinerPseudo = requiredString(body, "joinerPseudo");
     const joinerPublicKey = requiredString(body, "joinerPublicKey");
+    const joinerPseudoHash = optionalString(body, "joinerPseudoHash");
+    const joinerCommitment = requiredString(body, "joinerCommitment");
+    const refundDeadlineSlot = optionalString(body, "refundDeadlineSlot");
+    const joinTxHash = requiredString(body, "joinTxHash");
     upsertPlayer(joinerPseudo, joinerPublicKey);
+
+    request.log.info(
+      {
+        gameId: id,
+        joinerPublicKey,
+        joinerPseudoHash,
+        joinerCommitment,
+        refundDeadlineSlot,
+        joinTxHash
+      },
+      "Join recovery material"
+    );
 
     return sendUpdatedGame(joinGame(id, {
       joinerPseudo,
       joinerPublicKey,
-      joinerPseudoHash: optionalString(body, "joinerPseudoHash"),
-      joinerCommitment: requiredString(body, "joinerCommitment"),
-      refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
-      joinTxHash: requiredString(body, "joinTxHash")
+      joinerPseudoHash,
+      joinerCommitment,
+      refundDeadlineSlot,
+      joinTxHash
     }));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
