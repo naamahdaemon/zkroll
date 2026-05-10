@@ -1061,6 +1061,40 @@ select {
   width: 30px;
 }
 
+.messageIndicator {
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  position: relative;
+  width: 30px;
+}
+
+.messageIndicator.hasUnread {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border-strong));
+  color: var(--primary);
+}
+
+.messageIndicatorBadge {
+  align-items: center;
+  background: var(--danger-border);
+  border-radius: 999px;
+  color: white;
+  display: inline-flex;
+  font-size: 9px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 15px;
+  min-width: 15px;
+  padding: 0 4px;
+  position: absolute;
+  right: -5px;
+  top: -5px;
+}
+
 .detailTools {
   align-items: center;
   display: inline-flex;

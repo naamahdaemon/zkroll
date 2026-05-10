@@ -2954,6 +2954,41 @@ function App() {
     return <span className="unreadBadge">{count > 99 ? "99+" : count}</span>;
   }
 
+  function messageIndicatorFor(game: Game) {
+    const messageCount = gameMessages[game.id]?.length ?? 0;
+    const unreadCount = unreadMessageCounts[game.id] ?? 0;
+    if (messageCount <= 0 && unreadCount <= 0) return null;
+    const content = (
+      <>
+        <MessageSquareText size={16} />
+        {unreadCount > 0 && <span className="messageIndicatorBadge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
+      </>
+    );
+    const className = unreadCount > 0 ? "messageIndicator hasUnread" : "messageIndicator";
+    if (viewMode !== "app") {
+      return (
+        <span className={className} aria-label={t("playerMessages")} title={t("playerMessages")}>
+          {content}
+        </span>
+      );
+    }
+    return (
+      <button
+        aria-label={t("playerMessages")}
+        className={className}
+        onClick={(event) => {
+          event.stopPropagation();
+          setSelectedGameId(game.id);
+          setAppScreen("messages");
+        }}
+        title={t("playerMessages")}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
   async function handleSendPlayerMessage(event: FormEvent) {
     event.preventDefault();
     if (!messageDialog || !publicKey) return;
@@ -4532,7 +4567,7 @@ function App() {
                     <span className={`status ${game.status}`}>{game.status}</span>
                   </div>
                   <span className="gameCardTools">
-                    {unreadBadgeFor(game)}
+                    {messageIndicatorFor(game)}
                     {localSecretIndicator(game)}
                     {shareGameButton(game)}
                     {notificationButton(game)}
