@@ -330,7 +330,7 @@ h2 {
 .leftColumn {
   display: grid;
   gap: 18px;
-  grid-template-rows: auto minmax(160px, 1fr);
+  grid-template-rows: auto minmax(150px, 1fr) auto;
   min-height: 520px;
 }
 
@@ -808,6 +808,53 @@ select {
   font-size: 11px;
 }
 
+.leaderboardPanel {
+  min-height: 0;
+}
+
+.leaderboardList {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  max-height: 420px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.leaderboardRow {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px;
+}
+
+.leaderboardRow.current {
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+}
+
+.leaderboardRank {
+  color: var(--primary);
+  font-weight: 900;
+  grid-row: span 4;
+}
+
+.leaderboardRow strong,
+.leaderboardRow span:not(.leaderboardRank) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.leaderboardRow span:not(.leaderboardRank) {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .unreadBadge,
 .navBadge {
   align-items: center;
@@ -1023,6 +1070,7 @@ select {
   display: grid;
   gap: 8px;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  width: 100%;
 }
 
 .playersLine strong,
@@ -1032,6 +1080,12 @@ select {
   gap: 6px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.playersLine strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playerResult .tinyIconButton {
@@ -1677,6 +1731,7 @@ dd {
 .appShell .gamesPanel,
 .appShell .detailPanel,
 .appShell .messagesPanel,
+.appShell .leaderboardPanel,
 .appShell .settingsPanel {
   display: none;
 }
@@ -1686,6 +1741,7 @@ dd {
 .appShell[data-app-screen="games"] .gamesPanel,
 .appShell[data-app-screen="detail"] .detailPanel,
 .appShell[data-app-screen="messages"] .messagesPanel,
+.appShell[data-app-screen="leaderboard"] .leaderboardPanel,
 .appShell[data-app-screen="settings"] .settingsPanel {
   display: flex;
   flex-direction: column;
@@ -1733,6 +1789,14 @@ dd {
 }
 
 .appShell .messageList {
+  max-height: none;
+}
+
+.appShell .leaderboardPanel {
+  min-height: calc(100vh - 190px);
+}
+
+.appShell .leaderboardList {
   max-height: none;
 }
 
@@ -1803,7 +1867,7 @@ dd {
     display: grid;
     align-items: center;
     gap: 10px;
-    grid-template-columns: minmax(0, 1fr) minmax(116px, 148px);
+    grid-template-columns: minmax(0, 1fr) auto;
     max-width: 100%;
   }
 
@@ -1832,9 +1896,14 @@ dd {
   }
 
   .appShell .topActions {
-    display: block;
+    display: flex;
+    gap: 6px;
     justify-self: end;
-    width: 100%;
+    width: auto;
+  }
+
+  .appShell .networkPicker {
+    width: clamp(112px, 34vw, 132px);
   }
 
   .appShell .networkPill {

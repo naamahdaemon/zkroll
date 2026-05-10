@@ -170,10 +170,17 @@ type TxStatus = TransactionStatus;
 type Locale = "en" | "fr" | "zh" | "tr" | "ru" | "de" | "ja" | "es";
 type Theme = "light" | "dark";
 type ViewMode = "cards" | "app";
-type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "settings";
+type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "leaderboard" | "settings";
 type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
 type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
+type LeaderboardRow = {
+  publicKey: string;
+  pseudo: string;
+  gamesPlayed: number;
+  gamesWon: number;
+  amountWonNanoMina: string;
+};
 const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
 const gameStatuses: GameStatus[] = [
   "pending_signature",
@@ -346,6 +353,12 @@ const copy: Record<string, Record<string, string>> = {
     walletTab: "Wallet",
     newGameTab: "New",
     gamesTab: "Games",
+    leaderboard: "Leaderboard",
+    leaderboardTab: "Ranks",
+    gamesPlayed: "Games",
+    gamesWon: "Won",
+    amountWon: "MINA won",
+    emptyLeaderboard: "No settled games yet.",
     messages: "Messages",
     systemMessages: "System messages",
     playerMessages: "Player messages",
@@ -609,6 +622,12 @@ const copy: Record<string, Record<string, string>> = {
     walletTab: "Wallet",
     newGameTab: "Nouvelle",
     gamesTab: "Parties",
+    leaderboard: "Classement",
+    leaderboardTab: "Classement",
+    gamesPlayed: "Parties",
+    gamesWon: "Gagnees",
+    amountWon: "MINA gagnes",
+    emptyLeaderboard: "Aucune partie reglee pour le moment.",
     messages: "Messages",
     systemMessages: "Messages systeme",
     playerMessages: "Messages joueurs",
@@ -1489,6 +1508,12 @@ function formatMina(value: string): string {
   });
 }
 
+function payoutNanoMinaForWinner(game: Game): bigint {
+  if (game.status !== "settled" || !game.winnerPublicKey) return 0n;
+  const stake = BigInt(game.stakeNanoMina);
+  return game.payoutMode === "opponent_takes_all" ? stake : stake * 2n;
+}
+
 function formatBalance(value: string | null, locale: Locale): string {
   if (!value) return "-";
   return `${(Number(value) / nanoMina).toLocaleString(localeTag(locale), {
@@ -1659,6 +1684,52 @@ function App() {
     () => games.filter((game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)),
     [games, network, publicKey]
   );
+
+  const leaderboardRows = useMemo(() => {
+    const rows = new Map<string, { publicKey: string; pseudo: string; gamesPlayed: number; gamesWon: number; amountWonNanoMina: bigint }>();
+    const ensureRow = (publicKeyValue: string, pseudoValue: string) => {
+      const existing = rows.get(publicKeyValue);
+      if (existing) {
+        existing.pseudo = pseudoValue || existing.pseudo;
+        return existing;
+      }
+      const created = {
+        publicKey: publicKeyValue,
+        pseudo: pseudoValue,
+        gamesPlayed: 0,
+        gamesWon: 0,
+        amountWonNanoMina: 0n
+      };
+      rows.set(publicKeyValue, created);
+      return created;
+    };
+
+    visibleGames
+      .filter((game) => game.status !== "pending_signature" && game.status !== "failed")
+      .forEach((game) => {
+        ensureRow(game.creatorPublicKey, game.creatorPseudo).gamesPlayed += 1;
+        if (game.joinerPublicKey && game.joinerPseudo) {
+          ensureRow(game.joinerPublicKey, game.joinerPseudo).gamesPlayed += 1;
+        }
+        if (game.status === "settled" && game.winnerPublicKey) {
+          const winnerPseudo =
+            game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey;
+          const winner = ensureRow(game.winnerPublicKey, winnerPseudo);
+          winner.gamesWon += 1;
+          winner.amountWonNanoMina += payoutNanoMinaForWinner(game);
+        }
+      });
+
+    return Array.from(rows.values())
+      .map((row) => ({ ...row, amountWonNanoMina: row.amountWonNanoMina.toString() } satisfies LeaderboardRow))
+      .sort((left, right) => {
+        const wonDiff = right.gamesWon - left.gamesWon;
+        if (wonDiff !== 0) return wonDiff;
+        const amountDiff = BigInt(right.amountWonNanoMina) - BigInt(left.amountWonNanoMina);
+        if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
+        return right.gamesPlayed - left.gamesPlayed;
+      });
+  }, [visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -1982,6 +2053,38 @@ function App() {
           {transactionActions(game, kind, hash, status)}
         </dd>
       </div>
+    );
+  }
+
+  function leaderboardPanel() {
+    return (
+      <section className="panel leaderboardPanel">
+        <div className="sectionHead">
+          <h2>{t("leaderboard")}</h2>
+          <Trophy size={20} />
+        </div>
+        {leaderboardRows.length > 0 ? (
+          <div className="leaderboardList">
+            {leaderboardRows.map((row, index) => (
+              <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
+                <span className="leaderboardRank">#{index + 1}</span>
+                <strong>{row.pseudo}</strong>
+                <span>
+                  {t("gamesPlayed")}: {row.gamesPlayed}
+                </span>
+                <span>
+                  {t("gamesWon")}: {row.gamesWon}
+                </span>
+                <span>
+                  {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty">{t("emptyLeaderboard")}</p>
+        )}
+      </section>
     );
   }
 
@@ -3993,11 +4096,9 @@ function App() {
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
           )}
-          {viewMode !== "app" && (
-            <button className="iconButton" onClick={openSettings} title={t("settings")}>
-              <Settings size={18} />
-            </button>
-          )}
+          <button className="iconButton" onClick={openSettings} title={t("settings")}>
+            <Settings size={18} />
+          </button>
         </div>
       </section>
 
@@ -4179,6 +4280,7 @@ function App() {
             ))}
           </div>
         </section>
+        {leaderboardPanel()}
         </div>
 
         <section className="games gamesPanel">
@@ -4539,9 +4641,9 @@ function App() {
             </span>
             <span>{t("messages")}</span>
           </button>
-          <button className={appScreen === "settings" ? "active" : ""} onClick={() => setAppScreen("settings")} type="button">
-            <Settings size={20} />
-            <span>{t("settings")}</span>
+          <button className={appScreen === "leaderboard" ? "active" : ""} onClick={() => setAppScreen("leaderboard")} type="button">
+            <Trophy size={20} />
+            <span>{t("leaderboardTab")}</span>
           </button>
         </nav>
       )}
