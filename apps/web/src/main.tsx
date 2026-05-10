@@ -420,6 +420,8 @@ const copy: Record<string, Record<string, string>> = {
     pasteCreationHash: "Paste the creation transaction hash visible in Auro or the explorer.",
     hashSaved: "Creation hash saved. On-chain sync will be checked.",
     pasteJoinHash: "Paste the join transaction hash visible in Auro or the explorer.",
+    pasteJoinRefundDeadlineSlot: "Paste the refund deadline slot used by the join transaction. Leave empty to use the suggested value.",
+    invalidJoinRecovery: "Join recovery requires the joiner wallet, pseudo, local secret, and on-chain game metadata.",
     joinHashSaved: "Join hash saved. On-chain sync will be checked.",
     joinerOnlyHash: "Only the opponent can enter this join hash.",
     resignCreationConfirm: "Before re-signing, check Auro or the explorer. If the transaction already exists, paste its hash instead. Re-sign now?",
@@ -689,6 +691,8 @@ const copy: Record<string, Record<string, string>> = {
     pasteCreationHash: "Colle le hash de la transaction de creation visible dans Auro ou l'explorateur.",
     hashSaved: "Hash de creation renseigne. La synchronisation on-chain va etre verifiee.",
     pasteJoinHash: "Colle le hash de la transaction de join visible dans Auro ou l'explorateur.",
+    pasteJoinRefundDeadlineSlot: "Colle le slot de deadline refund utilise par la transaction de join. Laisse vide pour utiliser la valeur suggeree.",
+    invalidJoinRecovery: "La recuperation du join requiert le wallet du joiner, le pseudo, le secret local et les metadonnees on-chain.",
     joinHashSaved: "Hash de join renseigne. La synchronisation on-chain va etre verifiee.",
     joinerOnlyHash: "Seul l'adversaire peut renseigner ce hash de join.",
     resignCreationConfirm: "Avant de resigner, verifie Auro ou l'explorateur. Si la transaction existe deja, colle plutot son hash. Resigner maintenant ?",
@@ -1949,6 +1953,17 @@ function App() {
     );
   }
 
+  function canRecoverReleasedJoin(game: Game) {
+    return Boolean(
+      onchainEnabled &&
+        game.status === "created" &&
+        !game.joinTxHash &&
+        publicKey &&
+        game.creatorPublicKey !== publicKey &&
+        secretFor(game)
+    );
+  }
+
   function transactionActions(game: Game, kind: TransactionKind, hash: string | null | undefined, status?: TxStatus) {
     const effectiveStatus = status ?? statusFor(hash);
     const isIncluded = effectiveStatus === "INCLUDED";
@@ -1959,9 +1974,8 @@ function App() {
       creationStatusFor(game) !== "INCLUDED";
     const canChangeJoin =
       kind === "join" &&
-      game.status === "join_pending" &&
-      game.joinerPublicKey === publicKey &&
-      statusFor(game.joinTxHash) !== "INCLUDED";
+      ((game.status === "join_pending" && game.joinerPublicKey === publicKey && statusFor(game.joinTxHash) !== "INCLUDED") ||
+        canRecoverReleasedJoin(game));
     const canChangeSettlement = kind === "settlement" && (hasPendingSettlement(game) || canSettle(game));
     const canChangeRefund = kind === "refund" && (hasPendingRefund(game) || canCancelOrRefund(game) || canRefund(game));
     const canClearSettlement = kind === "settlement" && Boolean(hash) && !isIncluded;
@@ -2046,7 +2060,7 @@ function App() {
   }
 
   function transactionRow(game: Game, kind: TransactionKind, label: string, hash: string | null | undefined, status?: TxStatus) {
-    if (!hash && kind !== "settlement" && kind !== "refund") return null;
+    if (!hash && kind !== "settlement" && kind !== "refund" && !(kind === "join" && canRecoverReleasedJoin(game))) return null;
     if (!hash && kind === "settlement" && !canSettle(game)) return null;
     if (!hash && kind === "refund" && !canCancelOrRefund(game) && !canRefund(game)) return null;
 
@@ -3265,11 +3279,44 @@ function App() {
 
   async function handleReconcileJoin(game: Game) {
     await runAction(async () => {
+      const txHash = window.prompt(t("pasteJoinHash"));
+      if (!txHash?.trim()) return;
+
+      if (game.status === "created") {
+        const secret = secretFor(game);
+        if (!pseudo || !publicKey || !secret || publicKey === game.creatorPublicKey || !game.gameIdField || !game.creatorPseudoHash || !game.refundDeadlineSlot) {
+          throw new Error(t("invalidJoinRecovery"));
+        }
+        const suggestedDeadline = await strictRefundDeadlineForJoin(game.network, game.refundTimeoutSlots, game.refundDeadlineSlot).catch(
+          () => game.refundDeadlineSlot!
+        );
+        const refundDeadlineSlot = window.prompt(t("pasteJoinRefundDeadlineSlot"), suggestedDeadline);
+        if (refundDeadlineSlot === null) return;
+        const normalizedRefundDeadlineSlot = refundDeadlineSlot.trim() || suggestedDeadline;
+        if (!/^\d+$/.test(normalizedRefundDeadlineSlot)) {
+          throw new Error(t("invalidRefundTimeout"));
+        }
+        const joinerPseudoHash = onchainEnabled ? await pseudoHash(pseudo) : undefined;
+        const joinerCommitment = onchainEnabled
+          ? await onchainCommitment(secret, publicKey, game.gameIdField)
+          : await temporaryCommitment(secret, publicKey, game.id);
+        const recovered = await joinGame(game.id, {
+          joinerPseudo: pseudo,
+          joinerPublicKey: publicKey,
+          joinerPseudoHash,
+          joinerCommitment,
+          refundDeadlineSlot: normalizedRefundDeadlineSlot,
+          joinTxHash: requiredTransactionHash(txHash)
+        });
+        rememberSecret(recovered.id, secret);
+        setSelectedGameId(recovered.id);
+        setMessage(t("joinHashSaved"));
+        return;
+      }
+
       if (game.joinerPublicKey !== publicKey) {
         throw new Error(t("joinerOnlyHash"));
       }
-      const txHash = window.prompt(t("pasteJoinHash"));
-      if (!txHash?.trim()) return;
       const reconciled = await reconcileJoinTx(game.id, requiredTransactionHash(txHash));
       setSelectedGameId(reconciled.id);
       setMessage(t("joinHashSaved"));
