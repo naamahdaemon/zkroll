@@ -16,6 +16,20 @@ The first implementation uses a commit-reveal flow:
 10. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
 11. The UI supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish.
 
+## Screenshots
+
+### Mobile View
+
+<div style="display: flex; flex-wrap: wrap; gap: 10px;">
+  <img src="./assets/mobile_view.png" style="flex: 1 1 300px;" />
+</div>
+
+### Desktop / Cards view
+
+<div style="display: flex; flex-wrap: wrap; gap: 10px;">
+  <img src="./assets/desktop_view.png" style="flex: 1 1 300px;" />
+</div>
+
 ## Packages
 
 - `apps/web`: Vite React frontend.
