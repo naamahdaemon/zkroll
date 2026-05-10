@@ -1192,6 +1192,13 @@ dd {
   gap: 8px;
 }
 
+.transactionTitle {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
 .txRecoveryActions {
   align-items: center;
   display: flex;
@@ -1240,7 +1247,6 @@ dd {
   display: inline-flex;
   font-size: 11px;
   font-weight: 900;
-  margin-left: 8px;
   padding: 3px 7px;
   vertical-align: middle;
 }

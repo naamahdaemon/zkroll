@@ -1825,7 +1825,7 @@ function App() {
   }
 
   function accountExplorerUrl(networkId: NetworkId, address: string) {
-    if (networkId === "zeko") return `https://zekoscan.io/account/${encodeURIComponent(address)}`;
+    if (networkId === "zeko") return `https://zekoscan.io/account/${encodeURIComponent(address)}/zk-txs`;
     return `https://minascan.io/${networkId}/account/${encodeURIComponent(address)}/zk-txs`;
   }
 
@@ -1853,7 +1853,7 @@ function App() {
     return null;
   }
 
-  function displayTx(networkId: NetworkId, hash: string | null | undefined, status?: TxStatus) {
+  function displayTx(networkId: NetworkId, hash: string | null | undefined) {
     if (!hash) return null;
     const content = isExplorerHash(hash) ? (
       <a className="hashLink" href={txExplorerUrl(networkId, hash)} rel="noreferrer" target="_blank">
@@ -1866,17 +1866,6 @@ function App() {
     return (
       <span className="txLine">
         {content}
-        {status && <span className={`txBadge ${status.toLowerCase()}`}>{status}</span>}
-        {status === "PENDING" && isExplorerHash(hash) && (
-          <button
-            className="txAction"
-            disabled={busy}
-            onClick={() => void handleMarkTransactionIncluded(networkId, hash)}
-            type="button"
-          >
-            {t("markIncluded")}
-          </button>
-        )}
       </span>
     );
   }
@@ -1904,9 +1893,20 @@ function App() {
       Boolean(hash) &&
       !isIncluded &&
       (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey);
+    const canMarkIncluded = effectiveStatus === "PENDING" && isExplorerHash(hash);
 
     return (
       <span className="txRecoveryActions">
+        {canMarkIncluded && (
+          <button
+            className="txAction"
+            disabled={busy}
+            onClick={() => void handleMarkTransactionIncluded(game.network, hash!)}
+            type="button"
+          >
+            {t("markIncluded")}
+          </button>
+        )}
         {game.zkappAddress && (
           <a className="txAction" href={accountExplorerUrl(game.network, game.zkappAddress)} rel="noreferrer" target="_blank">
             {t("verifyTransaction")}
@@ -1973,9 +1973,12 @@ function App() {
 
     return (
       <div>
-        <dt>{label}</dt>
+        <dt className="transactionTitle">
+          <span>{label}</span>
+          {status && <span className={`txBadge ${status.toLowerCase()}`}>{status}</span>}
+        </dt>
         <dd className="transactionCell">
-          {hash ? displayTx(game.network, hash, status) : <span className="mutedText">{t("notConfigured")}</span>}
+          {hash ? displayTx(game.network, hash) : <span className="mutedText">{t("notConfigured")}</span>}
           {transactionActions(game, kind, hash, status)}
         </dd>
       </div>
