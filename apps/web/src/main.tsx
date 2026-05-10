@@ -137,6 +137,7 @@ const minJoinDeadlineMarginSlotsByNetwork: Record<NetworkId, number> = {
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
+const leaderboardPerPage = 5;
 const autoConnectStorageKey = "zkroll:auto-connect-wallet";
 const pseudoAdjectives = [
   "Brave",
@@ -1635,6 +1636,7 @@ function App() {
   const [playerSearch, setPlayerSearch] = useState("");
   const [gameIdSearch, setGameIdSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -1758,6 +1760,12 @@ function App() {
   const paginatedGames = useMemo(
     () => filteredGames.slice((gamesPage - 1) * gamesPerPage, gamesPage * gamesPerPage),
     [filteredGames, gamesPage]
+  );
+  const totalLeaderboardPages = Math.max(1, Math.ceil(leaderboardRows.length / leaderboardPerPage));
+  const leaderboardStartIndex = (leaderboardPage - 1) * leaderboardPerPage;
+  const paginatedLeaderboardRows = useMemo(
+    () => leaderboardRows.slice(leaderboardStartIndex, leaderboardPage * leaderboardPerPage),
+    [leaderboardRows, leaderboardPage, leaderboardStartIndex]
   );
 
   const selectedGame = useMemo(
@@ -2064,23 +2072,41 @@ function App() {
           <Trophy size={20} />
         </div>
         {leaderboardRows.length > 0 ? (
-          <div className="leaderboardList">
-            {leaderboardRows.map((row, index) => (
-              <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
-                <span className="leaderboardRank">#{index + 1}</span>
-                <strong>{row.pseudo}</strong>
+          <>
+            <div className="leaderboardList">
+              {paginatedLeaderboardRows.map((row, index) => (
+                <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
+                  <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
+                  <strong>{row.pseudo}</strong>
+                  <span>
+                    {t("gamesPlayed")}: {row.gamesPlayed}
+                  </span>
+                  <span>
+                    {t("gamesWon")}: {row.gamesWon}
+                  </span>
+                  <span>
+                    {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
+                  </span>
+                </div>
+              ))}
+            </div>
+            {leaderboardRows.length > leaderboardPerPage && (
+              <div className="pagination leaderboardPagination">
+                <button disabled={leaderboardPage === 1} onClick={() => setLeaderboardPage((page) => Math.max(1, page - 1))}>
+                  {t("previous")}
+                </button>
                 <span>
-                  {t("gamesPlayed")}: {row.gamesPlayed}
+                  {t("page")} {leaderboardPage} / {totalLeaderboardPages}
                 </span>
-                <span>
-                  {t("gamesWon")}: {row.gamesWon}
-                </span>
-                <span>
-                  {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
-                </span>
+                <button
+                  disabled={leaderboardPage === totalLeaderboardPages}
+                  onClick={() => setLeaderboardPage((page) => Math.min(totalLeaderboardPages, page + 1))}
+                >
+                  {t("next")}
+                </button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         ) : (
           <p className="empty">{t("emptyLeaderboard")}</p>
         )}
@@ -2448,6 +2474,14 @@ function App() {
   useEffect(() => {
     setGamesPage((current) => Math.min(current, totalGamePages));
   }, [totalGamePages]);
+
+  useEffect(() => {
+    setLeaderboardPage(1);
+  }, [network]);
+
+  useEffect(() => {
+    setLeaderboardPage((current) => Math.min(current, totalLeaderboardPages));
+  }, [totalLeaderboardPages]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

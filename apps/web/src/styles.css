@@ -813,6 +813,7 @@ select {
 }
 
 .leaderboardList {
+  align-content: start;
   display: grid;
   gap: 10px;
   flex: 1;
@@ -830,6 +831,7 @@ select {
   display: grid;
   gap: 4px 10px;
   grid-template-columns: auto minmax(0, 1fr);
+  min-height: 106px;
   padding: 10px;
 }
 
