@@ -654,7 +654,9 @@ export function reconcileCreationTx(id: string, creationTxHash: string): Game {
           creation_tx_status = 'PENDING',
           status = 'created',
           updated_at = ?
-      where id = ? and status = 'pending_signature'
+      where id = ?
+        and status in ('pending_signature', 'created')
+        and (creation_tx_hash like 'pending:%' or creation_tx_status in ('PENDING', 'FAILED'))
     `
     )
     .run(creationTxHash, now, id);
@@ -924,7 +926,7 @@ export function reconcileJoinTx(id: string, joinTxHash: string): Game {
           updated_at = ?
       where id = ?
         and status = 'join_pending'
-        and join_tx_hash like 'pending:%'
+        and (join_tx_hash like 'pending:%' or join_tx_status in ('PENDING', 'FAILED'))
     `
     )
     .run(joinTxHash, now, id);
@@ -1014,20 +1016,28 @@ export function prepareSettlementTx(id: string, settlementTxHash: string): Game 
 }
 
 export function clearPendingSettlementTx(id: string, reason?: string): Game {
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
   const now = new Date().toISOString();
   const result = db
     .prepare(
       `
       update games
-      set settlement_tx_hash = null,
+      set creator_die = null,
+          joiner_die = null,
+          winner_public_key = null,
+          settled_at = null,
+          settlement_tx_hash = null,
           settlement_tx_status = 'FAILED',
           failure_reason = ?,
+          status = ?,
           updated_at = ?
       where id = ?
-        and settlement_tx_hash like 'pending:%'
+        and settlement_tx_hash is not null
+        and coalesce(settlement_tx_status, 'PENDING') != 'INCLUDED'
     `
     )
-    .run(reason ?? null, now, id);
+    .run(reason ?? null, revealedStatus(game.creatorReveal, game.joinerReveal), now, id);
 
   if (result.changes !== 1) {
     throw new Error("Pending settlement transaction cannot be cleared");
@@ -1060,6 +1070,10 @@ export function prepareRefundTx(id: string, refundTxHash: string): Game {
 }
 
 export function clearPendingRefundTx(id: string, reason?: string): Game {
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
+  const nextStatus =
+    game.joinerPublicKey === null ? "created" : revealedStatus(game.creatorReveal, game.joinerReveal);
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -1068,12 +1082,15 @@ export function clearPendingRefundTx(id: string, reason?: string): Game {
       set refund_tx_hash = null,
           refund_tx_status = 'FAILED',
           failure_reason = ?,
+          refunded_at = null,
+          status = ?,
           updated_at = ?
       where id = ?
-        and refund_tx_hash like 'pending:%'
+        and refund_tx_hash is not null
+        and coalesce(refund_tx_status, 'PENDING') != 'INCLUDED'
     `
     )
-    .run(reason ?? null, now, id);
+    .run(reason ?? null, nextStatus, now, id);
 
   if (result.changes !== 1) {
     throw new Error("Pending refund transaction cannot be cleared");

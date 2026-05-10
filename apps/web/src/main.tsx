@@ -173,6 +173,7 @@ type ViewMode = "cards" | "app";
 type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "settings";
 type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
 type WalletConnectQrMode = "auro" | "wc";
+type TransactionKind = "creation" | "join" | "settlement" | "refund";
 const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
 const gameStatuses: GameStatus[] = [
   "pending_signature",
@@ -289,15 +290,25 @@ const copy: Record<string, Record<string, string>> = {
     markIncluded: "Mark included",
     confirmIncluded: "Mark this transaction as included? Only do this after checking the explorer.",
     transactionIncluded: "Transaction marked as included.",
+    verifyTransaction: "Verify",
+    changeHash: "Change hash",
     join: "Join",
     reveal: "Reveal",
     settle: "Settle",
     enterSettlementHash: "Enter settlement hash",
     pasteSettlementHash: "Paste the settlement transaction hash visible in Auro or the explorer.",
     settlementHashSaved: "Settlement hash saved. On-chain sync will be checked.",
+    clearPendingSettlement: "Release pending settlement",
+    clearPendingSettlementConfirm: "Release this local pending settlement? Only do this if no settlement transaction exists on-chain.",
+    pendingSettlementCleared: "Pending settlement released. You can settle again or enter the existing hash.",
+    pendingSettlementClearedReason: "Pending settlement manually released",
     enterRefundHash: "Enter refund/cancel hash",
     pasteRefundHash: "Paste the refund or cancel transaction hash visible in Auro or the explorer.",
     refundHashSaved: "Refund/cancel hash saved. On-chain sync will be checked.",
+    clearPendingRefund: "Release pending refund/cancel",
+    clearPendingRefundConfirm: "Release this local pending refund/cancel? Only do this if no refund or cancel transaction exists on-chain.",
+    pendingRefundCleared: "Pending refund/cancel released. You can retry or enter the existing hash.",
+    pendingRefundClearedReason: "Pending refund/cancel manually released",
     refundedGame: "Game refunded",
     failedGame: "Creation failed",
     noLockedFunds: "No funds were locked by the contract.",
@@ -542,15 +553,25 @@ const copy: Record<string, Record<string, string>> = {
     markIncluded: "Marquer incluse",
     confirmIncluded: "Marquer cette transaction comme incluse ? A faire uniquement apres verification dans l'explorateur.",
     transactionIncluded: "Transaction marquee comme incluse.",
+    verifyTransaction: "Verifier",
+    changeHash: "Changer le hash",
     join: "Rejoindre",
     reveal: "Reveler",
     settle: "Regler",
     enterSettlementHash: "Renseigner le hash settlement",
     pasteSettlementHash: "Colle le hash de la transaction settlement visible dans Auro ou l'explorateur.",
     settlementHashSaved: "Hash settlement renseigne. La synchronisation on-chain va etre verifiee.",
+    clearPendingSettlement: "Liberer settlement pending",
+    clearPendingSettlementConfirm: "Liberer ce settlement pending local ? A faire uniquement si aucune transaction settlement n'existe on-chain.",
+    pendingSettlementCleared: "Settlement pending libere. Tu peux relancer le settlement ou renseigner le hash existant.",
+    pendingSettlementClearedReason: "Settlement pending libere manuellement",
     enterRefundHash: "Renseigner le hash refund/cancel",
     pasteRefundHash: "Colle le hash de la transaction refund ou cancel visible dans Auro ou l'explorateur.",
     refundHashSaved: "Hash refund/cancel renseigne. La synchronisation on-chain va etre verifiee.",
+    clearPendingRefund: "Liberer refund/cancel pending",
+    clearPendingRefundConfirm: "Liberer ce refund/cancel pending local ? A faire uniquement si aucune transaction refund ou cancel n'existe on-chain.",
+    pendingRefundCleared: "Refund/cancel pending libere. Tu peux reessayer ou renseigner le hash existant.",
+    pendingRefundClearedReason: "Refund/cancel pending libere manuellement",
     refundedGame: "Partie remboursee",
     failedGame: "Creation echouee",
     noLockedFunds: "Aucun fonds n'a ete verrouille par le contrat.",
@@ -1857,6 +1878,107 @@ function App() {
           </button>
         )}
       </span>
+    );
+  }
+
+  function transactionActions(game: Game, kind: TransactionKind, hash: string | null | undefined, status?: TxStatus) {
+    const effectiveStatus = status ?? statusFor(hash);
+    const isIncluded = effectiveStatus === "INCLUDED";
+    const canChangeCreation =
+      kind === "creation" &&
+      game.creatorPublicKey === publicKey &&
+      (game.status === "pending_signature" || game.status === "created") &&
+      creationStatusFor(game) !== "INCLUDED";
+    const canChangeJoin =
+      kind === "join" &&
+      game.status === "join_pending" &&
+      game.joinerPublicKey === publicKey &&
+      statusFor(game.joinTxHash) !== "INCLUDED";
+    const canChangeSettlement = kind === "settlement" && (hasPendingSettlement(game) || canSettle(game));
+    const canChangeRefund = kind === "refund" && (hasPendingRefund(game) || canCancelOrRefund(game) || canRefund(game));
+    const canClearSettlement = kind === "settlement" && Boolean(hash) && !isIncluded;
+    const canClearRefund = kind === "refund" && Boolean(hash) && !isIncluded;
+    const canReleaseJoin =
+      kind === "join" &&
+      game.status === "join_pending" &&
+      Boolean(hash) &&
+      !isIncluded &&
+      (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey);
+
+    return (
+      <span className="txRecoveryActions">
+        {game.zkappAddress && (
+          <a className="txAction" href={accountExplorerUrl(game.network, game.zkappAddress)} rel="noreferrer" target="_blank">
+            {t("verifyTransaction")}
+          </a>
+        )}
+        {canChangeCreation && (
+          <button className="txAction" disabled={busy} onClick={() => void handleReconcileCreation(game)} type="button">
+            {hash?.startsWith("pending:") ? t("enterHash") : t("changeHash")}
+          </button>
+        )}
+        {canChangeJoin && (
+          <button className="txAction" disabled={busy} onClick={() => void handleReconcileJoin(game)} type="button">
+            {hash?.startsWith("pending:") ? t("enterHash") : t("changeHash")}
+          </button>
+        )}
+        {canChangeSettlement && (
+          <button className="txAction" disabled={busy} onClick={() => void handleReconcileSettlement(game)} type="button">
+            {hash?.startsWith("pending:") || !hash ? t("enterSettlementHash") : t("changeHash")}
+          </button>
+        )}
+        {canChangeRefund && (
+          <button className="txAction" disabled={busy} onClick={() => void handleReconcileRefund(game)} type="button">
+            {hash?.startsWith("pending:") || !hash ? t("enterRefundHash") : t("changeHash")}
+          </button>
+        )}
+        {kind === "creation" && game.status === "pending_signature" && (
+          <>
+            <button
+              className="txAction"
+              disabled={busy || game.creatorPublicKey !== publicKey || !loadPendingCreationMaterial(game, publicKey)}
+              onClick={() => void handleResignCreation(game)}
+              type="button"
+            >
+              {t("resignCreation")}
+            </button>
+            <button className="txAction dangerMini" disabled={busy || game.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(game)} type="button">
+              {t("markFailed")}
+            </button>
+          </>
+        )}
+        {canReleaseJoin && (
+          <button className="txAction dangerMini" disabled={busy} onClick={() => void handleReleaseJoin(game)} type="button">
+            {t("releaseJoin")}
+          </button>
+        )}
+        {canClearSettlement && (
+          <button className="txAction dangerMini" disabled={busy} onClick={() => void handleClearPendingSettlement(game)} type="button">
+            {t("clearPendingSettlement")}
+          </button>
+        )}
+        {canClearRefund && (
+          <button className="txAction dangerMini" disabled={busy} onClick={() => void handleClearPendingRefund(game)} type="button">
+            {t("clearPendingRefund")}
+          </button>
+        )}
+      </span>
+    );
+  }
+
+  function transactionRow(game: Game, kind: TransactionKind, label: string, hash: string | null | undefined, status?: TxStatus) {
+    if (!hash && kind !== "settlement" && kind !== "refund") return null;
+    if (!hash && kind === "settlement" && !canSettle(game)) return null;
+    if (!hash && kind === "refund" && !canCancelOrRefund(game) && !canRefund(game)) return null;
+
+    return (
+      <div>
+        <dt>{label}</dt>
+        <dd className="transactionCell">
+          {hash ? displayTx(game.network, hash, status) : <span className="mutedText">{t("notConfigured")}</span>}
+          {transactionActions(game, kind, hash, status)}
+        </dd>
+      </div>
     );
   }
 
@@ -3248,7 +3370,7 @@ function App() {
 
   async function handleReleaseJoin(game: Game) {
     await runAction(async () => {
-      if (game.status !== "join_pending") return;
+      if (game.status !== "join_pending" || !game.joinTxHash || statusFor(game.joinTxHash) === "INCLUDED") return;
       const confirmed = window.confirm(t("releaseJoin"));
       if (!confirmed) return;
       const released = await failPendingJoin(game.id, t("joinFailedReason"));
@@ -3382,6 +3504,32 @@ function App() {
       setSelectedGameId(refunded.id);
       setTxStatuses((current) => ({ ...current, [refundTxHash]: refunded.refundTxStatus ?? "PENDING" }));
       setMessage(t("refundHashSaved"));
+      await refreshGames();
+    });
+  }
+
+  async function handleClearPendingSettlement(game: Game) {
+    await runAction(async () => {
+      if (!hasPendingSettlement(game)) return;
+      const confirmed = window.confirm(t("clearPendingSettlementConfirm"));
+      if (!confirmed) return;
+      const cleared = await clearPendingSettlementTx(game.id, t("pendingSettlementClearedReason"));
+      updateGameInState(cleared);
+      setSelectedGameId(cleared.id);
+      setMessage(t("pendingSettlementCleared"));
+      await refreshGames();
+    });
+  }
+
+  async function handleClearPendingRefund(game: Game) {
+    await runAction(async () => {
+      if (!hasPendingRefund(game)) return;
+      const confirmed = window.confirm(t("clearPendingRefundConfirm"));
+      if (!confirmed) return;
+      const cleared = await clearPendingRefundTx(game.id, t("pendingRefundClearedReason"));
+      updateGameInState(cleared);
+      setSelectedGameId(cleared.id);
+      setMessage(t("pendingRefundCleared"));
       await refreshGames();
     });
   }
@@ -4220,28 +4368,10 @@ function App() {
                     <span>{t("updatedAt")}: {formatDateTime(selectedGame.updatedAt, locale)}</span>
                   </dd>
                 </div>
-                <div>
-                  <dt>{t("transaction")}</dt>
-                  <dd>{displayTx(selectedGame.network, selectedGame.creationTxHash, creationStatusFor(selectedGame))}</dd>
-                </div>
-                {selectedGame.joinTxHash && (
-                  <div>
-                    <dt>Join tx</dt>
-                    <dd>{displayTx(selectedGame.network, selectedGame.joinTxHash, statusFor(selectedGame.joinTxHash))}</dd>
-                  </div>
-                )}
-                {selectedGame.settlementTxHash && (
-                  <div>
-                    <dt>Settlement tx</dt>
-                    <dd>{displayTx(selectedGame.network, selectedGame.settlementTxHash, statusFor(selectedGame.settlementTxHash))}</dd>
-                  </div>
-                )}
-                {selectedGame.refundTxHash && (
-                  <div>
-                    <dt>Refund tx</dt>
-                    <dd>{displayTx(selectedGame.network, selectedGame.refundTxHash, statusFor(selectedGame.refundTxHash))}</dd>
-                  </div>
-                )}
+                {transactionRow(selectedGame, "creation", t("transaction"), selectedGame.creationTxHash, creationStatusFor(selectedGame))}
+                {transactionRow(selectedGame, "join", "Join tx", selectedGame.joinTxHash, statusFor(selectedGame.joinTxHash))}
+                {transactionRow(selectedGame, "settlement", "Settlement tx", selectedGame.settlementTxHash, statusFor(selectedGame.settlementTxHash))}
+                {transactionRow(selectedGame, "refund", "Refund tx", selectedGame.refundTxHash, statusFor(selectedGame.refundTxHash))}
                 <div>
                   <dt>{t("refund")}</dt>
                   <dd>
@@ -4287,24 +4417,6 @@ function App() {
                 )}
               </dl>
 
-              {selectedGame.status === "pending_signature" && (
-                <div className="actions">
-                  <button className="failoverButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleReconcileCreation(selectedGame)}>
-                    {t("enterHash")}
-                  </button>
-                  <button
-                    className="secondaryButton"
-                    disabled={busy || selectedGame.creatorPublicKey !== publicKey || !loadPendingCreationMaterial(selectedGame, publicKey)}
-                    onClick={() => void handleResignCreation(selectedGame)}
-                  >
-                    {t("resignCreation")}
-                  </button>
-                  <button className="dangerButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
-                    {t("markFailed")}
-                  </button>
-                </div>
-              )}
-
               {selectedGame.status === "created" && (
                 <div className="actions">
                   <button disabled={busy || !canJoin(selectedGame)} onClick={() => void handleJoinGame(selectedGame)} className="primary">
@@ -4314,11 +4426,6 @@ function App() {
                   <button className="warningButton" disabled={busy || !canCancelOrRefund(selectedGame) || hasPendingRefund(selectedGame)} onClick={() => void handleCancelOrRefund(selectedGame)}>
                     {canCancelCreatedGame(selectedGame) ? t("cancelGame") : t("refund")}
                   </button>
-                  {hasPendingRefund(selectedGame) && (
-                    <button className="failoverButton" disabled={busy} onClick={() => void handleReconcileRefund(selectedGame)}>
-                      {t("enterRefundHash")}
-                    </button>
-                  )}
                 </div>
               )}
 
@@ -4330,22 +4437,8 @@ function App() {
 
               {selectedGame.status === "join_pending" && (
                 <div className="actions">
-                  <button
-                    className="failoverButton"
-                    disabled={busy || selectedGame.joinerPublicKey !== publicKey || !selectedGame.joinTxHash?.startsWith("pending:")}
-                    onClick={() => void handleReconcileJoin(selectedGame)}
-                  >
-                    {t("enterHash")}
-                  </button>
                   <button disabled={busy || !canConfirmJoin(selectedGame)} onClick={() => void handleConfirmJoin(selectedGame)} className="primary">
                     {t("confirmJoin")}
-                  </button>
-                  <button
-                    className="warningButton"
-                    disabled={busy || (selectedGame.creatorPublicKey !== publicKey && selectedGame.joinerPublicKey !== publicKey)}
-                    onClick={() => void handleReleaseJoin(selectedGame)}
-                  >
-                    {t("releaseJoin")}
                   </button>
                 </div>
               )}
@@ -4377,19 +4470,9 @@ function App() {
                   <button className="secondaryButton" disabled={busy || !canSettle(selectedGame) || hasPendingSettlement(selectedGame)} onClick={() => void handleSettle(selectedGame)}>
                     {t("settle")}
                   </button>
-                  {hasPendingSettlement(selectedGame) && (
-                    <button className="failoverButton" disabled={busy} onClick={() => void handleReconcileSettlement(selectedGame)}>
-                      {t("enterSettlementHash")}
-                    </button>
-                  )}
                   <button className="warningButton" disabled={busy || !canRefund(selectedGame) || hasPendingRefund(selectedGame)} onClick={() => void handleRefund(selectedGame)}>
                     {t("refund")}
                   </button>
-                  {hasPendingRefund(selectedGame) && (
-                    <button className="failoverButton" disabled={busy} onClick={() => void handleReconcileRefund(selectedGame)}>
-                      {t("enterRefundHash")}
-                    </button>
-                  )}
                 </div>
               )}
 

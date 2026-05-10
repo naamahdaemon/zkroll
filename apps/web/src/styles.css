@@ -1187,12 +1187,52 @@ dd {
   gap: 6px;
 }
 
+.transactionCell {
+  display: grid;
+  gap: 8px;
+}
+
+.txRecoveryActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .txAction {
+  align-items: center;
+  background: rgba(232, 229, 219, 0.82);
+  border: 1px solid var(--border);
   border-radius: 999px;
+  color: var(--text);
+  display: inline-flex;
   font-size: 11px;
   font-weight: 900;
+  justify-content: center;
   min-height: 24px;
   padding: 0 9px;
+  text-decoration: none;
+}
+
+.txAction:not(:disabled):hover {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}
+
+.txAction.dangerMini {
+  background: #f7e6e8;
+  border-color: #e4b3bc;
+  color: #8b293a;
+}
+
+[data-theme="dark"] .txAction {
+  background: rgba(214, 224, 217, 0.12);
+}
+
+[data-theme="dark"] .txAction.dangerMini {
+  background: rgba(147, 51, 74, 0.22);
+  border-color: rgba(255, 151, 171, 0.35);
+  color: #ffbdc8;
 }
 
 .txBadge {
