@@ -53,7 +53,15 @@ import {
 } from "./validation.js";
 import { witnessForGameId } from "./merkle.js";
 import { notifyGameInvite, notifyGameMessage, notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
-import { createProverJob, getProverJob, serverCommitment, serverGameKey, serverProverInfo, serverPseudoHash } from "./serverProver.js";
+import {
+  clearServerProverCache,
+  createProverJob,
+  getProverJob,
+  serverCommitment,
+  serverGameKey,
+  serverProverInfo,
+  serverPseudoHash
+} from "./serverProver.js";
 
 const app = Fastify({
   logger: true
@@ -64,6 +72,8 @@ const currentSlotCacheMs = Number(process.env.ZKROLL_CURRENT_SLOT_CACHE_MS ?? 15
 const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_000);
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
+const adminPublicKey = process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRAbdmDSFhv3MqtkDWh6jYNvK81db5S4KXJvgzLCn";
+const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server";
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
 const currentSlotRequests = new Map<NetworkId, Promise<string>>();
 const accountBalanceCache = new Map<string, { expiresAt: number; balance: string | null; error: string | null }>();
@@ -402,6 +412,22 @@ await app.register(cors, {
 app.get("/health", async () => ({ ok: true }));
 
 app.get("/prover/info", async () => serverProverInfo());
+
+app.post("/admin/prover/cache/clear", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    if (!serverProverModeEnabled) {
+      throw new Error("Server prover mode is not enabled.");
+    }
+    if (requiredString(body, "publicKey") !== adminPublicKey) {
+      return reply.code(403).send({ error: "Admin access denied" });
+    }
+    request.log.warn({ adminPublicKey }, "Admin clearing server prover o1js cache");
+    return clearServerProverCache();
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
 
 app.post("/prover/pseudo-hash", async (request, reply) => {
   try {

@@ -45,6 +45,7 @@ import {
 import {
   createGame,
   createPlayer,
+  clearServerProverCache,
   confirmJoinGame,
   clearPendingRefundTx,
   clearPendingSettlementTx,
@@ -126,6 +127,7 @@ import "./types";
 
 const nanoMina = 1_000_000_000;
 const onchainEnabled = import.meta.env.VITE_ONCHAIN_ENABLED === "true";
+const adminPublicKey = import.meta.env.VITE_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRAbdmDSFhv3MqtkDWh6jYNvK81db5S4KXJvgzLCn";
 const defaultRefundTimeoutSlots = Number(import.meta.env.VITE_REFUND_TIMEOUT_SLOTS ?? 120);
 const defaultMinJoinDeadlineMarginSlots = Number(import.meta.env.VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS ?? 20);
 const joinDeadlineSafetySlots = Math.max(1, Number(import.meta.env.VITE_JOIN_DEADLINE_SAFETY_SLOTS ?? 1));
@@ -351,6 +353,10 @@ const copy: Record<string, Record<string, string>> = {
     proverModeLabel: "Prover mode",
     clientProverMode: "Client",
     serverProverMode: "Server",
+    adminTools: "Admin tools",
+    clearServerProverCache: "Clear server prover cache",
+    clearServerProverCacheConfirm: "Clear the server o1js cache and reset compiled prover state? Do this only when no server proof is running.",
+    serverProverCacheCleared: "Server prover cache cleared.",
     walletTab: "Wallet",
     newGameTab: "New",
     gamesTab: "Games",
@@ -622,6 +628,10 @@ const copy: Record<string, Record<string, string>> = {
     proverModeLabel: "Mode prover",
     clientProverMode: "Client",
     serverProverMode: "Serveur",
+    adminTools: "Outils admin",
+    clearServerProverCache: "Vider cache prover serveur",
+    clearServerProverCacheConfirm: "Vider le cache o1js serveur et reinitialiser l'etat compile du prover ? A faire seulement quand aucune preuve serveur ne tourne.",
+    serverProverCacheCleared: "Cache prover serveur vide.",
     walletTab: "Wallet",
     newGameTab: "Nouvelle",
     gamesTab: "Parties",
@@ -2926,6 +2936,18 @@ function App() {
     });
   }
 
+  async function handleClearServerProverCache() {
+    await runAction(async () => {
+      if (!publicKey || publicKey !== adminPublicKey || proverMode() !== "server") {
+        throw new Error(t("walletRequired"));
+      }
+      const confirmed = window.confirm(t("clearServerProverCacheConfirm"));
+      if (!confirmed) return;
+      const result = await clearServerProverCache(publicKey);
+      setMessage(`${t("serverProverCacheCleared")} ${result.cacheDirectory}`);
+    });
+  }
+
   function handleGameCardSelect(gameId: string) {
     setDeepLinkedGameTarget(null);
     setSelectedGameId(gameId);
@@ -3033,6 +3055,15 @@ function App() {
             <b>{proverMode() === "server" ? t("serverProverMode") : t("clientProverMode")}</b>
           </span>
         </div>
+        {proverMode() === "server" && publicKey === adminPublicKey && (
+          <div className="settingsInfoBox">
+            <strong>{t("adminTools")}</strong>
+            <button className="warningButton" disabled={busy} onClick={() => void handleClearServerProverCache()} type="button">
+              <RefreshCw size={16} />
+              {t("clearServerProverCache")}
+            </button>
+          </div>
+        )}
       </>
     );
   }

@@ -11,9 +11,13 @@ import {
   getBackendPreference,
   type VerificationKey
 } from "o1js-native";
+import { rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { networks, type GameStatus, type NetworkId, type PayoutMode } from "@zkroll/shared";
 import { createNativeMinaNetwork, diceOutcome, NativeZkDiceGame } from "./nativeZkDiceGame.js";
 
+const require = createRequire(import.meta.url);
+const cacheDir = require("cachedir") as (name: string) => string;
 const feeNanoMina = Number(process.env.ZKROLL_PROVER_FEE_NANOMINA ?? process.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const maxWorkers = Math.max(1, Number(process.env.ZKROLL_PROVER_WORKERS ?? 2));
 const minaAccountCreationFeeNanoMina = "1000000000";
@@ -404,7 +408,36 @@ export function serverProverInfo() {
   return {
     proverMode: "server",
     o1jsVersion: "2.15.0-rc.0",
-    backend: getBackendPreference()
+    backend: getBackendPreference(),
+    cacheDirectory: cacheDir("o1js"),
+    running,
+    queued: queue.length
+  };
+}
+
+export async function clearServerProverCache() {
+  if (running > 0) {
+    throw new Error("Cannot clear o1js cache while server prover jobs are running.");
+  }
+
+  const droppedQueuedJobs = queue.length;
+  for (const job of queue.splice(0)) {
+    job.status = "failed";
+    job.error = "Server prover cache was cleared by admin before this job started.";
+    job.updatedAt = now();
+  }
+
+  compilePromises.clear();
+  verificationKeys.clear();
+  const cacheDirectory = cacheDir("o1js");
+  await rm(cacheDirectory, { recursive: true, force: true });
+
+  return {
+    ok: true,
+    cacheDirectory,
+    droppedQueuedJobs,
+    running,
+    queued: queue.length
   };
 }
 

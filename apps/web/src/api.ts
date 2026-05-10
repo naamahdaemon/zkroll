@@ -252,6 +252,16 @@ export function getUnreadMessageCounts(publicKey: string) {
   return request<{ counts: Record<string, number> }>(`/messages/unread/${encodeURIComponent(publicKey)}`);
 }
 
+export function clearServerProverCache(publicKey: string) {
+  return request<{ ok: true; cacheDirectory: string; droppedQueuedJobs: number; running: number; queued: number }>(
+    "/admin/prover/cache/clear",
+    {
+      method: "POST",
+      body: JSON.stringify({ publicKey })
+    }
+  );
+}
+
 export type GameNotificationSubscription = {
   gameId: string;
   publicKey: string;

@@ -102,6 +102,8 @@ The server prover path is intentionally isolated from the web bundle. It uses `o
 
 The current server prover implementation is an in-process async queue limited by `ZKROLL_PROVER_WORKERS`. It is not yet a durable distributed prover service; queued jobs are lost if the API restarts.
 
+When `ZKROLL_PROVER_MODE=server` is set on the API and `VITE_PROVER_MODE=server` is set on the web app, an admin-only maintenance action is available in Settings for the configured `ZKROLL_ADMIN_PUBLIC_KEY` / `VITE_ADMIN_PUBLIC_KEY`. It clears the native o1js filesystem cache, drops queued prover jobs, and resets in-memory compile promises. It refuses to run while a prover job is active. Because o1js native state is loaded in-process, restart the API if clearing the cache does not resolve a backend compiler/prover error.
+
 On Windows, `o1js@2.15.0-rc.0` currently reports that `@o1js/native-win32-x64` is unavailable. The native prover test is therefore intended for Linux/Docker, where `@o1js/native-linux-*` is present in the lockfile.
 
 ## Browser Proving Requirements

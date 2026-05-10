@@ -141,8 +141,10 @@ ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
+ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
+ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -160,8 +162,10 @@ $env:ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 $env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 $env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
 $env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
+$env:ZKROLL_PROVER_MODE="client"
 $env:ZKROLL_PROVER_WORKERS="2"
 $env:ZKROLL_PROVER_FEE_NANOMINA="100000000"
+$env:ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
 
@@ -175,8 +179,10 @@ export ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
 export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
+export ZKROLL_PROVER_MODE="client"
 export ZKROLL_PROVER_WORKERS="2"
 export ZKROLL_PROVER_FEE_NANOMINA="100000000"
+export ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
 
@@ -203,9 +209,13 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 
 `ZKROLL_PROVER_WORKERS` controls the number of concurrent server prover jobs when `VITE_PROVER_MODE=server`. The current implementation uses an in-process async queue, so keep this value conservative until a dedicated native prover worker pool is introduced.
 
+`ZKROLL_PROVER_MODE=server` enables server-prover-only admin maintenance endpoints. Keep it aligned with `VITE_PROVER_MODE=server` in deployments that use the native server prover.
+
 When server prover mode is enabled, the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
 
 `ZKROLL_PROVER_FEE_NANOMINA` is the fee used when the API builds proved transactions in server prover mode. The wallet still signs and pays the transaction fee.
+
+`ZKROLL_ADMIN_PUBLIC_KEY` controls access to server-prover admin maintenance actions, including clearing the o1js native cache. Set it to the same wallet public key as `VITE_ADMIN_PUBLIC_KEY`. If omitted, the API defaults to the project owner's current admin key.
 
 ## 7. Configure The Web App
 
@@ -233,6 +243,7 @@ VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
 VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
 VITE_PROVER_MODE=client
+VITE_ADMIN_PUBLIC_KEY=
 VITE_SERVER_PROVER_POLL_MS=1500
 VITE_SERVER_PROVER_WALLET_DELAY_MS=2500
 VITE_TX_POLL_INTERVAL_MS=60000
@@ -274,6 +285,8 @@ The web app is installable as a PWA. Firebase push notifications require all `VI
 
 - `client` is the default and preserves the current privacy model. Compilation and proof generation happen in the browser with the stable client o1js version, and secrets stay local.
 - `server` is experimental. The browser asks the API to compile/prove asynchronously with the server-only native prover, then the wallet signs the returned transaction JSON. This can help devices that cannot prove locally, but it sends the game secrets required by the circuit to the API.
+
+`VITE_ADMIN_PUBLIC_KEY` shows server-prover admin tools in Settings when `VITE_PROVER_MODE=server` and the connected wallet matches this key. The current admin tool clears the API's o1js native cache and resets in-memory compiled prover state. It refuses to run while a server prover job is active.
 
 `VITE_SERVER_PROVER_POLL_MS` controls how often the browser polls the API while waiting for a server prover job.
 
