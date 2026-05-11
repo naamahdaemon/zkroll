@@ -30,6 +30,13 @@ export function getPlayerByPublicKey(publicKey: string) {
   return request<Player>(`/players/by-public-key/${encodeURIComponent(publicKey)}`);
 }
 
+export function getPlayersByPublicKeys(publicKeys: string[]) {
+  return request<{ items: Player[] }>("/players/by-public-keys", {
+    method: "POST",
+    body: JSON.stringify({ publicKeys })
+  });
+}
+
 export function listPreviousOpponents(publicKey: string) {
   return request<{ items: Player[] }>(`/players/${encodeURIComponent(publicKey)}/previous-opponents`);
 }

@@ -52,6 +52,7 @@ import {
   failPendingJoin,
   getCurrentSlot,
   getPlayerByPublicKey,
+  getPlayersByPublicKeys,
   getTransactionStatuses,
   getUnreadMessageCounts,
   getWalletBalance,
@@ -320,6 +321,7 @@ const copy: Record<string, Record<string, string>> = {
     clearPendingRefundConfirm: "Release this local pending refund/cancel? Only do this if no refund or cancel transaction exists on-chain.",
     pendingRefundCleared: "Pending refund/cancel released. You can retry or enter the existing hash.",
     pendingRefundClearedReason: "Pending refund/cancel manually released",
+    transactionHashAlreadyUsed: "This transaction hash is already used by the {kind} transaction for this game.",
     refundedGame: "Game refunded",
     failedGame: "Creation failed",
     noLockedFunds: "No funds were locked by the contract.",
@@ -596,6 +598,7 @@ const copy: Record<string, Record<string, string>> = {
     clearPendingRefundConfirm: "Liberer ce refund/cancel pending local ? A faire uniquement si aucune transaction refund ou cancel n'existe on-chain.",
     pendingRefundCleared: "Refund/cancel pending libere. Tu peux reessayer ou renseigner le hash existant.",
     pendingRefundClearedReason: "Refund/cancel pending libere manuellement",
+    transactionHashAlreadyUsed: "Ce hash de transaction est deja utilise par la transaction {kind} de cette partie.",
     refundedGame: "Partie remboursee",
     failedGame: "Creation echouee",
     noLockedFunds: "Aucun fonds n'a ete verrouille par le contrat.",
@@ -1727,6 +1730,7 @@ function App() {
   const [gameMessages, setGameMessages] = useState<Record<string, GameMessage[]>>({});
   const [unreadMessageCounts, setUnreadMessageCounts] = useState<Record<string, number>>({});
   const [playerMessagePrefs, setPlayerMessagePrefs] = useState<Record<string, boolean>>({});
+  const [playerPseudosByPublicKey, setPlayerPseudosByPublicKey] = useState<Record<string, string>>({});
   const [messageDialog, setMessageDialog] = useState<{ game: Game; receiverPublicKey: string; receiverPseudo: string } | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
 
@@ -1735,17 +1739,35 @@ function App() {
     [games, network, publicKey]
   );
 
+  const visibleGamePlayerKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const game of visibleGames) {
+      keys.add(game.creatorPublicKey);
+      if (game.joinerPublicKey) keys.add(game.joinerPublicKey);
+    }
+    return Array.from(keys).sort();
+  }, [visibleGames]);
+  const visibleGamePlayerKey = visibleGamePlayerKeys.join("|");
+
   const leaderboardRows = useMemo(() => {
-    const rows = new Map<string, { publicKey: string; pseudo: string; gamesPlayed: number; gamesWon: number; amountWonNanoMina: bigint }>();
-    const ensureRow = (publicKeyValue: string, pseudoValue: string) => {
+    const rows = new Map<
+      string,
+      { publicKey: string; pseudo: string; pseudoSeenAt: number; gamesPlayed: number; gamesWon: number; amountWonNanoMina: bigint }
+    >();
+    const ensureRow = (publicKeyValue: string, pseudoValue: string, pseudoSeenAt: number) => {
+      const displayPseudo = playerPseudosByPublicKey[publicKeyValue] ?? pseudoValue;
       const existing = rows.get(publicKeyValue);
       if (existing) {
-        existing.pseudo = pseudoValue || existing.pseudo;
+        if (displayPseudo && (playerPseudosByPublicKey[publicKeyValue] || pseudoSeenAt >= existing.pseudoSeenAt)) {
+          existing.pseudo = displayPseudo;
+          existing.pseudoSeenAt = pseudoSeenAt;
+        }
         return existing;
       }
       const created = {
         publicKey: publicKeyValue,
-        pseudo: pseudoValue,
+        pseudo: displayPseudo,
+        pseudoSeenAt,
         gamesPlayed: 0,
         gamesWon: 0,
         amountWonNanoMina: 0n
@@ -1757,21 +1779,25 @@ function App() {
     visibleGames
       .filter((game) => game.status !== "pending_signature" && game.status !== "failed")
       .forEach((game) => {
-        ensureRow(game.creatorPublicKey, game.creatorPseudo).gamesPlayed += 1;
+        const pseudoSeenAt = new Date(game.updatedAt ?? game.createdAt).getTime();
+        ensureRow(game.creatorPublicKey, game.creatorPseudo, pseudoSeenAt).gamesPlayed += 1;
         if (game.joinerPublicKey && game.joinerPseudo) {
-          ensureRow(game.joinerPublicKey, game.joinerPseudo).gamesPlayed += 1;
+          ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt).gamesPlayed += 1;
         }
         if (game.status === "settled" && game.winnerPublicKey) {
           const winnerPseudo =
             game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey;
-          const winner = ensureRow(game.winnerPublicKey, winnerPseudo);
+          const winner = ensureRow(game.winnerPublicKey, winnerPseudo, pseudoSeenAt);
           winner.gamesWon += 1;
           winner.amountWonNanoMina += payoutNanoMinaForWinner(game);
         }
       });
 
     return Array.from(rows.values())
-      .map((row) => ({ ...row, amountWonNanoMina: row.amountWonNanoMina.toString() } satisfies LeaderboardRow))
+      .map(
+        ({ pseudoSeenAt, ...row }) =>
+          ({ ...row, amountWonNanoMina: row.amountWonNanoMina.toString() } satisfies LeaderboardRow)
+      )
       .sort((left, right) => {
         const wonDiff = right.gamesWon - left.gamesWon;
         if (wonDiff !== 0) return wonDiff;
@@ -1779,7 +1805,7 @@ function App() {
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
         return right.gamesPlayed - left.gamesPlayed;
       });
-  }, [visibleGames]);
+  }, [playerPseudosByPublicKey, visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -1837,7 +1863,13 @@ function App() {
       { network: selectedGame.network, hash: selectedGame.settlementTxHash },
       { network: selectedGame.network, hash: selectedGame.refundTxHash }
     ].filter((item): item is { network: NetworkId; hash: string } => Boolean(item.hash) && isExplorerHash(item.hash));
-  }, [selectedGame]);
+  }, [
+    selectedGame?.creationTxHash,
+    selectedGame?.joinTxHash,
+    selectedGame?.network,
+    selectedGame?.refundTxHash,
+    selectedGame?.settlementTxHash
+  ]);
 
   const totalUnreadMessages = useMemo(
     () => Object.values(unreadMessageCounts).reduce((sum, count) => sum + count, 0),
@@ -1949,6 +1981,18 @@ function App() {
         !hash.startsWith("settle_") &&
         !hash.startsWith("refund_")
     );
+  }
+
+  function assertGameTransactionHashAvailable(game: Game, kind: TransactionKind, hash: string) {
+    const duplicate = [
+      { kind: "creation", hash: game.creationTxHash },
+      { kind: "join", hash: game.joinTxHash },
+      { kind: "settlement", hash: game.settlementTxHash },
+      { kind: "refund", hash: game.refundTxHash }
+    ].find((item) => item.kind !== kind && item.hash === hash);
+    if (duplicate) {
+      throw new Error(t("transactionHashAlreadyUsed").replace("{kind}", duplicate.kind));
+    }
   }
 
   function txExplorerUrl(networkId: NetworkId, hash: string) {
@@ -2565,8 +2609,42 @@ function App() {
   }, [message]);
 
   useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled || busy || document.visibilityState !== "visible") return;
+      await refreshGames().catch(() => undefined);
+    };
+
+    const interval = window.setInterval(() => void poll(), txPollIntervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [busy, network, publicKey, selectedGameId]);
+
+  useEffect(() => {
     void refreshUnreadMessages().catch(() => undefined);
   }, [publicKey]);
+
+  useEffect(() => {
+    const publicKeys = visibleGamePlayerKey ? visibleGamePlayerKey.split("|") : [];
+    if (publicKeys.length === 0) {
+      setPlayerPseudosByPublicKey({});
+      return;
+    }
+    let cancelled = false;
+    void getPlayersByPublicKeys(publicKeys)
+      .then((result) => {
+        if (cancelled) return;
+        setPlayerPseudosByPublicKey(
+          Object.fromEntries(result.items.map((player) => [player.publicKey, player.pseudo]))
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleGamePlayerKey]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -3248,6 +3326,7 @@ function App() {
       const player = await getPlayerByPublicKey(account);
       setCurrentPlayer(player);
       setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
+      setPlayerPseudosByPublicKey((current) => ({ ...current, [player.publicKey]: player.pseudo }));
       setPseudo(player.pseudo);
       setPseudoModalOpen(false);
       localStorage.setItem(autoConnectStorageKey, "true");
@@ -3286,6 +3365,7 @@ function App() {
     const wasEditing = Boolean(pseudo);
     setCurrentPlayer(player);
     setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
+    setPlayerPseudosByPublicKey((current) => ({ ...current, [player.publicKey]: player.pseudo }));
     setPseudo(player.pseudo);
     setPseudoModalOpen(false);
     setMessage(`${wasEditing ? t("pseudoUpdated") : t("pseudoSaved")} ${player.pseudo}.`);
@@ -3386,7 +3466,9 @@ function App() {
       const material = loadPendingCreationMaterial(game, publicKey);
       const txHash = window.prompt(t("pasteCreationHash"));
       if (!txHash?.trim()) return;
-      const reconciled = await reconcileCreationTx(game.id, requiredTransactionHash(txHash));
+      const creationTxHash = requiredTransactionHash(txHash);
+      assertGameTransactionHashAvailable(game, "creation", creationTxHash);
+      const reconciled = await reconcileCreationTx(game.id, creationTxHash);
       updateGameInState(reconciled);
       if (material?.invitedPublicKey) {
         await sendGameInvite(reconciled, material.invitedPublicKey);
@@ -3401,6 +3483,8 @@ function App() {
     await runAction(async () => {
       const txHash = window.prompt(t("pasteJoinHash"));
       if (!txHash?.trim()) return;
+      const joinTxHash = requiredTransactionHash(txHash);
+      assertGameTransactionHashAvailable(game, "join", joinTxHash);
 
       if (game.status === "created") {
         const pendingJoin = publicKey ? loadPendingJoinMaterial(game, publicKey) : null;
@@ -3428,7 +3512,7 @@ function App() {
           joinerPseudoHash,
           joinerCommitment,
           refundDeadlineSlot: normalizedRefundDeadlineSlot,
-          joinTxHash: requiredTransactionHash(txHash)
+          joinTxHash
         });
         rememberSecret(recovered.id, secret);
         setSelectedGameId(recovered.id);
@@ -3439,7 +3523,7 @@ function App() {
       if (game.joinerPublicKey !== publicKey) {
         throw new Error(t("joinerOnlyHash"));
       }
-      const reconciled = await reconcileJoinTx(game.id, requiredTransactionHash(txHash));
+      const reconciled = await reconcileJoinTx(game.id, joinTxHash);
       setSelectedGameId(reconciled.id);
       setMessage(t("joinHashSaved"));
     });
@@ -3667,7 +3751,9 @@ function App() {
             nextRefundDeadlineSlot: refundDeadlineSlot,
             onProgress: joinProgress
           });
-          joined = await reconcileJoinTx(joined.id, requiredTransactionHash(txHash));
+          const joinTxHash = requiredTransactionHash(txHash);
+          assertGameTransactionHashAvailable(joined, "join", joinTxHash);
+          joined = await reconcileJoinTx(joined.id, joinTxHash);
         } catch (error) {
           if (!walletSignatureRequested) {
             const released = await failPendingJoin(joined.id, (error as Error).message);
@@ -3773,6 +3859,7 @@ function App() {
             refundDeadlineSlot: game.refundDeadlineSlot,
             onProgress: settleProgress
           });
+          assertGameTransactionHashAvailable(game, "settlement", txHash);
         } catch (error) {
           if (!walletSignatureRequested) {
             updateGameInState(await clearPendingSettlementTx(game.id, (error as Error).message));
@@ -3796,6 +3883,8 @@ function App() {
       if (!canSettle(game) && !hasPendingSettlement(game)) throw new Error(t("incompleteSettlement"));
       const settlementTxHash = window.prompt(t("pasteSettlementHash"));
       if (!settlementTxHash?.trim()) return;
+      const normalizedSettlementTxHash = requiredTransactionHash(settlementTxHash);
+      assertGameTransactionHashAvailable(game, "settlement", normalizedSettlementTxHash);
 
       const { creatorDie, joinerDie } = await computeDice(game);
       const winnerPublicKey =
@@ -3804,10 +3893,10 @@ function App() {
         creatorDie,
         joinerDie,
         winnerPublicKey,
-        settlementTxHash: settlementTxHash.trim()
+        settlementTxHash: normalizedSettlementTxHash
       });
       setSelectedGameId(settled.id);
-      setTxStatuses((current) => ({ ...current, [settlementTxHash.trim()]: settled.settlementTxStatus ?? "PENDING" }));
+      setTxStatuses((current) => ({ ...current, [normalizedSettlementTxHash]: settled.settlementTxStatus ?? "PENDING" }));
       setMessage(t("settlementHashSaved"));
       await refreshGames();
     });
@@ -3824,6 +3913,7 @@ function App() {
       if (!txHashInput?.trim()) return;
 
       const refundTxHash = requiredTransactionHash(txHashInput);
+      assertGameTransactionHashAvailable(game, "refund", refundTxHash);
       const refunded = await refundGame(game.id, { refundTxHash });
       setSelectedGameId(refunded.id);
       setTxStatuses((current) => ({ ...current, [refundTxHash]: refunded.refundTxStatus ?? "PENDING" }));
@@ -3905,6 +3995,7 @@ function App() {
         }
       }
 
+      assertGameTransactionHashAvailable(game, "refund", txHash);
       await refundGame(game.id, { refundTxHash: txHash });
       setMessage(onchainEnabled ? t("refundSent") : t("refundMock"));
     });
@@ -3948,6 +4039,7 @@ function App() {
         }
       }
 
+      assertGameTransactionHashAvailable(game, "refund", txHash);
       const refunded = await refundGame(game.id, { refundTxHash: txHash });
       setSelectedGameId(refunded.id);
       setMessage(t("cancelSent"));

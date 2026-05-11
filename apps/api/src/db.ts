@@ -263,6 +263,56 @@ type GameMessageRow = {
   read_at: string | null;
 };
 
+type GameTransactionPhase = "creation" | "join" | "settlement" | "refund";
+
+const localTransactionPrefixes = ["pending:", "fake", "create_", "join_", "settle_", "refund_"];
+
+function isLocalTransactionHash(hash: string) {
+  return localTransactionPrefixes.some((prefix) => hash.startsWith(prefix));
+}
+
+function gameTransactionHashes(game: Game): Array<{ phase: GameTransactionPhase; hash: string | null | undefined }> {
+  return [
+    { phase: "creation", hash: game.creationTxHash },
+    { phase: "join", hash: game.joinTxHash },
+    { phase: "settlement", hash: game.settlementTxHash },
+    { phase: "refund", hash: game.refundTxHash }
+  ];
+}
+
+function assertTransactionHashAvailable(id: string, phase: GameTransactionPhase, hash: string) {
+  if (isLocalTransactionHash(hash)) return;
+
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
+
+  const duplicateInGame = gameTransactionHashes(game).find((item) => item.hash === hash && item.phase !== phase);
+  if (duplicateInGame) {
+    throw new Error(`Transaction hash already used by the ${duplicateInGame.phase} transaction for this game`);
+  }
+
+  const existing = db
+    .prepare(
+      `
+      select id,
+        case
+          when creation_tx_hash = ? then 'creation'
+          when join_tx_hash = ? then 'join'
+          when settlement_tx_hash = ? then 'settlement'
+          when refund_tx_hash = ? then 'refund'
+        end as phase
+      from games
+      where ? in (creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash)
+      limit 1
+    `
+    )
+    .get(hash, hash, hash, hash, hash) as { id: string; phase: GameTransactionPhase | null } | undefined;
+
+  if (existing && (existing.id !== id || existing.phase !== phase)) {
+    throw new Error("Transaction hash already used by another game transaction");
+  }
+}
+
 function playerFromRow(row: PlayerRow): Player {
   return {
     pseudo: row.pseudo,
@@ -384,6 +434,16 @@ export function getPlayerByPseudo(pseudo: string): Player | null {
 export function getPlayerByPublicKey(publicKey: string): Player | null {
   const row = db.prepare("select * from players where public_key = ?").get(publicKey) as PlayerRow | undefined;
   return row ? playerFromRow(row) : null;
+}
+
+export function listPlayersByPublicKeys(publicKeys: string[]): Player[] {
+  const uniquePublicKeys = Array.from(new Set(publicKeys.filter(Boolean)));
+  if (uniquePublicKeys.length === 0) return [];
+  const placeholders = uniquePublicKeys.map(() => "?").join(", ");
+  const rows = db
+    .prepare(`select * from players where public_key in (${placeholders}) order by pseudo asc`)
+    .all(...uniquePublicKeys) as PlayerRow[];
+  return rows.map(playerFromRow);
 }
 
 export function listPreviousOpponents(publicKey: string): Player[] {
@@ -645,6 +705,7 @@ export function createGame(input: {
 }
 
 export function reconcileCreationTx(id: string, creationTxHash: string): Game {
+  assertTransactionHashAvailable(id, "creation", creationTxHash);
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -878,6 +939,7 @@ export function joinGame(
     joinTxHash: string;
   }
 ): Game {
+  assertTransactionHashAvailable(id, "join", input.joinTxHash);
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -955,6 +1017,7 @@ export function reserveJoinInvitation(id: string, invitee: Player): Game {
 }
 
 export function reconcileJoinTx(id: string, joinTxHash: string): Game {
+  assertTransactionHashAvailable(id, "join", joinTxHash);
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -1030,6 +1093,7 @@ export function failPendingJoin(id: string, reason?: string): Game {
 }
 
 export function prepareSettlementTx(id: string, settlementTxHash: string): Game {
+  assertTransactionHashAvailable(id, "settlement", settlementTxHash);
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -1086,6 +1150,7 @@ export function clearPendingSettlementTx(id: string, reason?: string): Game {
 }
 
 export function prepareRefundTx(id: string, refundTxHash: string): Game {
+  assertTransactionHashAvailable(id, "refund", refundTxHash);
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -1139,6 +1204,7 @@ export function clearPendingRefundTx(id: string, reason?: string): Game {
 }
 
 export function refundGame(id: string, input: { refundTxHash: string }): Game {
+  assertTransactionHashAvailable(id, "refund", input.refundTxHash);
   const now = new Date().toISOString();
   const refundTxStatus: TransactionStatus =
     input.refundTxHash.startsWith("fake") || input.refundTxHash.startsWith("refund_") ? "INCLUDED" : "PENDING";
@@ -1228,6 +1294,7 @@ export function settleGame(
     settlementTxHash: string;
   }
 ): Game {
+  assertTransactionHashAvailable(id, "settlement", input.settlementTxHash);
   const now = new Date().toISOString();
   const settlementTxStatus: TransactionStatus =
     input.settlementTxHash.startsWith("fake") || input.settlementTxHash.startsWith("settle_") ? "INCLUDED" : "PENDING";

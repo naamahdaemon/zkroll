@@ -21,6 +21,7 @@ import {
   listGames,
   listNewGameNotificationSubscriptionsForPublicKey,
   listNotificationSubscriptionsForPublicKey,
+  listPlayersByPublicKeys,
   listPreviousOpponents,
   markGameMessagesRead,
   markCreationFailed,
@@ -493,6 +494,16 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
   const player = getPlayerByPublicKey(publicKey);
   if (!player) return reply.code(404).send({ error: "Player not found" });
   return player;
+});
+
+app.post("/players/by-public-keys", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    const publicKeys = Array.isArray(body.publicKeys) ? body.publicKeys.map(String) : [];
+    return { items: listPlayersByPublicKeys(publicKeys) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
 });
 
 app.get("/players/:publicKey/previous-opponents", async (request, reply) => {
