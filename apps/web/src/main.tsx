@@ -188,6 +188,7 @@ type LeaderboardPeriod = "all" | "month" | "week" | "day";
 type LeaderboardRow = {
   publicKey: string;
   pseudo: string;
+  score: number;
   gamesPlayed: number;
   gamesWon: number;
   uniqueOpponents: number;
@@ -385,6 +386,7 @@ const copy: Record<string, Record<string, string>> = {
     gamesTab: "Games",
     leaderboard: "Leaderboard",
     leaderboardTab: "Ranks",
+    leaderboardScore: "Score",
     gamesPlayed: "Games",
     gamesWon: "Won",
     uniqueOpponents: "Opponents",
@@ -674,6 +676,7 @@ const copy: Record<string, Record<string, string>> = {
     gamesTab: "Parties",
     leaderboard: "Classement",
     leaderboardTab: "Classement",
+    leaderboardScore: "Score",
     gamesPlayed: "Parties",
     gamesWon: "Gagnees",
     uniqueOpponents: "Adversaires",
@@ -1567,6 +1570,22 @@ function payoutNanoMinaForWinner(game: Game): bigint {
   return game.payoutMode === "opponent_takes_all" ? stake : stake * 2n;
 }
 
+function leaderboardScore(gamesPlayed: number, gamesWon: number, uniqueOpponents: number): number {
+  if (gamesPlayed <= 0) return 0;
+  const winScore = gamesWon * 10;
+  const activityScore = Math.sqrt(gamesPlayed) * 3;
+  const opponentScore = uniqueOpponents * 5;
+  const winrateScore = gamesPlayed >= 5 ? (gamesWon / gamesPlayed) * 20 : 0;
+  return winScore + activityScore + opponentScore + winrateScore;
+}
+
+function formatLeaderboardScore(value: number, locale: Locale): string {
+  return value.toLocaleString(localeTag(locale), {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1
+  });
+}
+
 function formatBalance(value: string | null, locale: Locale): string {
   if (!value) return "-";
   return `${(Number(value) / nanoMina).toLocaleString(localeTag(locale), {
@@ -1896,21 +1915,30 @@ function App() {
 
     return Array.from(rows.values())
       .map(
-        ({ opponentKeys, pseudoSeenAt, ...row }) =>
-          ({
+        ({ opponentKeys, pseudoSeenAt, ...row }) => {
+          const uniqueOpponents = opponentKeys.size;
+          return {
             ...row,
-            uniqueOpponents: opponentKeys.size,
+            score: leaderboardScore(row.gamesPlayed, row.gamesWon, uniqueOpponents),
+            uniqueOpponents,
             amountWonNanoMina: row.amountWonNanoMina.toString()
-          }) satisfies LeaderboardRow
+          } satisfies LeaderboardRow;
+        }
       )
       .sort((left, right) => {
+        const scoreDiff = right.score - left.score;
+        if (scoreDiff !== 0) return scoreDiff;
         const wonDiff = right.gamesWon - left.gamesWon;
         if (wonDiff !== 0) return wonDiff;
+        const opponentDiff = right.uniqueOpponents - left.uniqueOpponents;
+        if (opponentDiff !== 0) return opponentDiff;
+        const playedDiff = right.gamesPlayed - left.gamesPlayed;
+        if (playedDiff !== 0) return playedDiff;
         const amountDiff = BigInt(right.amountWonNanoMina) - BigInt(left.amountWonNanoMina);
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
-        return right.gamesPlayed - left.gamesPlayed;
+        return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
       });
-  }, [leaderboardWindow.end, leaderboardWindow.start, playerPseudosByPublicKey, txStatuses, visibleGames]);
+  }, [leaderboardWindow.end, leaderboardWindow.start, locale, playerPseudosByPublicKey, txStatuses, visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -2368,6 +2396,9 @@ function App() {
                 <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
                   <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
                   <strong>{row.pseudo}</strong>
+                  <span>
+                    {t("leaderboardScore")}: {formatLeaderboardScore(row.score, locale)}
+                  </span>
                   <span>
                     {t("gamesPlayed")}: {row.gamesPlayed}
                   </span>

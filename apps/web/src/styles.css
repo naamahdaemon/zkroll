@@ -885,7 +885,7 @@ select {
   display: grid;
   gap: 4px 10px;
   grid-template-columns: auto minmax(0, 1fr);
-  min-height: 118px;
+  min-height: 132px;
   padding: 10px;
 }
 
@@ -897,7 +897,7 @@ select {
 .leaderboardRank {
   color: var(--primary);
   font-weight: 900;
-  grid-row: span 5;
+  grid-row: span 6;
 }
 
 .leaderboardRow strong,
