@@ -77,7 +77,7 @@ Because manual hash recovery is operator-sensitive, the UI and API treat malform
 
 The `unrecoverable` status is a terminal local/admin status for games that cannot be finalized. It is not an on-chain status and should be used only after operator inspection.
 
-The leaderboard groups by wallet public key and only uses pseudo as display metadata. The displayed pseudo is hydrated from the latest `players` row when available, so historical pseudo changes do not split or rename scores incorrectly. The UI can filter leaderboard rows by all time, last month, last week, or last day.
+The leaderboard groups by wallet public key and only uses pseudo as display metadata. The displayed pseudo is hydrated from the latest `players` row when available, so historical pseudo changes do not split or rename scores incorrectly. Only final trusted `settled` games and included `refunded` games are counted; period filters use `settledAt` / `refundedAt`, not `updatedAt`. Refunded games count as played but do not credit a win. The UI can filter leaderboard rows by all time, last month, last week, or last day.
 
 ## Zeko Testnet
 

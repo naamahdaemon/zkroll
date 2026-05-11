@@ -1815,13 +1815,14 @@ function App() {
     };
 
     visibleGames
-      .filter((game) => {
-        if (game.status === "pending_signature" || game.status === "failed" || game.status === "unrecoverable") return false;
-        const gameTime = new Date(game.settledAt ?? game.updatedAt ?? game.createdAt).getTime();
-        return leaderboardCutoff === null || gameTime >= leaderboardCutoff;
+      .map((game) => ({ game, finalizedAt: leaderboardFinalizedAt(game) }))
+      .filter((item): item is { game: Game; finalizedAt: string } => {
+        if (!item.finalizedAt) return false;
+        const finalizedTime = new Date(item.finalizedAt).getTime();
+        return Number.isFinite(finalizedTime) && (leaderboardCutoff === null || finalizedTime >= leaderboardCutoff);
       })
-      .forEach((game) => {
-        const pseudoSeenAt = new Date(game.updatedAt ?? game.createdAt).getTime();
+      .forEach(({ game, finalizedAt }) => {
+        const pseudoSeenAt = new Date(finalizedAt).getTime();
         ensureRow(game.creatorPublicKey, game.creatorPseudo, pseudoSeenAt).gamesPlayed += 1;
         if (game.joinerPublicKey && game.joinerPseudo) {
           ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt).gamesPlayed += 1;
@@ -2048,6 +2049,12 @@ function App() {
       statusFor(game.joinTxHash) === "INCLUDED" &&
       statusFor(game.settlementTxHash) === "INCLUDED"
     );
+  }
+
+  function leaderboardFinalizedAt(game: Game) {
+    if (isTrustedSettledGame(game)) return game.settledAt;
+    if (game.status === "refunded" && statusFor(game.refundTxHash) === "INCLUDED") return game.refundedAt;
+    return null;
   }
 
   function isInvalidSettledGame(game: Game) {
