@@ -14,7 +14,7 @@ const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
 const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const firebasePrivateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/^"|"$/g, "").replace(/\\n/g, "\n");
 const webOrigin = process.env.ZKROLL_WEB_ORIGIN;
-const terminalGameStatuses = new Set(["settled", "refunded", "failed", "cancelled"]);
+const terminalGameStatuses = new Set(["settled", "refunded", "failed", "cancelled", "unrecoverable"]);
 
 let accessTokenCache: { token: string; expiresAt: number } | null = null;
 

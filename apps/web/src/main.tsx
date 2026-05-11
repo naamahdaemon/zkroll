@@ -64,6 +64,7 @@ import {
   markGameMessagesRead,
   markTransactionIncluded,
   markCreationFailed,
+  markGameUnrecoverable,
   prepareRefundTx,
   prepareSettlementTx,
   reconcileCreationTx,
@@ -140,7 +141,9 @@ const minJoinDeadlineMarginSlotsByNetwork: Record<NetworkId, number> = {
 const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_000);
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
-const leaderboardPerPage = 5;
+const leaderboardPerPage = 4;
+const maxRefundTimeoutSlots = 2400;
+const pendingActionGameLimit = 5;
 const minaTransactionHashPattern = /^5J[1-9A-HJ-NP-Za-km-z]{40,}$/;
 const autoConnectStorageKey = "zkroll:auto-connect-wallet";
 const pseudoAdjectives = [
@@ -179,6 +182,7 @@ type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "leaderboa
 type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
 type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
+type LeaderboardPeriod = "all" | "month" | "week" | "day";
 type LeaderboardRow = {
   publicKey: string;
   pseudo: string;
@@ -198,9 +202,10 @@ const gameStatuses: GameStatus[] = [
   "settled",
   "refunded",
   "failed",
-  "cancelled"
+  "cancelled",
+  "unrecoverable"
 ];
-const terminalGameStatuses = new Set<GameStatus>(["settled", "refunded", "failed", "cancelled"]);
+const terminalGameStatuses = new Set<GameStatus>(["settled", "refunded", "failed", "cancelled", "unrecoverable"]);
 
 type QRCodeBrowserModule = {
   toDataURL: (text: string, options?: { margin?: number; width?: number }) => Promise<string>;
@@ -264,8 +269,18 @@ const copy: Record<string, Record<string, string>> = {
     noInvite: "No invitation",
     inviteSent: "Invitation sent.",
     inviteSkipped: "Game created, but the invitation could not be sent.",
+    pendingActionLimitWarning: "You already have {count} games waiting for your action. Unlock them before creating a new challenge.",
     invitedOnly: "Only the invited player can join this challenge.",
+    markUnrecoverable: "Mark unrecoverable",
+    markUnrecoverableConfirm: "Mark this game as unrecoverable? This is an admin-only local status for games that cannot be finalized.",
+    unrecoverableReason: "This game is not finalizable.",
+    unrecoverableGame: "Game not finalizable",
+    leaderboardAllTime: "All time",
+    leaderboardMonthly: "Monthly",
+    leaderboardWeekly: "Weekly",
+    leaderboardDaily: "Daily",
     refundTimeout: "Refund timeout (slots)",
+    gameStatus: "Status",
     create: "Create",
     games: "Games",
     activeStatuses: "Active games",
@@ -483,7 +498,7 @@ const copy: Record<string, Record<string, string>> = {
     cancelGame: "Cancel game",
     cancelSent: "Game cancelled and refund sent.",
     cancelNotReady: "Only the creator can cancel an open game after the creation transaction is included.",
-    invalidRefundTimeout: "Refund timeout must be a positive integer.",
+    invalidRefundTimeout: "Refund timeout must be a positive integer between 1 and {max} slots.",
     activeAfterSlot: "active after slot",
     minaZkDice: "Mina / Zeko zk dice roll",
     provingCompatibilityTitle: "ZK proving may not work in this browser",
@@ -542,8 +557,18 @@ const copy: Record<string, Record<string, string>> = {
     noInvite: "Aucune invitation",
     inviteSent: "Invitation envoyee.",
     inviteSkipped: "Partie creee, mais l'invitation n'a pas pu etre envoyee.",
+    pendingActionLimitWarning: "Tu as deja {count} parties en attente d'une action de ta part. Debloque-les avant de creer une nouvelle partie.",
     invitedOnly: "Seul le joueur invite peut rejoindre ce defi.",
+    markUnrecoverable: "Marquer irrecuperable",
+    markUnrecoverableConfirm: "Marquer cette partie comme irrecuperable ? C'est un statut local admin pour les parties impossibles a finaliser.",
+    unrecoverableReason: "Cette partie n'est pas finalisable.",
+    unrecoverableGame: "Partie non finalisable",
+    leaderboardAllTime: "All time",
+    leaderboardMonthly: "Mensuel",
+    leaderboardWeekly: "Hebdo",
+    leaderboardDaily: "Jour",
     refundTimeout: "Timeout refund (slots)",
+    gameStatus: "Statut",
     create: "Creer",
     games: "Parties",
     activeStatuses: "Parties actives",
@@ -761,7 +786,7 @@ const copy: Record<string, Record<string, string>> = {
     cancelGame: "Annuler la partie",
     cancelSent: "Partie annulee et refund envoye.",
     cancelNotReady: "Seul le createur peut annuler une partie ouverte apres inclusion de la transaction de creation.",
-    invalidRefundTimeout: "Le timeout de refund doit etre un nombre entier positif.",
+    invalidRefundTimeout: "Le timeout de refund doit etre un entier positif entre 1 et {max} slots.",
     activeAfterSlot: "actif apres le slot",
     minaZkDice: "Mina / Zeko zk dice roll",
     provingCompatibilityTitle: "La preuve ZK risque de ne pas fonctionner dans ce navigateur",
@@ -1691,6 +1716,7 @@ function App() {
   const [gameIdSearch, setGameIdSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
   const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("all");
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -1752,6 +1778,15 @@ function App() {
   }, [visibleGames]);
   const visibleGamePlayerKey = visibleGamePlayerKeys.join("|");
 
+  const leaderboardCutoff = useMemo(() => {
+    if (leaderboardPeriod === "all") return null;
+    const cutoff = new Date();
+    if (leaderboardPeriod === "month") cutoff.setMonth(cutoff.getMonth() - 1);
+    if (leaderboardPeriod === "week") cutoff.setDate(cutoff.getDate() - 7);
+    if (leaderboardPeriod === "day") cutoff.setDate(cutoff.getDate() - 1);
+    return cutoff.getTime();
+  }, [leaderboardPeriod]);
+
   const leaderboardRows = useMemo(() => {
     const rows = new Map<
       string,
@@ -1780,17 +1815,21 @@ function App() {
     };
 
     visibleGames
-      .filter((game) => game.status !== "pending_signature" && game.status !== "failed")
+      .filter((game) => {
+        if (game.status === "pending_signature" || game.status === "failed" || game.status === "unrecoverable") return false;
+        const gameTime = new Date(game.settledAt ?? game.updatedAt ?? game.createdAt).getTime();
+        return leaderboardCutoff === null || gameTime >= leaderboardCutoff;
+      })
       .forEach((game) => {
         const pseudoSeenAt = new Date(game.updatedAt ?? game.createdAt).getTime();
         ensureRow(game.creatorPublicKey, game.creatorPseudo, pseudoSeenAt).gamesPlayed += 1;
         if (game.joinerPublicKey && game.joinerPseudo) {
           ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt).gamesPlayed += 1;
         }
-        if (isTrustedSettledGame(game)) {
+        if (isTrustedSettledGame(game) && game.winnerPublicKey) {
           const winnerPseudo =
-            game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey!;
-          const winner = ensureRow(game.winnerPublicKey!, winnerPseudo, pseudoSeenAt);
+            game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey;
+          const winner = ensureRow(game.winnerPublicKey, winnerPseudo, pseudoSeenAt);
           winner.gamesWon += 1;
           winner.amountWonNanoMina += payoutNanoMinaForWinner(game);
         }
@@ -1808,7 +1847,7 @@ function App() {
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
         return right.gamesPlayed - left.gamesPlayed;
       });
-  }, [playerPseudosByPublicKey, txStatuses, visibleGames]);
+  }, [leaderboardCutoff, playerPseudosByPublicKey, txStatuses, visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -2001,8 +2040,9 @@ function App() {
   function isTrustedSettledGame(game: Game) {
     return (
       game.status === "settled" &&
-      Boolean(game.winnerPublicKey) &&
       Boolean(game.settlementTxHash) &&
+      game.creatorDie !== null &&
+      game.joinerDie !== null &&
       !hasDuplicatedOnchainTransactionHash(game) &&
       creationStatusFor(game) === "INCLUDED" &&
       statusFor(game.joinTxHash) === "INCLUDED" &&
@@ -2202,11 +2242,29 @@ function App() {
   }
 
   function leaderboardPanel() {
+    const periods: Array<{ value: LeaderboardPeriod; label: string }> = [
+      { value: "all", label: t("leaderboardAllTime") },
+      { value: "month", label: t("leaderboardMonthly") },
+      { value: "week", label: t("leaderboardWeekly") },
+      { value: "day", label: t("leaderboardDaily") }
+    ];
     return (
       <section className="panel leaderboardPanel">
         <div className="sectionHead">
           <h2>{t("leaderboard")}</h2>
           <Trophy size={20} />
+        </div>
+        <div className="segmentedControl">
+          {periods.map((period) => (
+            <button
+              className={leaderboardPeriod === period.value ? "active" : ""}
+              key={period.value}
+              onClick={() => setLeaderboardPeriod(period.value)}
+              type="button"
+            >
+              {period.label}
+            </button>
+          ))}
         </div>
         {leaderboardRows.length > 0 ? (
           <>
@@ -2260,7 +2318,7 @@ function App() {
   }
 
   function shouldPollGame(game: Game) {
-    return game.status !== "settled" && game.status !== "refunded" && game.status !== "failed";
+    return !terminalGameStatuses.has(game.status);
   }
 
   function isActiveGame(game: Game) {
@@ -2353,9 +2411,10 @@ function App() {
 
   function normalizedRefundTimeout() {
     const value = Number(refundTimeoutSlots);
-    if (!Number.isInteger(value) || value < 1) throw new Error(t("invalidRefundTimeout"));
+    const invalidRefundTimeoutMessage = t("invalidRefundTimeout").replace("{max}", String(maxRefundTimeoutSlots));
+    if (!Number.isInteger(value) || value < 1 || value > maxRefundTimeoutSlots) throw new Error(invalidRefundTimeoutMessage);
     if (onchainEnabled && value <= minJoinDeadlineMarginSlots(network)) {
-      throw new Error(`${t("invalidRefundTimeout")} Minimum: ${minJoinDeadlineMarginSlots(network) + 1} slots.`);
+      throw new Error(`${invalidRefundTimeoutMessage} Minimum: ${minJoinDeadlineMarginSlots(network) + 1} slots.`);
     }
     return value;
   }
@@ -2528,6 +2587,22 @@ function App() {
     );
   }
 
+  function gameNeedsCurrentPlayerAction(game: Game) {
+    if (!publicKey || terminalGameStatuses.has(game.status)) return false;
+    const isCreator = game.creatorPublicKey === publicKey;
+    const isJoiner = game.joinerPublicKey === publicKey;
+    if (!isCreator && !isJoiner) return false;
+
+    if (game.status === "pending_signature") return isCreator;
+    if (hasPendingSettlement(game) || hasPendingRefund(game)) return true;
+    if (game.status === "join_pending") return !isReservedInvite(game) && statusFor(game.joinTxHash) !== "INCLUDED";
+    if (canCancelOrRefund(game) || canSettle(game)) return true;
+    if (canReveal(game)) {
+      return (isCreator && !game.creatorReveal) || (isJoiner && !game.joinerReveal);
+    }
+    return false;
+  }
+
   function newGameNotificationButton(networkId: NetworkId) {
     const enabled = newGameNotificationNetworks.has(networkId);
     return (
@@ -2627,7 +2702,7 @@ function App() {
 
   useEffect(() => {
     setLeaderboardPage(1);
-  }, [network]);
+  }, [leaderboardPeriod, network]);
 
   useEffect(() => {
     setLeaderboardPage((current) => Math.min(current, totalLeaderboardPages));
@@ -3538,7 +3613,7 @@ function App() {
         if (refundDeadlineSlot === null) return;
         const normalizedRefundDeadlineSlot = refundDeadlineSlot.trim() || suggestedDeadline;
         if (!/^\d+$/.test(normalizedRefundDeadlineSlot)) {
-          throw new Error(t("invalidRefundTimeout"));
+          throw new Error(t("invalidRefundTimeout").replace("{max}", String(maxRefundTimeoutSlots)));
         }
         const joinerPseudoHash = pendingJoin?.joinerPseudoHash ?? (onchainEnabled ? await pseudoHash(recoveredPseudo) : undefined);
         const joinerCommitment =
@@ -3645,9 +3720,25 @@ function App() {
     });
   }
 
+  async function handleMarkGameUnrecoverable(game: Game) {
+    await runAction(async () => {
+      if (!publicKey || publicKey !== adminPublicKey) throw new Error("Admin access denied");
+      const confirmed = window.confirm(t("markUnrecoverableConfirm"));
+      if (!confirmed) return;
+      const updated = await markGameUnrecoverable(game.id, { publicKey, reason: t("unrecoverableReason") });
+      updateGameInState(updated);
+      setMessage(t("unrecoverableGame"));
+      await refreshGames();
+    });
+  }
+
   async function handleCreateGame() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
+      const pendingActionCount = visibleGames.filter(gameNeedsCurrentPlayerAction).length;
+      if (pendingActionCount >= pendingActionGameLimit) {
+        throw new Error(t("pendingActionLimitWarning").replace("{count}", String(pendingActionCount)));
+      }
       const invitedPublicKey = inviteePublicKey;
       const secret = randomFieldString();
       const gameIdField = randomFieldString();
@@ -4092,6 +4183,10 @@ function App() {
     }
     await handleRefund(game);
   }
+
+  const pendingActionGames = publicKey ? visibleGames.filter(gameNeedsCurrentPlayerAction) : [];
+  const createBlockedByPendingActions = pendingActionGames.length >= pendingActionGameLimit;
+  const pendingActionWarning = t("pendingActionLimitWarning").replace("{count}", String(pendingActionGames.length));
 
   return (
     <main className={`shell ${viewMode === "app" ? "appShell" : "cardsShell"}`} data-app-screen={appScreen}>
@@ -4568,13 +4663,15 @@ function App() {
             {t("refundTimeout")}
             <input
               min="1"
+              max={maxRefundTimeoutSlots}
               step="1"
               type="number"
               value={refundTimeoutSlots}
               onChange={(event) => setRefundTimeoutSlots(event.target.value)}
             />
           </label>
-          <button disabled={busy || !pseudo || !publicKey} onClick={() => void handleCreateGame()} className="primary">
+          {createBlockedByPendingActions && <p className="notice compactNotice">{pendingActionWarning}</p>}
+          <button disabled={busy || !pseudo || !publicKey || createBlockedByPendingActions} onClick={() => void handleCreateGame()} className="primary">
             <Dices size={18} />
             {t("create")}
           </button>
@@ -4764,6 +4861,10 @@ function App() {
               </div>
               <dl>
                 <div>
+                  <dt>{t("gameStatus")}</dt>
+                  <dd>{selectedGame.status}</dd>
+                </div>
+                <div>
                   <dt>{t("creator")}</dt>
                   <dd className="playerResult">
                     {selectedGame.creatorPseudo}
@@ -4840,6 +4941,8 @@ function App() {
                   <dd>
                     {selectedGame.status === "pending_signature"
                       ? t("signaturePending")
+                      : selectedGame.status === "unrecoverable"
+                        ? selectedGame.failureReason ?? t("unrecoverableReason")
                       : selectedGame.status === "failed"
                         ? selectedGame.failureReason ?? t("creationFailed")
                         : selectedGame.status === "created" && creationStatusFor(selectedGame) === "INCLUDED" && !hasSafeJoinDeadline(selectedGame)
@@ -4887,6 +4990,12 @@ function App() {
               {selectedGame.status === "created" && creationStatusFor(selectedGame) !== "INCLUDED" && (
                 <button className="dangerButton" disabled={busy || selectedGame.creatorPublicKey !== publicKey} onClick={() => void handleMarkCreationFailed(selectedGame)}>
                   {t("markFailed")}
+                </button>
+              )}
+
+              {publicKey === adminPublicKey && selectedGame.status !== "unrecoverable" && (
+                <button className="dangerButton" disabled={busy} onClick={() => void handleMarkGameUnrecoverable(selectedGame)}>
+                  {t("markUnrecoverable")}
                 </button>
               )}
 
@@ -4960,6 +5069,14 @@ function App() {
                   <ShieldCheck size={22} />
                   <strong>{t("failedGame")}</strong>
                   <span>{selectedGame.failureReason ?? t("noLockedFunds")}</span>
+                </div>
+              )}
+
+              {selectedGame.status === "unrecoverable" && (
+                <div className="winner failedBox">
+                  <ShieldCheck size={22} />
+                  <strong>{t("unrecoverableGame")}</strong>
+                  <span>{selectedGame.failureReason ?? t("unrecoverableReason")}</span>
                 </div>
               )}
             </>

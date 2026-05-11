@@ -812,6 +812,23 @@ select {
   min-height: 0;
 }
 
+.segmentedControl {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.segmentedControl button {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.segmentedControl button.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+}
+
 .leaderboardList {
   align-content: start;
   display: grid;

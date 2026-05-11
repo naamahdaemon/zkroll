@@ -280,7 +280,7 @@ The web app is installable as a PWA. Firebase push notifications require all `VI
 
 `VITE_WALLET_RESPONSE_TIMEOUT_MS` controls the fallback when the wallet sends a transaction but does not return a hash to the page. After this timeout, the UI asks you to paste the hash shown by Auro or the explorer so the backend can index the game.
 
-`VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the game zkApp state hash.
+`VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the game zkApp state hash. The app enforces a hard maximum of `2400` slots on both the web form and API so abandoned games can eventually be refunded/cancelled.
 
 `VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS` is the default minimum safety margin before a game's refund deadline. The UI disables `Join` when the remaining slots are below this margin because wallets/nodes can reject transactions whose upper slot is too close. `VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS` overrides that margin on Zeko Testnet and defaults to `30`.
 
@@ -296,6 +296,8 @@ The web app is installable as a PWA. Firebase push notifications require all `VI
 `VITE_SERVER_PROVER_POLL_MS` controls how often the browser polls the API while waiting for a server prover job.
 
 `VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction status for visible or active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
+
+The game list also refreshes automatically on this cadence while the page is visible. Selected filters are preserved across refreshes.
 
 `VITE_WALLETCONNECT_PROJECT_ID` enables Auro Mobile through WalletConnect from an external mobile browser. Leave it empty to keep the current desktop/laptop behavior only. Create the project id in Reown Cloud and rebuild the web app after setting it.
 
@@ -353,6 +355,8 @@ If a challenge gets stuck:
 - the wallet that clicks `Refund` pays the transaction fee;
 - the contract rejects refund transactions before the deadline slot.
 
+The UI blocks new challenge creation when the connected wallet already has 5 games waiting for its action, for example pending signature recovery, join confirmation/release, a missing reveal, a pending settlement/refund, or an available cancel/refund/settlement action. The API enforces the same limit, so bypassing the web form cannot create more blocked games.
+
 ## 10. How Sync Status Works
 
 In the per-game zkApp branch, the backend does not rebuild one global Merkle root anymore. Each game has its own zkApp account and its own compact on-chain state hash.
@@ -368,6 +372,13 @@ For normal UI flow:
 
 This deliberately avoids global root reconstruction and limits public GraphQL calls to the selected game's zkApp account. The manual transaction status control is now only a fallback/debug tool for explorer-verified transactions that the public GraphQL endpoint does not reflect yet. It is less important than in the old global-root architecture because each game has its own zkApp state.
 
+Manual transaction hash recovery is guarded by application invariants:
+
+- the same on-chain transaction hash cannot be reused for create, join, settlement, or refund in the same game;
+- settlement/reveal/refund transitions require a complete, trusted, included join;
+- a settled game is displayed as invalid and excluded from the leaderboard if the settlement hash is missing, malformed, duplicated, or not included;
+- transaction links and polling only use hashes that look like Mina transaction hashes starting with `5J`.
+
 SQLite can contain games for several networks at the same time. Transaction statuses are network-scoped.
 
 `pending_signature` games are local recovery records. If the browser loses the wallet response, use `Renseigner le hash` on the pending game instead of creating another game.
@@ -377,6 +388,10 @@ SQLite can contain games for several networks at the same time. Transaction stat
 `join_pending` games keep the joiner data and transaction hash locally. This prevents two browser sessions from locally joining the same open game at the same time. Invitation reservations also use `join_pending` with an internal `pending:invite:*` hash until the invited wallet creates the real join transaction.
 
 If the join transaction fails, use `Release join` to return the game to `created`. If the join transaction was included on-chain but the app lost or released the local pending join, recover it with the original join material. The API logs non-secret recovery data on `POST /games/:id/join` under `Join recovery material`: `gameId`, `joinerPublicKey`, `joinerPseudoHash`, `joinerCommitment`, `refundDeadlineSlot`, and `joinTxHash`. In Docker production, see `INSTALL_DOCKER.md` for the exact log, SQLite backup, inspection, and manual patch commands.
+
+`unrecoverable` games are admin-only local cleanup records for games that cannot be finalized, for example because the original transaction hash or join material is impossible to reconstruct. The action is visible in the game detail only to `VITE_ADMIN_PUBLIC_KEY`; the API also checks `ZKROLL_ADMIN_PUBLIC_KEY`.
+
+The leaderboard is aggregated by wallet public key, not by pseudo. It displays the latest pseudo known in the `players` table and only credits games whose settlement is trusted. The UI supports all-time, monthly, weekly, and daily views, with 4 rows per page.
 
 ## 11. ZK Compilation UX
 

@@ -573,8 +573,26 @@ This branch uses one zkApp account per game, so there is no global Merkle root t
 Options:
 
 - restore the matching SQLite backup;
-- manually mark the transaction as included after checking the explorer;
+- manually mark the transaction as included after checking the explorer and the game zkApp state;
 - use a fresh DB when switching from the old global-root architecture to this branch.
+
+Manual hash recovery has guardrails. Do not paste the same transaction hash into several slots of the same game. The API rejects reused hashes for new updates, and the UI treats malformed hashes such as `http5J...`, duplicated hashes, missing settlement hashes, or settlements that never reached the expected zkApp state as invalid. Invalid settled games are excluded from the leaderboard and display `Partie invalide` / `Invalid game`.
+
+Inspect suspicious games directly:
+
+```bash
+sqlite3 -header -column data/api/zkroll-mainnet.db "select id, network, status, creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash, creation_tx_status, join_tx_status, settlement_tx_status, refund_tx_status, winner_public_key, creator_die, joiner_die, failure_reason from games where id = 'GAME_ID';"
+```
+
+Find duplicated transaction hashes in the production database:
+
+```bash
+sqlite3 -header -column data/api/zkroll-mainnet.db "with tx as (select id, 'creation' kind, creation_tx_hash hash from games union all select id, 'join', join_tx_hash from games where join_tx_hash is not null union all select id, 'settlement', settlement_tx_hash from games where settlement_tx_hash is not null union all select id, 'refund', refund_tx_hash from games where refund_tx_hash is not null) select hash, group_concat(id || ':' || kind, ', ') as uses from tx where hash not like 'pending:%' and hash not like 'fake%' and hash not like 'create_%' and hash not like 'join_%' and hash not like 'settle_%' and hash not like 'refund_%' group by hash having count(*) > 1;"
+```
+
+The UI blocks new challenge creation when a wallet already has 5 games waiting for that player's action. The API enforces the same rule. If a user is blocked, inspect their active games and clear/recover the real pending action instead of raising the limit.
+
+As a last resort, the configured admin wallet can mark a game `unrecoverable` from the detail page. This is a terminal local status for games that cannot be finalized, for example when the correct hash or join material cannot be reconstructed. Use it only after checking the explorer, the zkApp account, logs, and SQLite backups.
 
 ### Zeko `Invalid_signature` Or `Invalid_fee_excess`
 
@@ -1162,8 +1180,26 @@ Cette branche utilise un compte zkApp par partie, donc il n'y a plus de racine M
 Options :
 
 - restaurer la sauvegarde SQLite correspondante ;
-- marquer manuellement la transaction comme incluse apres verification dans l'explorateur ;
+- marquer manuellement la transaction comme incluse apres verification dans l'explorateur et dans l'etat du zkApp de la partie ;
 - utiliser une base neuve en passant de l'ancienne architecture a racine globale vers cette branche.
+
+La recuperation manuelle des hashes est protegee par des garde-fous. Ne colle pas le meme hash dans plusieurs emplacements d'une meme partie. L'API rejette les nouveaux updates avec hash reutilise, et l'UI considere comme invalides les hashes mal formes comme `http5J...`, les hashes dupliques, les settlements sans hash, ou les settlements qui n'ont jamais atteint l'etat zkApp attendu. Les parties settled invalides sont exclues du leaderboard et affichent `Partie invalide`.
+
+Inspecter une partie suspecte :
+
+```bash
+sqlite3 -header -column data/api/zkroll-mainnet.db "select id, network, status, creation_tx_hash, join_tx_hash, settlement_tx_hash, refund_tx_hash, creation_tx_status, join_tx_status, settlement_tx_status, refund_tx_status, winner_public_key, creator_die, joiner_die, failure_reason from games where id = 'GAME_ID';"
+```
+
+Trouver les hashes de transaction dupliques en production :
+
+```bash
+sqlite3 -header -column data/api/zkroll-mainnet.db "with tx as (select id, 'creation' kind, creation_tx_hash hash from games union all select id, 'join', join_tx_hash from games where join_tx_hash is not null union all select id, 'settlement', settlement_tx_hash from games where settlement_tx_hash is not null union all select id, 'refund', refund_tx_hash from games where refund_tx_hash is not null) select hash, group_concat(id || ':' || kind, ', ') as uses from tx where hash not like 'pending:%' and hash not like 'fake%' and hash not like 'create_%' and hash not like 'join_%' and hash not like 'settle_%' and hash not like 'refund_%' group by hash having count(*) > 1;"
+```
+
+L'UI bloque la creation de nouvelle partie quand un wallet a deja 5 parties en attente d'une action de ce joueur. L'API applique la meme regle. Si un utilisateur est bloque, inspecte ses parties actives et corrige l'action pending reelle plutot que d'augmenter la limite.
+
+En dernier recours, le wallet admin configure peut marquer une partie `unrecoverable` depuis la page de detail. C'est un statut local terminal pour les parties impossibles a finaliser, par exemple quand le bon hash ou le materiel de join ne peut pas etre reconstruit. A utiliser seulement apres verification de l'explorateur, du compte zkApp, des logs et des backups SQLite.
 
 ### Zeko `Invalid_signature` Ou `Invalid_fee_excess`
 

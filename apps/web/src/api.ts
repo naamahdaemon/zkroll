@@ -142,6 +142,13 @@ export function markCreationFailed(id: string, reason?: string) {
   });
 }
 
+export function markGameUnrecoverable(id: string, input: { publicKey: string; reason?: string }) {
+  return request<Game>(`/games/${id}/unrecoverable`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
 export function joinGame(
   id: string,
   input: {

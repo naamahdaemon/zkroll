@@ -25,6 +25,7 @@ import {
   listPreviousOpponents,
   markGameMessagesRead,
   markCreationFailed,
+  markGameUnrecoverable,
   markTransactionFailed,
   prepareRefundTx,
   prepareSettlementTx,
@@ -76,6 +77,8 @@ const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
 const adminPublicKey = process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRAbdmDSFhv3MqtkDWh6jYNvK81db5S4KXJvgzLCn";
 const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server";
+const maxRefundTimeoutSlots = 2400;
+const pendingActionGameLimit = 5;
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
 const currentSlotRequests = new Map<NetworkId, Promise<string>>();
 const accountBalanceCache = new Map<string, { expiresAt: number; balance: string | null; error: string | null }>();
@@ -142,6 +145,35 @@ function isLocalTransactionHash(hash: string) {
     hash.startsWith("settle_") ||
     hash.startsWith("refund_")
   );
+}
+
+function gameNeedsPlayerAction(game: Game, publicKey: string) {
+  const isCreator = game.creatorPublicKey === publicKey;
+  const isJoiner = game.joinerPublicKey === publicKey;
+  if (!isCreator && !isJoiner) return false;
+  if (
+    game.status === "settled" ||
+    game.status === "refunded" ||
+    game.status === "failed" ||
+    game.status === "cancelled" ||
+    game.status === "unrecoverable"
+  ) {
+    return false;
+  }
+
+  if (game.status === "pending_signature") return isCreator;
+  if (game.settlementTxHash?.startsWith("pending:") || game.refundTxHash?.startsWith("pending:")) return true;
+  if (game.status === "created") return isCreator && game.creationTxStatus === "INCLUDED" && !game.joinerPublicKey;
+  if (game.status === "join_pending") return game.joinTxStatus !== "INCLUDED" && !game.joinTxHash?.startsWith("pending:invite:");
+  if (game.status === "joined" || game.status === "player_one_revealed" || game.status === "player_two_revealed") {
+    return (isCreator && !game.creatorReveal) || (isJoiner && !game.joinerReveal);
+  }
+  if (game.status === "both_revealed") return game.settlementTxStatus !== "INCLUDED";
+  return false;
+}
+
+function pendingActionGamesForPlayer(publicKey: string) {
+  return listGames().filter((game) => gameNeedsPlayerAction(game, publicKey));
 }
 
 function cacheKey(network: NetworkId, zkappAddress: string) {
@@ -689,6 +721,16 @@ app.post("/games", async (request, reply) => {
     const body = asBody(request.body);
     const creatorPseudo = requiredString(body, "creatorPseudo");
     const creatorPublicKey = requiredString(body, "creatorPublicKey");
+    const refundTimeoutSlots = requiredPositiveIntegerNumber(body, "refundTimeoutSlots");
+    if (refundTimeoutSlots > maxRefundTimeoutSlots) {
+      throw new Error(`Refund timeout must be at most ${maxRefundTimeoutSlots} slots`);
+    }
+    const pendingActionGames = pendingActionGamesForPlayer(creatorPublicKey);
+    if (pendingActionGames.length >= pendingActionGameLimit) {
+      throw new Error(
+        `Player already has ${pendingActionGames.length} games waiting for an action; unlock them before creating a new game`
+      );
+    }
     upsertPlayer(creatorPseudo, creatorPublicKey);
 
     const game = createGame({
@@ -702,7 +744,7 @@ app.post("/games", async (request, reply) => {
         stakeNanoMina: requiredPositiveIntegerString(body, "stakeNanoMina"),
         payoutMode: assertPayoutMode(body.payoutMode),
         creatorCommitment: requiredString(body, "creatorCommitment"),
-        refundTimeoutSlots: requiredPositiveIntegerNumber(body, "refundTimeoutSlots"),
+        refundTimeoutSlots,
         refundDeadlineSlot: optionalString(body, "refundDeadlineSlot"),
         creationTxHash: optionalString(body, "creationTxHash")
       });
@@ -791,6 +833,19 @@ app.patch("/games/:id/creation-failed", async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
     return sendUpdatedGame(markCreationFailed(id, optionalString(body, "reason")));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/games/:id/unrecoverable", async (request, reply) => {
+  try {
+    const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    if (requiredString(body, "publicKey") !== adminPublicKey) {
+      return reply.code(403).send({ error: "Admin access denied" });
+    }
+    return sendUpdatedGame(markGameUnrecoverable(id, optionalString(body, "reason")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

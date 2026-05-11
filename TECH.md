@@ -38,6 +38,15 @@ The chain remains the source of truth for:
 
 For joined-game refund and settlement, SQLite must match the exact join data used on-chain: `joinerPseudoHash`, `joinerCommitment`, and the joined `refundDeadlineSlot`. If a pending join is released after the transaction was included, later refund/settle proof generation can fail with a `Field.assertEquals()` data-hash mismatch. The API logs `Join recovery material` for future joins so operators can repair the local row without storing player secrets.
 
+The API also enforces workflow guardrails around this local mirror:
+
+- no on-chain transaction hash may be reused across create, join, settlement, or refund for the same game;
+- join confirmation requires complete join material and an included join status;
+- reveal, settlement, and joined-game refund require a trusted included join;
+- create-game requests are rejected when `refundTimeoutSlots` is greater than `2400`;
+- create-game requests are rejected when the creator already has 5 games waiting for their action;
+- admin-only unrecoverable marking requires `ZKROLL_ADMIN_PUBLIC_KEY`.
+
 ## On-Chain State
 
 Each game zkApp stores a compact state hash and status fields in its own account state. The backend polls only the selected or visible game zkApp accounts, instead of rebuilding one global Merkle root.
@@ -63,6 +72,12 @@ ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
 ```
 
 Manual status forcing is kept as an operational fallback, not as the normal sync path. Normal inclusion should be inferred from the per-game zkApp state.
+
+Because manual hash recovery is operator-sensitive, the UI and API treat malformed, duplicated, or unrelated hashes as untrusted. A `settled` row is not enough to credit a win: the web leaderboard only counts games with included create, join, and settlement transactions, a non-duplicated settlement hash, and a winner. Corrupt or incomplete settled rows are shown as invalid in the detail view.
+
+The `unrecoverable` status is a terminal local/admin status for games that cannot be finalized. It is not an on-chain status and should be used only after operator inspection.
+
+The leaderboard groups by wallet public key and only uses pseudo as display metadata. The displayed pseudo is hydrated from the latest `players` row when available, so historical pseudo changes do not split or rename scores incorrectly. The UI can filter leaderboard rows by all time, last month, last week, or last day.
 
 ## Zeko Testnet
 

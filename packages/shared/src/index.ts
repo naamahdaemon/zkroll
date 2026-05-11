@@ -11,7 +11,8 @@ export type GameStatus =
   | "settled"
   | "refunded"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "unrecoverable";
 
 export type TransactionStatus = "PENDING" | "INCLUDED" | "FAILED" | "UNKNOWN";
 export type PayoutMode = "classic" | "opponent_takes_all";

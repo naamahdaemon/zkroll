@@ -59,15 +59,18 @@ export function requiredDie(body: RecordBody, key: string): number {
 export function optionalStatus(value: unknown): GameStatus | undefined {
   if (value === undefined) return undefined;
   if (
+    value === "pending_signature" ||
     value === "created" ||
     value === "join_pending" ||
     value === "joined" ||
     value === "player_one_revealed" ||
     value === "player_two_revealed" ||
+    value === "both_revealed" ||
     value === "settled" ||
     value === "refunded" ||
     value === "failed" ||
-    value === "cancelled"
+    value === "cancelled" ||
+    value === "unrecoverable"
   ) {
     return value;
   }

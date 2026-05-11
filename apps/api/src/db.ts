@@ -789,6 +789,28 @@ export function markCreationFailed(id: string, reason?: string): Game {
   return getGame(id)!;
 }
 
+export function markGameUnrecoverable(id: string, reason?: string): Game {
+  const now = new Date().toISOString();
+  const result = db
+    .prepare(
+      `
+      update games
+      set status = 'unrecoverable',
+          failure_reason = ?,
+          updated_at = ?
+      where id = ?
+        and status != 'unrecoverable'
+    `
+    )
+    .run(reason ?? "This game cannot be finalized.", now, id);
+
+  if (result.changes !== 1) {
+    throw new Error("Game cannot be marked as unrecoverable");
+  }
+
+  return getGame(id)!;
+}
+
 export function listGames(status?: GameStatus): Game[] {
   const rows = status
     ? (db.prepare("select * from games where status = ? order by updated_at desc, created_at desc").all(status) as GameRow[])

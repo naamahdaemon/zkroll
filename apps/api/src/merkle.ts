@@ -50,7 +50,15 @@ export function buildGamesMap(network: NetworkId, options?: { pendingJoinHash?: 
   const map = new MerkleMap();
   for (const game of listGames()) {
     if (game.network !== network) continue;
-    if (!game.gameIdField || game.status === "cancelled" || game.status === "failed" || game.status === "pending_signature") continue;
+    if (
+      !game.gameIdField ||
+      game.status === "cancelled" ||
+      game.status === "failed" ||
+      game.status === "unrecoverable" ||
+      game.status === "pending_signature"
+    ) {
+      continue;
+    }
     try {
       map.set(Field(game.gameIdField), leafForGame(game, { pendingJoinAsJoined: game.joinTxHash === options?.pendingJoinHash }));
     } catch {

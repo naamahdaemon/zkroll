@@ -13,8 +13,12 @@ The first implementation uses a commit-reveal flow:
 7. If a game is abandoned, either player can trigger an on-chain refund after the configured deadline slot.
 8. Each challenge is its own zkApp account, created and funded by the creator transaction.
 9. A join transaction is indexed as `join_pending` until it is marked included, which prevents competing local joins.
-10. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
-11. The UI supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish.
+10. The app rejects reused transaction hashes, treats corrupt settlements as invalid, and only counts trusted settled games in the leaderboard.
+11. A player with 5 games waiting for their action cannot create another challenge until they unblock earlier games.
+12. Admins can mark a locally corrupted game as `unrecoverable` when it cannot be finalized.
+13. The leaderboard can be viewed all time, monthly, weekly, or daily.
+14. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
+15. The UI supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish.
 
 ## Screenshots
 
@@ -47,7 +51,7 @@ npm run dev:web
 
 The API listens on `http://127.0.0.1:4000` and the web app uses `http://127.0.0.1:5174`.
 
-See `INSTALL.md` for deployment, `.env.local`, wallet, network, and refund timeout configuration.
+See `INSTALL.md` for deployment, `.env.local`, wallet, network, refund timeout, and operational guardrail configuration.
 
 See `TECH.md` for the current technical architecture. This version uses one zkApp account per game, so it does not require a global contract address. Use a fresh SQLite database when switching from the old global-root prototype.
 
