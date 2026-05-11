@@ -192,6 +192,7 @@ type LeaderboardRow = {
   gamesPlayed: number;
   gamesWon: number;
   uniqueOpponents: number;
+  unfinishedGames: number;
   amountWonNanoMina: string;
 };
 const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
@@ -390,6 +391,7 @@ const copy: Record<string, Record<string, string>> = {
     gamesPlayed: "Games",
     gamesWon: "Won",
     uniqueOpponents: "Opponents",
+    unfinishedGames: "Open",
     amountWon: "MINA won",
     emptyLeaderboard: "No settled games yet.",
     messages: "Messages",
@@ -680,6 +682,7 @@ const copy: Record<string, Record<string, string>> = {
     gamesPlayed: "Parties",
     gamesWon: "Gagnees",
     uniqueOpponents: "Adversaires",
+    unfinishedGames: "Ouvertes",
     amountWon: "MINA gagnes",
     emptyLeaderboard: "Aucune partie reglee pour le moment.",
     messages: "Messages",
@@ -1570,13 +1573,14 @@ function payoutNanoMinaForWinner(game: Game): bigint {
   return game.payoutMode === "opponent_takes_all" ? stake : stake * 2n;
 }
 
-function leaderboardScore(gamesPlayed: number, gamesWon: number, uniqueOpponents: number): number {
+function leaderboardScore(gamesPlayed: number, gamesWon: number, uniqueOpponents: number, unfinishedGames: number): number {
   if (gamesPlayed <= 0) return 0;
   const winScore = gamesWon * 10;
   const activityScore = Math.sqrt(gamesPlayed) * 3;
   const opponentScore = uniqueOpponents * 5;
   const winrateScore = gamesPlayed >= 5 ? (gamesWon / gamesPlayed) * 20 : 0;
-  return winScore + activityScore + opponentScore + winrateScore;
+  const unfinishedPenalty = Math.min(unfinishedGames, 10) * 4;
+  return winScore + activityScore + opponentScore + winrateScore - unfinishedPenalty;
 }
 
 function formatLeaderboardScore(value: number, locale: Locale): string {
@@ -1848,6 +1852,15 @@ function App() {
   );
 
   const leaderboardRows = useMemo(() => {
+    const unfinishedGamesByPublicKey = new Map<string, number>();
+    for (const game of games) {
+      if (game.network !== network || terminalGameStatuses.has(game.status)) continue;
+      unfinishedGamesByPublicKey.set(game.creatorPublicKey, (unfinishedGamesByPublicKey.get(game.creatorPublicKey) ?? 0) + 1);
+      if (game.joinerPublicKey) {
+        unfinishedGamesByPublicKey.set(game.joinerPublicKey, (unfinishedGamesByPublicKey.get(game.joinerPublicKey) ?? 0) + 1);
+      }
+    }
+
     const rows = new Map<
       string,
       {
@@ -1917,10 +1930,12 @@ function App() {
       .map(
         ({ opponentKeys, pseudoSeenAt, ...row }) => {
           const uniqueOpponents = opponentKeys.size;
+          const unfinishedGames = unfinishedGamesByPublicKey.get(row.publicKey) ?? 0;
           return {
             ...row,
-            score: leaderboardScore(row.gamesPlayed, row.gamesWon, uniqueOpponents),
+            score: leaderboardScore(row.gamesPlayed, row.gamesWon, uniqueOpponents, unfinishedGames),
             uniqueOpponents,
+            unfinishedGames,
             amountWonNanoMina: row.amountWonNanoMina.toString()
           } satisfies LeaderboardRow;
         }
@@ -1932,13 +1947,15 @@ function App() {
         if (wonDiff !== 0) return wonDiff;
         const opponentDiff = right.uniqueOpponents - left.uniqueOpponents;
         if (opponentDiff !== 0) return opponentDiff;
+        const unfinishedDiff = left.unfinishedGames - right.unfinishedGames;
+        if (unfinishedDiff !== 0) return unfinishedDiff;
         const playedDiff = right.gamesPlayed - left.gamesPlayed;
         if (playedDiff !== 0) return playedDiff;
         const amountDiff = BigInt(right.amountWonNanoMina) - BigInt(left.amountWonNanoMina);
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
         return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
       });
-  }, [leaderboardWindow.end, leaderboardWindow.start, locale, playerPseudosByPublicKey, txStatuses, visibleGames]);
+  }, [games, leaderboardWindow.end, leaderboardWindow.start, locale, network, playerPseudosByPublicKey, txStatuses, visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -2407,6 +2424,9 @@ function App() {
                   </span>
                   <span>
                     {t("uniqueOpponents")}: {row.uniqueOpponents}
+                  </span>
+                  <span>
+                    {t("unfinishedGames")}: {row.unfinishedGames}
                   </span>
                   <span>
                     {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
