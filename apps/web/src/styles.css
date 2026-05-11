@@ -16,6 +16,7 @@
   --danger-bg: #fdeaea;
   --danger-border: #e5b5b5;
   --danger-text: #5c1f1f;
+  --warning: #b3751d;
   --die-bg: #f8fbff;
   --die-border: #c8d7e5;
   --die-pip: #17201b;
@@ -45,6 +46,7 @@
   --danger-bg: #3b1f22;
   --danger-border: #7f444b;
   --danger-text: #ffdede;
+  --warning: #d7a541;
   --die-bg: #edf4ee;
   --die-border: #dcebe3;
   --die-pip: #07110e;
@@ -593,6 +595,14 @@ select {
 .timer {
   color: var(--text);
   font-weight: 800;
+}
+
+.blockingNotice {
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-soft));
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
 }
 
 .timeline {

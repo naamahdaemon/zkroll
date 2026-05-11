@@ -4194,6 +4194,7 @@ function App() {
   const pendingActionGames = publicKey ? visibleGames.filter(gameNeedsCurrentPlayerAction) : [];
   const createBlockedByPendingActions = pendingActionGames.length >= pendingActionGameLimit;
   const pendingActionWarning = t("pendingActionLimitWarning").replace("{count}", String(pendingActionGames.length));
+  const createDisabled = busy || !pseudo || !publicKey || createBlockedByPendingActions;
 
   return (
     <main className={`shell ${viewMode === "app" ? "appShell" : "cardsShell"}`} data-app-screen={appScreen}>
@@ -4677,8 +4678,18 @@ function App() {
               onChange={(event) => setRefundTimeoutSlots(event.target.value)}
             />
           </label>
-          {createBlockedByPendingActions && <p className="notice compactNotice">{pendingActionWarning}</p>}
-          <button disabled={busy || !pseudo || !publicKey || createBlockedByPendingActions} onClick={() => void handleCreateGame()} className="primary">
+          {createBlockedByPendingActions && (
+            <p className="notice compactNotice blockingNotice" role="alert">
+              {pendingActionWarning}
+            </p>
+          )}
+          <button
+            aria-disabled={createDisabled}
+            className="primary"
+            disabled={createDisabled}
+            onClick={createDisabled ? undefined : () => void handleCreateGame()}
+            type="button"
+          >
             <Dices size={18} />
             {t("create")}
           </button>
