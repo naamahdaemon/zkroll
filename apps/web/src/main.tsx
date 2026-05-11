@@ -5,6 +5,8 @@ import {
   AtSign,
   Bell,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleEqual,
   Copy,
   Copyright,
@@ -1577,6 +1579,45 @@ function formatDateTime(value: string | null | undefined, locale: Locale): strin
   }).format(new Date(value));
 }
 
+function formatDateOnly(value: Date, locale: Locale): string {
+  return new Intl.DateTimeFormat(localeTag(locale), {
+    dateStyle: "medium"
+  }).format(value);
+}
+
+function leaderboardWindowFor(period: LeaderboardPeriod, offset: number, locale: Locale) {
+  if (period === "all") return { start: null, end: null, label: "" };
+  const now = new Date();
+  if (period === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    return {
+      start: start.getTime(),
+      end: end.getTime(),
+      label: new Intl.DateTimeFormat(localeTag(locale), { month: "long", year: "numeric" }).format(start)
+    };
+  }
+  if (period === "week") {
+    const anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset * 7);
+    const mondayOffset = (anchor.getDay() + 6) % 7;
+    const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - mondayOffset);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 7);
+    const lastDay = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 1);
+    return {
+      start: start.getTime(),
+      end: end.getTime(),
+      label: `${formatDateOnly(start, locale)} - ${formatDateOnly(lastDay, locale)}`
+    };
+  }
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+  const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+  return {
+    start: start.getTime(),
+    end: end.getTime(),
+    label: formatDateOnly(start, locale)
+  };
+}
+
 function localeTag(locale: Locale) {
   return (
     {
@@ -1717,6 +1758,7 @@ function App() {
   const [gamesPage, setGamesPage] = useState(1);
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("all");
+  const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(0);
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -1778,14 +1820,10 @@ function App() {
   }, [visibleGames]);
   const visibleGamePlayerKey = visibleGamePlayerKeys.join("|");
 
-  const leaderboardCutoff = useMemo(() => {
-    if (leaderboardPeriod === "all") return null;
-    const cutoff = new Date();
-    if (leaderboardPeriod === "month") cutoff.setMonth(cutoff.getMonth() - 1);
-    if (leaderboardPeriod === "week") cutoff.setDate(cutoff.getDate() - 7);
-    if (leaderboardPeriod === "day") cutoff.setDate(cutoff.getDate() - 1);
-    return cutoff.getTime();
-  }, [leaderboardPeriod]);
+  const leaderboardWindow = useMemo(
+    () => leaderboardWindowFor(leaderboardPeriod, leaderboardWindowOffset, locale),
+    [leaderboardPeriod, leaderboardWindowOffset, locale]
+  );
 
   const leaderboardRows = useMemo(() => {
     const rows = new Map<
@@ -1819,7 +1857,11 @@ function App() {
       .filter((item): item is { game: Game; finalizedAt: string } => {
         if (!item.finalizedAt) return false;
         const finalizedTime = new Date(item.finalizedAt).getTime();
-        return Number.isFinite(finalizedTime) && (leaderboardCutoff === null || finalizedTime >= leaderboardCutoff);
+        return (
+          Number.isFinite(finalizedTime) &&
+          (leaderboardWindow.start === null || finalizedTime >= leaderboardWindow.start) &&
+          (leaderboardWindow.end === null || finalizedTime < leaderboardWindow.end)
+        );
       })
       .forEach(({ game, finalizedAt }) => {
         const pseudoSeenAt = new Date(finalizedAt).getTime();
@@ -1848,7 +1890,7 @@ function App() {
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
         return right.gamesPlayed - left.gamesPlayed;
       });
-  }, [leaderboardCutoff, playerPseudosByPublicKey, txStatuses, visibleGames]);
+  }, [leaderboardWindow.end, leaderboardWindow.start, playerPseudosByPublicKey, txStatuses, visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -2255,6 +2297,10 @@ function App() {
       { value: "week", label: t("leaderboardWeekly") },
       { value: "day", label: t("leaderboardDaily") }
     ];
+    const selectPeriod = (period: LeaderboardPeriod) => {
+      setLeaderboardPeriod(period);
+      setLeaderboardWindowOffset(0);
+    };
     return (
       <section className="panel leaderboardPanel">
         <div className="sectionHead">
@@ -2266,13 +2312,35 @@ function App() {
             <button
               className={leaderboardPeriod === period.value ? "active" : ""}
               key={period.value}
-              onClick={() => setLeaderboardPeriod(period.value)}
+              onClick={() => selectPeriod(period.value)}
               type="button"
             >
               {period.label}
             </button>
           ))}
         </div>
+        {leaderboardPeriod !== "all" && (
+          <div className="leaderboardWindowControl">
+            <button
+              aria-label={t("previous")}
+              onClick={() => setLeaderboardWindowOffset((current) => current - 1)}
+              title={t("previous")}
+              type="button"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span>{leaderboardWindow.label}</span>
+            <button
+              aria-label={t("next")}
+              disabled={leaderboardWindowOffset >= 0}
+              onClick={() => setLeaderboardWindowOffset((current) => Math.min(0, current + 1))}
+              title={t("next")}
+              type="button"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        )}
         {leaderboardRows.length > 0 ? (
           <>
             <div className="leaderboardList">
@@ -2726,7 +2794,7 @@ function App() {
 
   useEffect(() => {
     setLeaderboardPage(1);
-  }, [leaderboardPeriod, network]);
+  }, [leaderboardPeriod, leaderboardWindowOffset, network]);
 
   useEffect(() => {
     setLeaderboardPage((current) => Math.min(current, totalLeaderboardPages));

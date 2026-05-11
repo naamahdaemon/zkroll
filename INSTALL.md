@@ -391,7 +391,7 @@ If the join transaction fails, use `Release join` to return the game to `created
 
 `unrecoverable` games are admin-only local cleanup records for games that cannot be finalized, for example because the original transaction hash or join material is impossible to reconstruct. The action is visible in the game detail only to `VITE_ADMIN_PUBLIC_KEY`; the API also checks `ZKROLL_ADMIN_PUBLIC_KEY`.
 
-The leaderboard is aggregated by wallet public key, not by pseudo. It displays the latest pseudo known in the `players` table and only counts final games: trusted `settled` games and included `refunded` games. Period filters use `settledAt` / `refundedAt`, not `updatedAt`, so manual status syncs do not move old games into daily, weekly, or monthly rankings. Refunds count as games played but do not credit a win. The UI supports all-time, monthly, weekly, and daily views, with 4 rows per page.
+The leaderboard is aggregated by wallet public key, not by pseudo. It displays the latest pseudo known in the `players` table and only counts final games: trusted `settled` games and included `refunded` games. Period filters use `settledAt` / `refundedAt`, not `updatedAt`, so manual status syncs do not move old games into daily, weekly, or monthly rankings. Refunds count as games played but do not credit a win. The UI supports all-time plus calendar monthly, weekly, and daily views with previous/next range navigation and 4 rows per page.
 
 ## 11. ZK Compilation UX
 

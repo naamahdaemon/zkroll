@@ -16,7 +16,7 @@ The first implementation uses a commit-reveal flow:
 10. The app rejects reused transaction hashes, treats corrupt settlements as invalid, and only counts trusted settled games in the leaderboard.
 11. A player with 5 games waiting for their action on the selected network cannot create another challenge on that network until they unblock earlier games.
 12. Admins can mark a locally corrupted game as `unrecoverable` when it cannot be finalized.
-13. The leaderboard can be viewed all time, monthly, weekly, or daily.
+13. The leaderboard can be viewed all time or by calendar month, week, or day, with previous/next navigation for dated ranges.
 14. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
 15. The UI supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish.
 
