@@ -2610,6 +2610,23 @@ function App() {
     return false;
   }
 
+  function gameBlocksNewGameForPlayer(game: Game, playerPublicKey: string) {
+    const isCreator = game.creatorPublicKey === playerPublicKey;
+    const isJoiner = game.joinerPublicKey === playerPublicKey;
+    if (!isCreator && !isJoiner) return false;
+    if (terminalGameStatuses.has(game.status)) return false;
+
+    if (game.status === "pending_signature") return isCreator;
+    if (game.settlementTxHash?.startsWith("pending:") || game.refundTxHash?.startsWith("pending:")) return true;
+    if (game.status === "created") return isCreator && game.creationTxStatus === "INCLUDED" && !game.joinerPublicKey;
+    if (game.status === "join_pending") return game.joinTxStatus !== "INCLUDED" && !game.joinTxHash?.startsWith("pending:invite:");
+    if (game.status === "joined" || game.status === "player_one_revealed" || game.status === "player_two_revealed") {
+      return (isCreator && !game.creatorReveal) || (isJoiner && !game.joinerReveal);
+    }
+    if (game.status === "both_revealed") return game.settlementTxStatus !== "INCLUDED";
+    return false;
+  }
+
   function newGameNotificationButton(networkId: NetworkId) {
     const enabled = newGameNotificationNetworks.has(networkId);
     return (
@@ -3742,7 +3759,7 @@ function App() {
   async function handleCreateGame() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
-      const pendingActionCount = visibleGames.filter(gameNeedsCurrentPlayerAction).length;
+      const pendingActionCount = games.filter((game) => gameBlocksNewGameForPlayer(game, publicKey)).length;
       if (pendingActionCount >= pendingActionGameLimit) {
         throw new Error(t("pendingActionLimitWarning").replace("{count}", String(pendingActionCount)));
       }
@@ -4191,7 +4208,7 @@ function App() {
     await handleRefund(game);
   }
 
-  const pendingActionGames = publicKey ? visibleGames.filter(gameNeedsCurrentPlayerAction) : [];
+  const pendingActionGames = publicKey ? games.filter((game) => gameBlocksNewGameForPlayer(game, publicKey)) : [];
   const createBlockedByPendingActions = pendingActionGames.length >= pendingActionGameLimit;
   const pendingActionWarning = t("pendingActionLimitWarning").replace("{count}", String(pendingActionGames.length));
   const createDisabled = busy || !pseudo || !publicKey || createBlockedByPendingActions;
