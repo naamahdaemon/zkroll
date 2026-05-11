@@ -172,8 +172,8 @@ function gameNeedsPlayerAction(game: Game, publicKey: string) {
   return false;
 }
 
-function pendingActionGamesForPlayer(publicKey: string) {
-  return listGames().filter((game) => gameNeedsPlayerAction(game, publicKey));
+function pendingActionGamesForPlayer(publicKey: string, network: NetworkId) {
+  return listGames().filter((game) => game.network === network && gameNeedsPlayerAction(game, publicKey));
 }
 
 function cacheKey(network: NetworkId, zkappAddress: string) {
@@ -721,21 +721,22 @@ app.post("/games", async (request, reply) => {
     const body = asBody(request.body);
     const creatorPseudo = requiredString(body, "creatorPseudo");
     const creatorPublicKey = requiredString(body, "creatorPublicKey");
+    const network = requiredNetwork(body);
     const refundTimeoutSlots = requiredPositiveIntegerNumber(body, "refundTimeoutSlots");
     if (refundTimeoutSlots > maxRefundTimeoutSlots) {
       throw new Error(`Refund timeout must be at most ${maxRefundTimeoutSlots} slots`);
     }
-    const pendingActionGames = pendingActionGamesForPlayer(creatorPublicKey);
+    const pendingActionGames = pendingActionGamesForPlayer(creatorPublicKey, network);
     if (pendingActionGames.length >= pendingActionGameLimit) {
       throw new Error(
-        `Player already has ${pendingActionGames.length} games waiting for an action; unlock them before creating a new game`
+        `Player already has ${pendingActionGames.length} games waiting for an action on this network; unlock them before creating a new game`
       );
     }
     upsertPlayer(creatorPseudo, creatorPublicKey);
 
     const game = createGame({
         id: optionalString(body, "id") ?? nanoid(12),
-        network: requiredNetwork(body),
+        network,
         zkappAddress: optionalString(body, "zkappAddress"),
         gameIdField: optionalString(body, "gameIdField"),
         creatorPseudo,

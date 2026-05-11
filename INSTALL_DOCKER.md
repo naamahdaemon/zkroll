@@ -590,7 +590,7 @@ Find duplicated transaction hashes in the production database:
 sqlite3 -header -column data/api/zkroll-mainnet.db "with tx as (select id, 'creation' kind, creation_tx_hash hash from games union all select id, 'join', join_tx_hash from games where join_tx_hash is not null union all select id, 'settlement', settlement_tx_hash from games where settlement_tx_hash is not null union all select id, 'refund', refund_tx_hash from games where refund_tx_hash is not null) select hash, group_concat(id || ':' || kind, ', ') as uses from tx where hash not like 'pending:%' and hash not like 'fake%' and hash not like 'create_%' and hash not like 'join_%' and hash not like 'settle_%' and hash not like 'refund_%' group by hash having count(*) > 1;"
 ```
 
-The UI blocks new challenge creation when a wallet already has 5 games waiting for that player's action. The API enforces the same rule. If a user is blocked, inspect their active games and clear/recover the real pending action instead of raising the limit.
+The UI blocks new challenge creation when a wallet already has 5 games waiting for that player's action on the selected network. The API enforces the same per-network rule. If a user is blocked, inspect their active games on that network and clear/recover the real pending action instead of raising the limit.
 
 As a last resort, the configured admin wallet can mark a game `unrecoverable` from the detail page. This is a terminal local status for games that cannot be finalized, for example when the correct hash or join material cannot be reconstructed. Use it only after checking the explorer, the zkApp account, logs, and SQLite backups.
 

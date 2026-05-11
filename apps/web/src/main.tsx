@@ -269,7 +269,7 @@ const copy: Record<string, Record<string, string>> = {
     noInvite: "No invitation",
     inviteSent: "Invitation sent.",
     inviteSkipped: "Game created, but the invitation could not be sent.",
-    pendingActionLimitWarning: "You already have {count} games waiting for your action. Unlock them before creating a new challenge.",
+    pendingActionLimitWarning: "You already have {count} games waiting for your action on this network. Unlock them before creating a new challenge.",
     invitedOnly: "Only the invited player can join this challenge.",
     markUnrecoverable: "Mark unrecoverable",
     markUnrecoverableConfirm: "Mark this game as unrecoverable? This is an admin-only local status for games that cannot be finalized.",
@@ -557,7 +557,7 @@ const copy: Record<string, Record<string, string>> = {
     noInvite: "Aucune invitation",
     inviteSent: "Invitation envoyee.",
     inviteSkipped: "Partie creee, mais l'invitation n'a pas pu etre envoyee.",
-    pendingActionLimitWarning: "Tu as deja {count} parties en attente d'une action de ta part. Debloque-les avant de creer une nouvelle partie.",
+    pendingActionLimitWarning: "Tu as deja {count} parties en attente d'une action de ta part sur ce reseau. Debloque-les avant de creer une nouvelle partie.",
     invitedOnly: "Seul le joueur invite peut rejoindre ce defi.",
     markUnrecoverable: "Marquer irrecuperable",
     markUnrecoverableConfirm: "Marquer cette partie comme irrecuperable ? C'est un statut local admin pour les parties impossibles a finaliser.",
@@ -3759,7 +3759,7 @@ function App() {
   async function handleCreateGame() {
     await runAction(async () => {
       if (!pseudo || !publicKey) throw new Error(t("walletAndPseudoRequired"));
-      const pendingActionCount = games.filter((game) => gameBlocksNewGameForPlayer(game, publicKey)).length;
+      const pendingActionCount = games.filter((game) => game.network === network && gameBlocksNewGameForPlayer(game, publicKey)).length;
       if (pendingActionCount >= pendingActionGameLimit) {
         throw new Error(t("pendingActionLimitWarning").replace("{count}", String(pendingActionCount)));
       }
@@ -4208,7 +4208,7 @@ function App() {
     await handleRefund(game);
   }
 
-  const pendingActionGames = publicKey ? games.filter((game) => gameBlocksNewGameForPlayer(game, publicKey)) : [];
+  const pendingActionGames = publicKey ? games.filter((game) => game.network === network && gameBlocksNewGameForPlayer(game, publicKey)) : [];
   const createBlockedByPendingActions = pendingActionGames.length >= pendingActionGameLimit;
   const pendingActionWarning = t("pendingActionLimitWarning").replace("{count}", String(pendingActionGames.length));
   const createDisabled = busy || !pseudo || !publicKey || createBlockedByPendingActions;

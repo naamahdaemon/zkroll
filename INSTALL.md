@@ -355,7 +355,7 @@ If a challenge gets stuck:
 - the wallet that clicks `Refund` pays the transaction fee;
 - the contract rejects refund transactions before the deadline slot.
 
-The UI blocks new challenge creation when the connected wallet already has 5 games waiting for its action, for example pending signature recovery, join confirmation/release, a missing reveal, a pending settlement/refund, or an available cancel/refund/settlement action. The API enforces the same limit, so bypassing the web form cannot create more blocked games.
+The UI blocks new challenge creation when the connected wallet already has 5 games waiting for its action on the selected network, for example pending signature recovery, join confirmation/release, a missing reveal, a pending settlement/refund, or an available cancel/refund/settlement action. The API enforces the same per-network limit, so bypassing the web form cannot create more blocked games on that network.
 
 ## 10. How Sync Status Works
 

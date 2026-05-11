@@ -44,7 +44,7 @@ The API also enforces workflow guardrails around this local mirror:
 - join confirmation requires complete join material and an included join status;
 - reveal, settlement, and joined-game refund require a trusted included join;
 - create-game requests are rejected when `refundTimeoutSlots` is greater than `2400`;
-- create-game requests are rejected when the creator already has 5 games waiting for their action;
+- create-game requests are rejected when the creator already has 5 games waiting for their action on the requested network;
 - admin-only unrecoverable marking requires `ZKROLL_ADMIN_PUBLIC_KEY`.
 
 ## On-Chain State

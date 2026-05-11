@@ -14,7 +14,7 @@ The first implementation uses a commit-reveal flow:
 8. Each challenge is its own zkApp account, created and funded by the creator transaction.
 9. A join transaction is indexed as `join_pending` until it is marked included, which prevents competing local joins.
 10. The app rejects reused transaction hashes, treats corrupt settlements as invalid, and only counts trusted settled games in the leaderboard.
-11. A player with 5 games waiting for their action cannot create another challenge until they unblock earlier games.
+11. A player with 5 games waiting for their action on the selected network cannot create another challenge on that network until they unblock earlier games.
 12. Admins can mark a locally corrupted game as `unrecoverable` when it cannot be finalized.
 13. The leaderboard can be viewed all time, monthly, weekly, or daily.
 14. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
