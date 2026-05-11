@@ -190,6 +190,7 @@ type LeaderboardRow = {
   pseudo: string;
   gamesPlayed: number;
   gamesWon: number;
+  uniqueOpponents: number;
   amountWonNanoMina: string;
 };
 const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
@@ -386,6 +387,7 @@ const copy: Record<string, Record<string, string>> = {
     leaderboardTab: "Ranks",
     gamesPlayed: "Games",
     gamesWon: "Won",
+    uniqueOpponents: "Opponents",
     amountWon: "MINA won",
     emptyLeaderboard: "No settled games yet.",
     messages: "Messages",
@@ -674,6 +676,7 @@ const copy: Record<string, Record<string, string>> = {
     leaderboardTab: "Classement",
     gamesPlayed: "Parties",
     gamesWon: "Gagnees",
+    uniqueOpponents: "Adversaires",
     amountWon: "MINA gagnes",
     emptyLeaderboard: "Aucune partie reglee pour le moment.",
     messages: "Messages",
@@ -1828,7 +1831,15 @@ function App() {
   const leaderboardRows = useMemo(() => {
     const rows = new Map<
       string,
-      { publicKey: string; pseudo: string; pseudoSeenAt: number; gamesPlayed: number; gamesWon: number; amountWonNanoMina: bigint }
+      {
+        publicKey: string;
+        pseudo: string;
+        pseudoSeenAt: number;
+        gamesPlayed: number;
+        gamesWon: number;
+        opponentKeys: Set<string>;
+        amountWonNanoMina: bigint;
+      }
     >();
     const ensureRow = (publicKeyValue: string, pseudoValue: string, pseudoSeenAt: number) => {
       const displayPseudo = playerPseudosByPublicKey[publicKeyValue] ?? pseudoValue;
@@ -1846,6 +1857,7 @@ function App() {
         pseudoSeenAt,
         gamesPlayed: 0,
         gamesWon: 0,
+        opponentKeys: new Set<string>(),
         amountWonNanoMina: 0n
       };
       rows.set(publicKeyValue, created);
@@ -1865,9 +1877,13 @@ function App() {
       })
       .forEach(({ game, finalizedAt }) => {
         const pseudoSeenAt = new Date(finalizedAt).getTime();
-        ensureRow(game.creatorPublicKey, game.creatorPseudo, pseudoSeenAt).gamesPlayed += 1;
+        const creator = ensureRow(game.creatorPublicKey, game.creatorPseudo, pseudoSeenAt);
+        creator.gamesPlayed += 1;
         if (game.joinerPublicKey && game.joinerPseudo) {
-          ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt).gamesPlayed += 1;
+          const joiner = ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt);
+          joiner.gamesPlayed += 1;
+          creator.opponentKeys.add(game.joinerPublicKey);
+          joiner.opponentKeys.add(game.creatorPublicKey);
         }
         if (isTrustedSettledGame(game) && game.winnerPublicKey) {
           const winnerPseudo =
@@ -1880,8 +1896,12 @@ function App() {
 
     return Array.from(rows.values())
       .map(
-        ({ pseudoSeenAt, ...row }) =>
-          ({ ...row, amountWonNanoMina: row.amountWonNanoMina.toString() } satisfies LeaderboardRow)
+        ({ opponentKeys, pseudoSeenAt, ...row }) =>
+          ({
+            ...row,
+            uniqueOpponents: opponentKeys.size,
+            amountWonNanoMina: row.amountWonNanoMina.toString()
+          }) satisfies LeaderboardRow
       )
       .sort((left, right) => {
         const wonDiff = right.gamesWon - left.gamesWon;
@@ -2353,6 +2373,9 @@ function App() {
                   </span>
                   <span>
                     {t("gamesWon")}: {row.gamesWon}
+                  </span>
+                  <span>
+                    {t("uniqueOpponents")}: {row.uniqueOpponents}
                   </span>
                   <span>
                     {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
