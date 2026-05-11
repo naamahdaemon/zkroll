@@ -251,6 +251,20 @@ function txResult(transactionJson: unknown, memo: string, extra: Record<string, 
   };
 }
 
+async function buildTransaction(job: ProverJob, network: NetworkId, memo: string, sender: PublicKey, callback: () => Promise<void>) {
+  debugLog("transaction:start", { jobId: job.id, jobType: job.type, network, memo, senderPublicKey: sender.toBase58() });
+  const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, callback);
+  debugLog("transaction:built", { jobId: job.id, jobType: job.type, network, memo });
+  return tx;
+}
+
+async function proveTransaction(job: ProverJob, network: NetworkId, tx: { prove: () => Promise<unknown> }) {
+  debugLog("prove:start", { jobId: job.id, jobType: job.type, network });
+  setProgress(job, "progressGenerateProof", 54);
+  await tx.prove();
+  debugLog("prove:done", { jobId: job.id, jobType: job.type, network });
+}
+
 async function proveCreate(job: ProverJob, input: CreateInput) {
   await setup(job, input.network);
   const sender = PublicKey.fromBase58(input.senderPublicKey);
@@ -265,7 +279,7 @@ async function proveCreate(job: ProverJob, input: CreateInput) {
   const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("create", input.gameId);
-  const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
+  const tx = await buildTransaction(job, input.network, memo, sender, async () => {
     const funding = AccountUpdate.createSigned(sender);
     funding.balance.subInPlace(UInt64.from(accountCreationFeeFor(input.network)));
     await contract.deploy({ verificationKey: compiledVerificationKey });
@@ -280,9 +294,10 @@ async function proveCreate(job: ProverJob, input: CreateInput) {
     );
   });
 
-  setProgress(job, "progressGenerateProof", 54);
-  await tx.prove();
+  await proveTransaction(job, input.network, tx);
+  debugLog("sign:start", { jobId: job.id, jobType: job.type, network: input.network, signer: "zkappKey" });
   tx.sign([zkappKey]);
+  debugLog("sign:done", { jobId: job.id, jobType: job.type, network: input.network });
   setProgress(job, "progressProofGenerated", 82);
   return txResult(tx.toJSON(), memo, {
     zkappAddress: zkappAddress.toBase58(),
@@ -300,7 +315,7 @@ async function proveJoin(job: ProverJob, input: JoinInput) {
   const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("join", input.gameIdField);
-  const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
+  const tx = await buildTransaction(job, input.network, memo, sender, async () => {
     await contract.joinGame(
       sender,
       Field(input.creatorPseudoHash),
@@ -313,8 +328,7 @@ async function proveJoin(job: ProverJob, input: JoinInput) {
     );
   });
 
-  setProgress(job, "progressGenerateProof", 54);
-  await tx.prove();
+  await proveTransaction(job, input.network, tx);
   setProgress(job, "progressProofGenerated", 82);
   return txResult(tx.toJSON(), memo, {
     joinerPseudoHash: joinerPseudoHash.toString(),
@@ -332,7 +346,7 @@ async function proveSettle(job: ProverJob, input: SettleInput) {
   const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("settle", input.gameIdField);
-  const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
+  const tx = await buildTransaction(job, input.network, memo, sender, async () => {
     const commonArgs = [
       Field(input.creatorPseudoHash),
       Field(input.joinerPseudoHash),
@@ -354,8 +368,7 @@ async function proveSettle(job: ProverJob, input: SettleInput) {
   });
 
   const outcome = diceOutcome(Field(input.creatorSecret), Field(input.joinerSecret), Field(input.gameIdField));
-  setProgress(job, "progressGenerateProof", 54);
-  await tx.prove();
+  await proveTransaction(job, input.network, tx);
   setProgress(job, "progressProofGenerated", 82);
   return txResult(tx.toJSON(), memo, {
     creatorPublicKey: creator.toBase58(),
@@ -372,7 +385,7 @@ async function proveRefund(job: ProverJob, input: RefundInput) {
   const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("refund", input.gameIdField);
-  const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
+  const tx = await buildTransaction(job, input.network, memo, sender, async () => {
     if (input.status === "created") {
       await contract.refundCreatedGame(
         Field(input.creatorPseudoHash),
@@ -393,8 +406,7 @@ async function proveRefund(job: ProverJob, input: RefundInput) {
     );
   });
 
-  setProgress(job, "progressGenerateProof", 54);
-  await tx.prove();
+  await proveTransaction(job, input.network, tx);
   setProgress(job, "progressProofGenerated", 82);
   return txResult(tx.toJSON(), memo);
 }
@@ -406,7 +418,7 @@ async function proveCancel(job: ProverJob, input: CancelInput) {
   const payoutMode = payoutModeField(input.payoutMode);
 
   const memo = compactGameMemo("cancel", input.gameIdField);
-  const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, async () => {
+  const tx = await buildTransaction(job, input.network, memo, sender, async () => {
     await contract.cancelCreatedGame(
       Field(input.creatorPseudoHash),
       Field(input.creatorCommitment),
@@ -415,8 +427,7 @@ async function proveCancel(job: ProverJob, input: CancelInput) {
     );
   });
 
-  setProgress(job, "progressGenerateProof", 54);
-  await tx.prove();
+  await proveTransaction(job, input.network, tx);
   setProgress(job, "progressProofGenerated", 82);
   return txResult(tx.toJSON(), memo);
 }
