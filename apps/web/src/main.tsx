@@ -141,6 +141,7 @@ const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_0
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
 const leaderboardPerPage = 5;
+const minaTransactionHashPattern = /^5J[1-9A-HJ-NP-Za-km-z]{40,}$/;
 const autoConnectStorageKey = "zkroll:auto-connect-wallet";
 const pseudoAdjectives = [
   "Brave",
@@ -322,6 +323,7 @@ const copy: Record<string, Record<string, string>> = {
     pendingRefundCleared: "Pending refund/cancel released. You can retry or enter the existing hash.",
     pendingRefundClearedReason: "Pending refund/cancel manually released",
     transactionHashAlreadyUsed: "This transaction hash is already used by the {kind} transaction for this game.",
+    invalidGame: "Invalid game",
     refundedGame: "Game refunded",
     failedGame: "Creation failed",
     noLockedFunds: "No funds were locked by the contract.",
@@ -599,6 +601,7 @@ const copy: Record<string, Record<string, string>> = {
     pendingRefundCleared: "Refund/cancel pending libere. Tu peux reessayer ou renseigner le hash existant.",
     pendingRefundClearedReason: "Refund/cancel pending libere manuellement",
     transactionHashAlreadyUsed: "Ce hash de transaction est deja utilise par la transaction {kind} de cette partie.",
+    invalidGame: "Partie invalide",
     refundedGame: "Partie remboursee",
     failedGame: "Creation echouee",
     noLockedFunds: "Aucun fonds n'a ete verrouille par le contrat.",
@@ -1964,6 +1967,7 @@ function App() {
     ) {
       return "UNKNOWN";
     }
+    if (!minaTransactionHashPattern.test(hash)) return "UNKNOWN";
     return txStatuses[hash] ?? "PENDING";
   }
 
@@ -1974,6 +1978,7 @@ function App() {
   function isExplorerHash(hash: string | null | undefined) {
     return Boolean(
       hash &&
+        minaTransactionHashPattern.test(hash) &&
         !hash.startsWith("pending:") &&
         !hash.startsWith("fake") &&
         !hash.startsWith("create_") &&
@@ -1997,11 +2002,16 @@ function App() {
     return (
       game.status === "settled" &&
       Boolean(game.winnerPublicKey) &&
+      Boolean(game.settlementTxHash) &&
       !hasDuplicatedOnchainTransactionHash(game) &&
       creationStatusFor(game) === "INCLUDED" &&
       statusFor(game.joinTxHash) === "INCLUDED" &&
       statusFor(game.settlementTxHash) === "INCLUDED"
     );
+  }
+
+  function isInvalidSettledGame(game: Game) {
+    return game.status === "settled" && !isTrustedSettledGame(game);
   }
 
   function assertGameTransactionHashAvailable(game: Game, kind: TransactionKind, hash: string) {
@@ -4922,13 +4932,20 @@ function App() {
               )}
 
               {selectedGame.status === "settled" && (
-                <div className="winner">
-                  <Trophy size={22} />
-                  <span>
-                    {selectedGame.creatorDie} - {selectedGame.joinerDie}
-                  </span>
-                  <strong>{selectedGame.winnerPublicKey ?? t("draw")}</strong>
-                </div>
+                isInvalidSettledGame(selectedGame) ? (
+                  <div className="winner failedBox">
+                    <ShieldCheck size={22} />
+                    <strong>{t("invalidGame")}</strong>
+                  </div>
+                ) : (
+                  <div className="winner">
+                    <Trophy size={22} />
+                    <span>
+                      {selectedGame.creatorDie} - {selectedGame.joinerDie}
+                    </span>
+                    <strong>{selectedGame.winnerPublicKey ?? t("draw")}</strong>
+                  </div>
+                )
               )}
 
               {selectedGame.status === "refunded" && (
