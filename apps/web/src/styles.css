@@ -325,7 +325,7 @@ h2 {
 .layout {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(260px, 320px) minmax(360px, 0.75fr) minmax(360px, 1.25fr);
+  grid-template-columns: minmax(280px, 360px) minmax(360px, 0.75fr) minmax(360px, 1.25fr);
   margin-top: 24px;
 }
 
