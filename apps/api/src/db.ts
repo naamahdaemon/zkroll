@@ -280,11 +280,46 @@ function gameTransactionHashes(game: Game): Array<{ phase: GameTransactionPhase;
   ];
 }
 
+function duplicatedOnchainTransactionHashes(game: Game) {
+  const seen = new Map<string, GameTransactionPhase>();
+  const duplicates: Array<{ hash: string; firstPhase: GameTransactionPhase; duplicatePhase: GameTransactionPhase }> = [];
+  for (const item of gameTransactionHashes(game)) {
+    if (!item.hash || isLocalTransactionHash(item.hash)) continue;
+    const firstPhase = seen.get(item.hash);
+    if (firstPhase) {
+      duplicates.push({ hash: item.hash, firstPhase, duplicatePhase: item.phase });
+    } else {
+      seen.set(item.hash, item.phase);
+    }
+  }
+  return duplicates;
+}
+
+function assertNoDuplicatedOnchainTransactionHashes(game: Game) {
+  const duplicate = duplicatedOnchainTransactionHashes(game)[0];
+  if (duplicate) {
+    throw new Error(
+      `Transaction hash ${duplicate.hash} is used by both ${duplicate.firstPhase} and ${duplicate.duplicatePhase} transactions`
+    );
+  }
+}
+
+function assertJoinCanBeTrusted(game: Game) {
+  assertNoDuplicatedOnchainTransactionHashes(game);
+  if (!game.joinTxHash || !game.joinerPublicKey || !game.joinerCommitment) {
+    throw new Error("Joined game is missing join transaction material");
+  }
+  if (game.joinTxStatus !== "INCLUDED") {
+    throw new Error("Join transaction must be included before this action");
+  }
+}
+
 function assertTransactionHashAvailable(id: string, phase: GameTransactionPhase, hash: string) {
   if (isLocalTransactionHash(hash)) return;
 
   const game = getGame(id);
   if (!game) throw new Error("Game not found");
+  assertNoDuplicatedOnchainTransactionHashes(game);
 
   const duplicateInGame = gameTransactionHashes(game).find((item) => item.hash === hash && item.phase !== phase);
   if (duplicateInGame) {
@@ -828,6 +863,9 @@ export function getGameByTransaction(network: NetworkId, hash: string): Game | n
 }
 
 export function updateStoredTransactionStatus(network: NetworkId, hash: string, status: TransactionStatus) {
+  const game = getGameByTransaction(network, hash);
+  if (game) assertNoDuplicatedOnchainTransactionHashes(game);
+
   const now = new Date().toISOString();
   db.prepare(
     `
@@ -1041,6 +1079,13 @@ export function reconcileJoinTx(id: string, joinTxHash: string): Game {
 }
 
 export function confirmJoinGame(id: string): Game {
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
+  assertNoDuplicatedOnchainTransactionHashes(game);
+  if (!game.joinTxHash || !game.joinerPublicKey || !game.joinerCommitment) {
+    throw new Error("Join cannot be confirmed without complete join material");
+  }
+
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -1052,6 +1097,8 @@ export function confirmJoinGame(id: string): Game {
           status = 'joined',
           updated_at = ?
       where id = ? and status = 'join_pending' and join_tx_hash is not null
+        and joiner_public_key is not null
+        and joiner_commitment is not null
     `
     )
     .run(now, id);
@@ -1094,6 +1141,10 @@ export function failPendingJoin(id: string, reason?: string): Game {
 
 export function prepareSettlementTx(id: string, settlementTxHash: string): Game {
   assertTransactionHashAvailable(id, "settlement", settlementTxHash);
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
+  assertJoinCanBeTrusted(game);
+
   const now = new Date().toISOString();
   const result = db
     .prepare(
@@ -1205,6 +1256,15 @@ export function clearPendingRefundTx(id: string, reason?: string): Game {
 
 export function refundGame(id: string, input: { refundTxHash: string }): Game {
   assertTransactionHashAvailable(id, "refund", input.refundTxHash);
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
+  const joinedLike =
+    game.status === "joined" ||
+    game.status === "player_one_revealed" ||
+    game.status === "player_two_revealed" ||
+    game.status === "both_revealed";
+  if (joinedLike) assertJoinCanBeTrusted(game);
+
   const now = new Date().toISOString();
   const refundTxStatus: TransactionStatus =
     input.refundTxHash.startsWith("fake") || input.refundTxHash.startsWith("refund_") ? "INCLUDED" : "PENDING";
@@ -1234,6 +1294,7 @@ export function refundGame(id: string, input: { refundTxHash: string }): Game {
 export function revealSecret(id: string, publicKey: string, secret: string): Game {
   const game = getGame(id);
   if (!game) throw new Error("Game not found");
+  assertJoinCanBeTrusted(game);
   if (
     game.status !== "joined" &&
     game.status !== "player_one_revealed" &&
@@ -1295,6 +1356,9 @@ export function settleGame(
   }
 ): Game {
   assertTransactionHashAvailable(id, "settlement", input.settlementTxHash);
+  const game = getGame(id);
+  if (!game) throw new Error("Game not found");
+  assertJoinCanBeTrusted(game);
   const now = new Date().toISOString();
   const settlementTxStatus: TransactionStatus =
     input.settlementTxHash.startsWith("fake") || input.settlementTxHash.startsWith("settle_") ? "INCLUDED" : "PENDING";

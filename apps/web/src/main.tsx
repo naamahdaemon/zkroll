@@ -1784,10 +1784,10 @@ function App() {
         if (game.joinerPublicKey && game.joinerPseudo) {
           ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt).gamesPlayed += 1;
         }
-        if (game.status === "settled" && game.winnerPublicKey) {
+        if (isTrustedSettledGame(game)) {
           const winnerPseudo =
-            game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey;
-          const winner = ensureRow(game.winnerPublicKey, winnerPseudo, pseudoSeenAt);
+            game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey!;
+          const winner = ensureRow(game.winnerPublicKey!, winnerPseudo, pseudoSeenAt);
           winner.gamesWon += 1;
           winner.amountWonNanoMina += payoutNanoMinaForWinner(game);
         }
@@ -1805,7 +1805,7 @@ function App() {
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
         return right.gamesPlayed - left.gamesPlayed;
       });
-  }, [playerPseudosByPublicKey, visibleGames]);
+  }, [playerPseudosByPublicKey, txStatuses, visibleGames]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -1980,6 +1980,27 @@ function App() {
         !hash.startsWith("join_") &&
         !hash.startsWith("settle_") &&
         !hash.startsWith("refund_")
+    );
+  }
+
+  function hasDuplicatedOnchainTransactionHash(game: Game) {
+    const hashes = [
+      game.creationTxHash,
+      game.joinTxHash,
+      game.settlementTxHash,
+      game.refundTxHash
+    ].filter((hash): hash is string => Boolean(hash) && isExplorerHash(hash));
+    return new Set(hashes).size !== hashes.length;
+  }
+
+  function isTrustedSettledGame(game: Game) {
+    return (
+      game.status === "settled" &&
+      Boolean(game.winnerPublicKey) &&
+      !hasDuplicatedOnchainTransactionHash(game) &&
+      creationStatusFor(game) === "INCLUDED" &&
+      statusFor(game.joinTxHash) === "INCLUDED" &&
+      statusFor(game.settlementTxHash) === "INCLUDED"
     );
   }
 
@@ -2275,6 +2296,7 @@ function App() {
 
   function canReveal(game: Game): boolean {
     return (
+      !hasDuplicatedOnchainTransactionHash(game) &&
       (game.status === "joined" ||
         game.status === "player_one_revealed" ||
         game.status === "player_two_revealed" ||
@@ -2285,7 +2307,12 @@ function App() {
   }
 
   function canConfirmJoin(game: Game): boolean {
-    return game.status === "join_pending" && !isReservedInvite(game) && statusFor(game.joinTxHash) === "INCLUDED";
+    return (
+      game.status === "join_pending" &&
+      !isReservedInvite(game) &&
+      !hasDuplicatedOnchainTransactionHash(game) &&
+      statusFor(game.joinTxHash) === "INCLUDED"
+    );
   }
 
   function canSettle(game: Game): boolean {
@@ -2308,6 +2335,7 @@ function App() {
     return (
       deadlineReached &&
       joinedLike &&
+      !hasDuplicatedOnchainTransactionHash(game) &&
       creationStatusFor(game) === "INCLUDED" &&
       statusFor(game.joinTxHash) === "INCLUDED"
     );
