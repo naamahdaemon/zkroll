@@ -97,6 +97,7 @@ VITE_PROVER_MODE=server
 VITE_SERVER_PROVER_POLL_MS=1500
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
+ZKROLL_PROVER_DEBUG=false
 ```
 
 In server mode, the browser creates an async prover job on the API, polls it, and then asks the wallet to sign the returned transaction JSON. The wallet still signs and pays the transaction fee. This mode can help browsers/devices that cannot prove locally, but it sends the circuit inputs required for proving, including game secrets, to the API. Treat it as opt-in and experimental until there is a hardened native worker pool and a deployment model you trust.
@@ -104,6 +105,8 @@ In server mode, the browser creates an async prover job on the API, polls it, an
 The server prover path is intentionally isolated from the web bundle. It uses `o1js-native`, an npm alias to `o1js@2.15.0-rc.0`, plus a server-only copy of the game contract importing that alias. This lets the browser stay on the stable o1js version while the API tests the native prover.
 
 The current server prover implementation is an in-process async queue limited by `ZKROLL_PROVER_WORKERS`. It is not yet a durable distributed prover service; queued jobs are lost if the API restarts.
+
+Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured diagnostics for native-prover issues. The logs include job lifecycle, selected network, native backend, compile-cache keys, verification key hash, and non-secret proving inputs. They intentionally omit game secrets and zkApp private keys.
 
 When `ZKROLL_PROVER_MODE=server` is set on the API and `VITE_PROVER_MODE=server` is set on the web app, an admin-only maintenance action is available in Settings for the configured `ZKROLL_ADMIN_PUBLIC_KEY` / `VITE_ADMIN_PUBLIC_KEY`. It clears the native o1js filesystem cache, drops queued prover jobs, and resets in-memory compile promises. It refuses to run while a prover job is active. Because o1js native state is loaded in-process, restart the API if clearing the cache does not resolve a backend compiler/prover error.
 

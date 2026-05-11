@@ -144,6 +144,7 @@ ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
+ZKROLL_PROVER_DEBUG=false
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -165,6 +166,7 @@ $env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 $env:ZKROLL_PROVER_MODE="client"
 $env:ZKROLL_PROVER_WORKERS="2"
 $env:ZKROLL_PROVER_FEE_NANOMINA="100000000"
+$env:ZKROLL_PROVER_DEBUG="false"
 $env:ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
@@ -182,6 +184,7 @@ export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 export ZKROLL_PROVER_MODE="client"
 export ZKROLL_PROVER_WORKERS="2"
 export ZKROLL_PROVER_FEE_NANOMINA="100000000"
+export ZKROLL_PROVER_DEBUG="false"
 export ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
@@ -214,6 +217,8 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 When server prover mode is enabled, the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
 
 `ZKROLL_PROVER_FEE_NANOMINA` is the fee used when the API builds proved transactions in server prover mode. The wallet still signs and pays the transaction fee.
+
+`ZKROLL_PROVER_DEBUG=true` enables structured server-prover diagnostics. It logs job lifecycle, selected network, native backend, compile-cache keys, verification key hash, and non-secret proving inputs. It intentionally omits game secrets and zkApp private keys.
 
 `ZKROLL_ADMIN_PUBLIC_KEY` controls access to server-prover admin maintenance actions, including clearing the o1js native cache. Set it to the same wallet public key as `VITE_ADMIN_PUBLIC_KEY`. If omitted, the API defaults to the project owner's current admin key.
 

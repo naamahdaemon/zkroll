@@ -20,6 +20,7 @@ const require = createRequire(import.meta.url);
 const cacheDir = require("cachedir") as (name: string) => string;
 const feeNanoMina = Number(process.env.ZKROLL_PROVER_FEE_NANOMINA ?? process.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const maxWorkers = Math.max(1, Number(process.env.ZKROLL_PROVER_WORKERS ?? 2));
+const proverDebug = process.env.ZKROLL_PROVER_DEBUG === "true" || process.env.ZKROLL_PROVER_DEBUG === "1";
 const minaAccountCreationFeeNanoMina = "1000000000";
 
 type Progress = {
@@ -160,14 +161,85 @@ function setProgress(job: ProverJob, label: string, progress: number) {
   job.updatedAt = now();
 }
 
+function redactInput(type: string, input: unknown) {
+  const value = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const keysByType: Record<string, string[]> = {
+    create: ["network", "senderPublicKey", "gameId", "gameIdField", "stakeNanoMina", "payoutMode", "refundDeadlineSlot"],
+    join: [
+      "network",
+      "senderPublicKey",
+      "gameIdField",
+      "zkappAddress",
+      "creatorPseudoHash",
+      "creatorCommitment",
+      "payoutMode",
+      "currentRefundDeadlineSlot",
+      "nextRefundDeadlineSlot"
+    ],
+    settle: [
+      "network",
+      "senderPublicKey",
+      "gameIdField",
+      "zkappAddress",
+      "creatorPublicKey",
+      "creatorPseudoHash",
+      "joinerPublicKey",
+      "joinerPseudoHash",
+      "payoutMode",
+      "creatorCommitment",
+      "joinerCommitment",
+      "winnerPublicKey",
+      "refundDeadlineSlot"
+    ],
+    refund: [
+      "network",
+      "senderPublicKey",
+      "status",
+      "gameIdField",
+      "zkappAddress",
+      "creatorPseudoHash",
+      "joinerPseudoHash",
+      "payoutMode",
+      "creatorCommitment",
+      "joinerCommitment",
+      "refundDeadlineSlot"
+    ],
+    cancel: ["network", "senderPublicKey", "gameIdField", "zkappAddress", "creatorPseudoHash", "creatorCommitment", "payoutMode", "refundDeadlineSlot"]
+  };
+  return Object.fromEntries((keysByType[type] ?? ["network", "senderPublicKey", "gameIdField", "zkappAddress"]).map((key) => [key, value[key] ?? null]));
+}
+
+function debugLog(message: string, data: Record<string, unknown> = {}) {
+  if (!proverDebug) return;
+  console.log(JSON.stringify({ level: "debug", component: "server-prover", message, at: now(), ...data }));
+}
+
 async function setup(job: ProverJob, network: NetworkId) {
+  debugLog("setup:start", {
+    jobId: job.id,
+    jobType: job.type,
+    network,
+    backendBefore: getBackendPreference(),
+    cachedNetworks: Array.from(compilePromises.keys()),
+    hasCompilePromise: compilePromises.has(network),
+    hasVerificationKey: verificationKeys.has(network),
+    cacheDirectory: cacheDir("o1js")
+  });
   Mina.setActiveInstance(createNativeMinaNetwork(network));
   if (!compilePromises.has(network)) {
     setProgress(job, "progressCompileCircuit", 12);
+    debugLog("compile:start", { jobId: job.id, jobType: job.type, network });
     compilePromises.set(network, NativeZkDiceGame.compile() as Promise<{ verificationKey: VerificationKey }>);
   }
   const compiled = await compilePromises.get(network)!;
   verificationKeys.set(network, compiled.verificationKey);
+  debugLog("setup:ready", {
+    jobId: job.id,
+    jobType: job.type,
+    network,
+    backendAfter: getBackendPreference(),
+    verificationKeyHash: compiled.verificationKey.hash.toString()
+  });
   setProgress(job, "progressCircuitReady", 38);
 }
 
@@ -352,6 +424,7 @@ async function proveCancel(job: ProverJob, input: CancelInput) {
 async function runJob(job: ProverJob) {
   job.status = "running";
   setProgress(job, "progressCompileCircuit", 8);
+  debugLog("job:start", { jobId: job.id, jobType: job.type, input: redactInput(job.type, job.input) });
   try {
     if (job.type === "create") job.result = await proveCreate(job, job.input as CreateInput);
     else if (job.type === "join") job.result = await proveJoin(job, job.input as JoinInput);
@@ -361,10 +434,17 @@ async function runJob(job: ProverJob) {
     else throw new Error(`Unsupported prover job type: ${job.type}`);
     job.status = "done";
     setProgress(job, "progressProofGenerated", 100);
+    debugLog("job:done", { jobId: job.id, jobType: job.type, progress: job.progress });
   } catch (error) {
     job.status = "failed";
     job.error = (error as Error).message;
     job.updatedAt = now();
+    debugLog("job:failed", {
+      jobId: job.id,
+      jobType: job.type,
+      error: job.error,
+      stack: (error as Error).stack
+    });
   } finally {
     running -= 1;
     runNext();
@@ -395,6 +475,13 @@ export function createProverJob(type: string, input: unknown) {
   };
   jobs.set(id, job);
   queue.push(job);
+  debugLog("job:queued", {
+    jobId: job.id,
+    jobType: job.type,
+    queued: queue.length,
+    running,
+    input: redactInput(job.type, job.input)
+  });
   runNext();
   return serializeJob(job);
 }

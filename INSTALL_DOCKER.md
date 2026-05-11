@@ -102,6 +102,7 @@ ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
+ZKROLL_PROVER_DEBUG=false
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -137,12 +138,14 @@ Important:
 - Firebase variables are optional. When configured, users can install zkroll as a PWA and subscribe to per-game push notifications. The web image needs the `VITE_FIREBASE_*` values and the API needs the service account values. Keep `FIREBASE_PRIVATE_KEY` secret and outside Git.
 - Keep `VITE_PROVER_MODE=client` for the current privacy-preserving browser proving flow. `server` is experimental: the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) with the native prover, compiles/proves asynchronously, and returns transaction JSON for wallet signature. The game secrets required by the circuit are sent to the API.
 - When using `VITE_PROVER_MODE=server`, also set `ZKROLL_PROVER_MODE=server` on the API. Set `ZKROLL_ADMIN_PUBLIC_KEY` and `VITE_ADMIN_PUBLIC_KEY` to the owner wallet if you want the Settings admin action that clears the native o1js cache and resets compiled prover state.
+- Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured server-prover diagnostics. The logs include job lifecycle, selected network, backend, compile-cache keys, verification key hash, and non-secret proving inputs. They omit game secrets and zkApp private keys.
 
 Server prover cache diagnostics:
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
 docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep "server-prover"
 ```
 
 The admin UI cache clear refuses to run while a prover job is active. If a native o1js error persists after clearing the cache, restart the API:
@@ -688,6 +691,7 @@ ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
+ZKROLL_PROVER_DEBUG=false
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -723,12 +727,14 @@ Important :
 - Les variables Firebase sont optionnelles. Une fois configurees, les utilisateurs peuvent installer zkroll en PWA et s'abonner aux notifications push par partie. L'image web a besoin des valeurs `VITE_FIREBASE_*` et l'API a besoin des valeurs du compte de service. Garde `FIREBASE_PRIVATE_KEY` secret et hors Git.
 - Garde `VITE_PROVER_MODE=client` pour le flux actuel de preuve navigateur qui preserve la confidentialite. `server` est experimental : l'API utilise l'alias serveur `o1js-native` (`o1js@2.15.0-rc.0`) avec le prover natif, compile/genere la preuve de facon asynchrone et renvoie le JSON de transaction a signer. Les secrets de jeu requis par le circuit sont envoyes a l'API.
 - Avec `VITE_PROVER_MODE=server`, configure aussi `ZKROLL_PROVER_MODE=server` cote API. Configure `ZKROLL_ADMIN_PUBLIC_KEY` et `VITE_ADMIN_PUBLIC_KEY` avec le wallet owner si tu veux l'action admin Settings qui vide le cache o1js natif et reinitialise l'etat compile du prover.
+- Active temporairement `ZKROLL_PROVER_DEBUG=true` pour emettre des diagnostics structures du prover serveur. Les logs incluent cycle de vie du job, reseau selectionne, backend, cles du cache compile, hash de verification key et inputs non secrets. Ils omettent les secrets de jeu et les cles privees zkApp.
 
 Diagnostic cache prover serveur :
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
 docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep "server-prover"
 ```
 
 L'action admin de purge refuse de tourner pendant une preuve serveur active. Si une erreur native o1js persiste apres purge, redemarre l'API :
