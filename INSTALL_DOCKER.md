@@ -97,7 +97,7 @@ ZKROLL_DB_PATH=/data/zkroll-mainnet.db
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
@@ -136,7 +136,7 @@ Important:
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
 - Set `VITE_WALLETCONNECT_PROJECT_ID` to a Reown Cloud project id to enable Auro Mobile from Chrome/Safari. Leave it empty if you only want desktop extension support.
 - Firebase variables are optional. When configured, users can install zkroll as a PWA and subscribe to per-game push notifications. The web image needs the `VITE_FIREBASE_*` values and the API needs the service account values. Keep `FIREBASE_PRIVATE_KEY` secret and outside Git.
-- Keep `VITE_PROVER_MODE=client` for the current privacy-preserving browser proving flow. `server` is experimental: the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) with the native prover, compiles/proves asynchronously, and returns transaction JSON for wallet signature. The game secrets required by the circuit are sent to the API.
+- Keep `VITE_PROVER_MODE=client` for the current privacy-preserving browser proving flow. `server` is experimental: the API uses the server-only `o1js-native` alias (`o1js@2.15.0`) with the native prover, compiles/proves asynchronously, and returns transaction JSON for wallet signature. The game secrets required by the circuit are sent to the API.
 - When using `VITE_PROVER_MODE=server`, also set `ZKROLL_PROVER_MODE=server` on the API. Set `ZKROLL_ADMIN_PUBLIC_KEY` and `VITE_ADMIN_PUBLIC_KEY` to the owner wallet if you want the Settings admin action that clears the native o1js cache and resets compiled prover state.
 - Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured server-prover diagnostics. The logs include job lifecycle, selected network, backend, compile-cache keys, verification key hash, and non-secret proving inputs. They omit game secrets and zkApp private keys.
 
@@ -525,7 +525,7 @@ Reduce polling and use conservative cache values:
 ```env
 VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
@@ -705,7 +705,7 @@ ZKROLL_DB_PATH=/data/zkroll-mainnet.db
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
@@ -743,7 +743,7 @@ Important :
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
 - Renseigne `VITE_WALLETCONNECT_PROJECT_ID` avec un project id Reown Cloud pour activer Auro Mobile depuis Chrome/Safari. Laisse vide si tu veux uniquement le support extension desktop.
 - Les variables Firebase sont optionnelles. Une fois configurees, les utilisateurs peuvent installer zkroll en PWA et s'abonner aux notifications push par partie. L'image web a besoin des valeurs `VITE_FIREBASE_*` et l'API a besoin des valeurs du compte de service. Garde `FIREBASE_PRIVATE_KEY` secret et hors Git.
-- Garde `VITE_PROVER_MODE=client` pour le flux actuel de preuve navigateur qui preserve la confidentialite. `server` est experimental : l'API utilise l'alias serveur `o1js-native` (`o1js@2.15.0-rc.0`) avec le prover natif, compile/genere la preuve de facon asynchrone et renvoie le JSON de transaction a signer. Les secrets de jeu requis par le circuit sont envoyes a l'API.
+- Garde `VITE_PROVER_MODE=client` pour le flux actuel de preuve navigateur qui preserve la confidentialite. `server` est experimental : l'API utilise l'alias serveur `o1js-native` (`o1js@2.15.0`) avec le prover natif, compile/genere la preuve de facon asynchrone et renvoie le JSON de transaction a signer. Les secrets de jeu requis par le circuit sont envoyes a l'API.
 - Avec `VITE_PROVER_MODE=server`, configure aussi `ZKROLL_PROVER_MODE=server` cote API. Configure `ZKROLL_ADMIN_PUBLIC_KEY` et `VITE_ADMIN_PUBLIC_KEY` avec le wallet owner si tu veux l'action admin Settings qui vide le cache o1js natif et reinitialise l'etat compile du prover.
 - Active temporairement `ZKROLL_PROVER_DEBUG=true` pour emettre des diagnostics structures du prover serveur. Les logs incluent cycle de vie du job, reseau selectionne, backend, cles du cache compile, hash de verification key et inputs non secrets. Ils omettent les secrets de jeu et les cles privees zkApp.
 
@@ -1132,7 +1132,7 @@ Utilise des valeurs conservatrices :
 ```env
 VITE_TX_POLL_INTERVAL_MS=120000
 VITE_SLOT_POLL_INTERVAL_MS=120000
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50

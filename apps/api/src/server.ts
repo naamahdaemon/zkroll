@@ -70,7 +70,7 @@ const app = Fastify({
   logger: true
 });
 
-const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 12_000);
+const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 20_000);
 const currentSlotCacheMs = Number(process.env.ZKROLL_CURRENT_SLOT_CACHE_MS ?? 15_000);
 const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_000);
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
@@ -103,8 +103,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 }
 
 async function currentSlotFor(network: NetworkId, options: { refresh?: boolean } = {}) {
+  const sourceNetwork = network === "zeko" ? zekoSlotSourceNetwork : network;
   if (options.refresh) {
-    const currentSlot = await (network === "zeko" ? minaCurrentSlotFor(zekoSlotSourceNetwork) : minaCurrentSlotFor(network));
+    const currentSlot = await minaCurrentSlotFor(sourceNetwork, network);
     currentSlotCache.set(network, { expiresAt: Date.now() + currentSlotCacheMs, currentSlot });
     return currentSlot;
   }
@@ -115,7 +116,7 @@ async function currentSlotFor(network: NetworkId, options: { refresh?: boolean }
   const running = currentSlotRequests.get(network);
   if (running) return running;
 
-  const request = (network === "zeko" ? minaCurrentSlotFor(zekoSlotSourceNetwork) : minaCurrentSlotFor(network))
+  const request = minaCurrentSlotFor(sourceNetwork, network)
     .then((currentSlot) => {
       currentSlotCache.set(network, { expiresAt: Date.now() + currentSlotCacheMs, currentSlot });
       return currentSlot;
@@ -127,13 +128,35 @@ async function currentSlotFor(network: NetworkId, options: { refresh?: boolean }
   return request;
 }
 
-async function minaCurrentSlotFor(network: NetworkId) {
-  const latest = await withTimeout(
-    fetchLastBlock(networks[network].minaEndpoint),
-    chainRequestTimeoutMs,
-    `${network} latest block fetch`
-  );
-  return latest.globalSlotSinceGenesis.toString();
+async function minaCurrentSlotFor(sourceNetwork: NetworkId, requestedNetwork: NetworkId = sourceNetwork) {
+  const startedAt = Date.now();
+  const endpoint = networks[sourceNetwork].minaEndpoint;
+  const context = {
+    component: "current-slot",
+    requestedNetwork,
+    sourceNetwork,
+    endpoint,
+    timeoutMs: chainRequestTimeoutMs
+  };
+  app.log.info(context, "current-slot external fetch start");
+  try {
+    const latest = await withTimeout(fetchLastBlock(endpoint), chainRequestTimeoutMs, `${sourceNetwork} latest block fetch`);
+    const currentSlot = latest.globalSlotSinceGenesis.toString();
+    app.log.info({ ...context, elapsedMs: Date.now() - startedAt, currentSlot }, "current-slot external fetch done");
+    return currentSlot;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    app.log.warn(
+      {
+        ...context,
+        elapsedMs: Date.now() - startedAt,
+        timedOut: message.includes("timed out after"),
+        error: message
+      },
+      "current-slot external fetch failed"
+    );
+    throw error;
+  }
 }
 
 function isLocalTransactionHash(hash: string) {

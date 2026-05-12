@@ -8,8 +8,8 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 const PROVER_MODE = import.meta.env.VITE_PROVER_MODE === "server" ? "server" : "client";
 const SERVER_PROVER_POLL_MS = Number(import.meta.env.VITE_SERVER_PROVER_POLL_MS ?? 1500);
 const SERVER_PROVER_WALLET_DELAY_MS = Number(import.meta.env.VITE_SERVER_PROVER_WALLET_DELAY_MS ?? 2500);
-const CLIENT_O1JS_VERSION = "2.1.0";
-const SERVER_O1JS_VERSION = "2.15.0-rc.0";
+const CLIENT_O1JS_VERSION = "2.15.0";
+const SERVER_O1JS_VERSION = "2.15.0";
 
 let compilePromise: Promise<unknown> | null = null;
 let compiled = false;
@@ -242,9 +242,9 @@ function browserCache() {
 }
 
 async function load() {
-  const [{ AccountUpdate, Encoding, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64 }, contracts] =
+  const [{ AccountUpdate, Encoding, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64, fetchAccount }, contracts] =
     await Promise.all([import("o1js"), import("@zkroll/contracts")]);
-  return { AccountUpdate, Encoding, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64, ...contracts };
+  return { AccountUpdate, Encoding, Field, Mina, Poseidon, PrivateKey, PublicKey, UInt32, UInt64, fetchAccount, ...contracts };
 }
 
 async function setup(network: NetworkId, onProgress?: ProgressCallback) {
@@ -260,6 +260,38 @@ async function setup(network: NetworkId, onProgress?: ProgressCallback) {
   compiled = true;
   report(onProgress, "progressCircuitReady", 38);
   return toolkit;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function ensureFeePayerAccountReady(toolkit: Awaited<ReturnType<typeof load>>, sender: unknown, network: NetworkId) {
+  const result = await toolkit.fetchAccount({ publicKey: sender as never });
+  if (result.error) {
+    throw new Error(`Impossible de recuperer le compte fee payer sur ${network}: ${result.error.statusText}`);
+  }
+}
+
+async function buildMinaTransaction(
+  toolkit: Awaited<ReturnType<typeof load>>,
+  network: NetworkId,
+  sender: unknown,
+  memo: string,
+  callback: () => Promise<void>
+) {
+  try {
+    await ensureFeePayerAccountReady(toolkit, sender, network);
+    return await toolkit.Mina.transaction({ sender: sender as never, fee: FEE_NANOMINA, memo }, callback);
+  } catch (error) {
+    const message = errorMessage(error);
+    if (message.includes("Cannot start new transaction within another transaction")) {
+      throw new Error(
+        "o1js a conserve un contexte de transaction ouvert apres une erreur reseau. Libere la transaction pending si besoin, recharge la page, puis reessaie quand le reseau repond."
+      );
+    }
+    throw error;
+  }
 }
 
 function assertProvider(provider: MinaProvider | undefined): MinaProvider {
@@ -507,7 +539,7 @@ export async function createGameOnchain(input: {
   const contract = new toolkit.ZkDiceGame(zkappAddress);
 
   const memo = compactGameMemo("create", input.gameId);
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
+  const tx = await buildMinaTransaction(toolkit, input.network, sender, memo, async () => {
     const accountCreationFee = networks[input.network].accountCreationFeeNanoMina;
     if (accountCreationFee) {
       const funding = toolkit.AccountUpdate.createSigned(sender);
@@ -562,7 +594,7 @@ export async function joinGameOnchain(input: {
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
   const memo = compactGameMemo("join", input.gameIdField);
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
+  const tx = await buildMinaTransaction(toolkit, input.network, sender, memo, async () => {
     await contract.joinGame(
       sender,
       toolkit.Field(input.creatorPseudoHash),
@@ -614,7 +646,7 @@ export async function settleGameOnchain(input: {
     : (toolkit.PublicKey.empty() as typeof sender);
 
   const memo = compactGameMemo("settle", input.gameIdField);
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
+  const tx = await buildMinaTransaction(toolkit, input.network, sender, memo, async () => {
     const commonArgs = [
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.joinerPseudoHash),
@@ -669,7 +701,7 @@ export async function refundGameOnchain(input: {
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
   const memo = compactGameMemo("refund", input.gameIdField);
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
+  const tx = await buildMinaTransaction(toolkit, input.network, sender, memo, async () => {
     if (input.status === "created") {
       await contract.refundCreatedGame(
         toolkit.Field(input.creatorPseudoHash),
@@ -726,7 +758,7 @@ export async function cancelCreatedGameOnchain(input: {
   const contract = new toolkit.ZkDiceGame(toolkit.PublicKey.fromBase58(input.zkappAddress));
 
   const memo = compactGameMemo("cancel", input.gameIdField);
-  const tx = await toolkit.Mina.transaction({ sender, fee: FEE_NANOMINA, memo }, async () => {
+  const tx = await buildMinaTransaction(toolkit, input.network, sender, memo, async () => {
     await (contract as any).cancelCreatedGame(
       toolkit.Field(input.creatorPseudoHash),
       toolkit.Field(input.creatorCommitment),
