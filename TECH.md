@@ -68,7 +68,7 @@ Relevant API environment variables:
 ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ```
 
 Manual status forcing is kept as an operational fallback, not as the normal sync path. Normal inclusion should be inferred from the per-game zkApp state.
@@ -103,7 +103,7 @@ By default, o1js compilation and proof generation run in the browser:
 VITE_PROVER_MODE=client
 ```
 
-This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@2.1.0`.
+This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@2.15.0`.
 
 An experimental server prover mode is available:
 
@@ -117,7 +117,7 @@ ZKROLL_PROVER_DEBUG=false
 
 In server mode, the browser creates an async prover job on the API, polls it, and then asks the wallet to sign the returned transaction JSON. The wallet still signs and pays the transaction fee. This mode can help browsers/devices that cannot prove locally, but it sends the circuit inputs required for proving, including game secrets, to the API. Treat it as opt-in and experimental until there is a hardened native worker pool and a deployment model you trust.
 
-The server prover path is intentionally isolated from the web bundle. It uses `o1js-native`, an npm alias to `o1js@2.15.0-rc.0`, plus a server-only copy of the game contract importing that alias. This lets the browser stay on the stable o1js version while the API tests the native prover.
+The server prover path is intentionally isolated from the web bundle. It uses `o1js-native`, an npm alias to `o1js@2.15.0`, plus a server-only copy of the game contract importing that alias. This lets the browser stay on the stable client o1js version while the API uses the native prover.
 
 The current server prover implementation is an in-process async queue limited by `ZKROLL_PROVER_WORKERS`. It is not yet a durable distributed prover service; queued jobs are lost if the API restarts.
 
@@ -125,7 +125,7 @@ Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured diagnostics for na
 
 When `ZKROLL_PROVER_MODE=server` is set on the API and `VITE_PROVER_MODE=server` is set on the web app, an admin-only maintenance action is available in Settings for the configured `ZKROLL_ADMIN_PUBLIC_KEY` / `VITE_ADMIN_PUBLIC_KEY`. It clears the native o1js filesystem cache, drops queued prover jobs, and resets in-memory compile promises. It refuses to run while a prover job is active. Because o1js native state is loaded in-process, restart the API if clearing the cache does not resolve a backend compiler/prover error.
 
-On Windows, `o1js@2.15.0-rc.0` currently reports that `@o1js/native-win32-x64` is unavailable. The native prover test is therefore intended for Linux/Docker, where `@o1js/native-linux-*` is present in the lockfile.
+The native server prover is intended for Linux/Docker production, where `@o1js/native-linux-*` is present in the lockfile. Windows local development should keep using client proving unless native package support is verified for the local environment.
 
 ## Browser Proving Requirements
 

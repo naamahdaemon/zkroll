@@ -139,7 +139,7 @@ ZKROLL_WEB_ORIGIN=http://127.0.0.1:5174
 ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_WORKERS=2
@@ -161,7 +161,7 @@ $env:ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
 $env:ZKROLL_CURRENT_SLOT_CACHE_MS="15000"
 $env:ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 $env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
-$env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
+$env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="20000"
 $env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 $env:ZKROLL_PROVER_MODE="client"
 $env:ZKROLL_PROVER_WORKERS="2"
@@ -179,7 +179,7 @@ export ZKROLL_WEB_ORIGIN="http://127.0.0.1:5174"
 export ZKROLL_CURRENT_SLOT_CACHE_MS="15000"
 export ZKROLL_ZKAPP_STATE_CACHE_MS="15000"
 export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
-export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="12000"
+export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="20000"
 export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 export ZKROLL_PROVER_MODE="client"
 export ZKROLL_PROVER_WORKERS="2"
@@ -214,7 +214,7 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 
 `ZKROLL_PROVER_MODE=server` enables server-prover-only admin maintenance endpoints. Keep it aligned with `VITE_PROVER_MODE=server` in deployments that use the native server prover.
 
-When server prover mode is enabled, the API uses the server-only `o1js-native` alias (`o1js@2.15.0-rc.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
+When server prover mode is enabled, the API uses the server-only `o1js-native` alias (`o1js@2.15.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
 
 `ZKROLL_PROVER_FEE_NANOMINA` is the fee used when the API builds proved transactions in server prover mode. The wallet still signs and pays the transaction fee.
 
@@ -586,7 +586,7 @@ ZKROLL_WEB_ORIGIN=https://zkroll.example.com
 ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
-ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=8000
+ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ```
 
 Web:
@@ -635,7 +635,7 @@ Environment=ZKROLL_WEB_ORIGIN=https://zkroll.example.com
 Environment=ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 Environment=ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 Environment=ZKROLL_TX_STATUS_SCAN_BLOCKS=50
-Environment=ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=12000
+Environment=ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 
 [Install]
 WantedBy=multi-user.target

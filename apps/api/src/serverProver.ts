@@ -505,7 +505,7 @@ export function getProverJob(id: string) {
 export function serverProverInfo() {
   return {
     proverMode: "server",
-    o1jsVersion: "2.15.0-rc.0",
+    o1jsVersion: "2.15.0",
     backend: getBackendPreference(),
     cacheDirectory: cacheDir("o1js"),
     running,
