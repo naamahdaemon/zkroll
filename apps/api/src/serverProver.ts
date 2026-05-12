@@ -255,6 +255,7 @@ function txResult(transactionJson: unknown, memo: string, extra: Record<string, 
 
 async function buildTransaction(job: ProverJob, network: NetworkId, memo: string, sender: PublicKey, callback: () => Promise<void>) {
   debugLog("transaction:start", { jobId: job.id, jobType: job.type, network, memo, senderPublicKey: sender.toBase58() });
+  setProgress(job, "progressGenerateProof", 54);
   const feePayerAccount = await fetchAccount({ publicKey: sender }, networks[network].minaEndpoint);
   if (feePayerAccount.error || !feePayerAccount.account) {
     if (feePayerAccount.error?.statusCode !== 404) {
