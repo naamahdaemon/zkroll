@@ -14,6 +14,7 @@ The production stack is expected to run these containers:
 
 - `web`: static Vite build served by nginx.
 - `api`: Fastify API on port `4000` inside Docker.
+- `prover`: optional isolated native o1js prover on port `4001` inside Docker when `VITE_PROVER_MODE=server`.
 - `nginx`: public reverse proxy on ports `80` and `443`.
 - `certbot`: Let's Encrypt certificate generation and renewal.
 
@@ -99,6 +100,8 @@ ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
+ZKROLL_PROVER_URL=
+ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
@@ -131,27 +134,29 @@ VITE_FIREBASE_VAPID_KEY=
 
 Important:
 
+- The repository includes `.env.production.example` and `docker-compose.prod.example.yml`. Copy them when creating a new Docker production deployment, then adjust domains/secrets.
 - This branch creates one zkApp account per game, so no global contract address is required.
 - Use a fresh SQLite DB when switching from the old global-root branch to this branch.
 - `VITE_*` variables are baked into the web image at build time. Rebuild `web` after changing them.
 - Set `VITE_WALLETCONNECT_PROJECT_ID` to a Reown Cloud project id to enable Auro Mobile from Chrome/Safari. Leave it empty if you only want desktop extension support.
 - Firebase variables are optional. When configured, users can install zkroll as a PWA and subscribe to per-game push notifications. The web image needs the `VITE_FIREBASE_*` values and the API needs the service account values. Keep `FIREBASE_PRIVATE_KEY` secret and outside Git.
-- Keep `VITE_PROVER_MODE=client` for the current privacy-preserving browser proving flow. `server` is experimental: the API uses the server-only `o1js-native` alias (`o1js@2.15.0`) with the native prover, compiles/proves asynchronously, and returns transaction JSON for wallet signature. The game secrets required by the circuit are sent to the API.
-- When using `VITE_PROVER_MODE=server`, also set `ZKROLL_PROVER_MODE=server` on the API. Set `ZKROLL_ADMIN_PUBLIC_KEY` and `VITE_ADMIN_PUBLIC_KEY` to the owner wallet if you want the Settings admin action that clears the native o1js cache and resets compiled prover state.
+- Keep `VITE_PROVER_MODE=client` for the privacy-preserving browser proving flow. `server` is experimental: the browser sends proving inputs to the API, including game secrets, and signs the returned transaction JSON.
+- When using `VITE_PROVER_MODE=server`, also set `ZKROLL_PROVER_MODE=server`. In Docker production, set `ZKROLL_PROVER_URL=http://prover:4001` on the API and run the separate `prover` service. This keeps `o1js-native` and native proving work out of the public API process.
+- Set `ZKROLL_ADMIN_PUBLIC_KEY` and `VITE_ADMIN_PUBLIC_KEY` to the owner wallet if you want the Settings admin action that clears the native o1js cache and resets compiled prover state. In isolated mode, the API forwards that action to the `prover` service.
 - Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured server-prover diagnostics. The logs include job lifecycle, selected network, backend, compile-cache keys, verification key hash, and non-secret proving inputs. They omit game secrets and zkApp private keys.
 
 Server prover cache diagnostics:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
-docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
-docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep "server-prover"
+docker compose --env-file .env.production -f docker-compose.prod.yml exec prover node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs prover --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs prover --tail=1000 | grep "server-prover"
 ```
 
-The admin UI cache clear refuses to run while a prover job is active. If a native o1js error persists after clearing the cache, restart the API:
+The admin UI cache clear refuses to run while a prover job is active. If a native o1js error persists after clearing the cache, restart the isolated prover:
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml restart api
+docker compose --env-file .env.production -f docker-compose.prod.yml restart prover
 ```
 - Zeko Testnet is supported, but its public GraphQL API is not identical to Mina Devnet/Mainnet. The backend avoids Mina-only `bestChain` transaction scans on Zeko and relies on per-game zkApp state instead.
 - Zeko refund/cancel deadlines use a Mina L1 current-slot source. Keep `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` for Zeko Testnet unless Zeko documents another L1 slot source.
@@ -706,6 +711,9 @@ ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
+ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
+ZKROLL_PROVER_URL=
+ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
@@ -714,7 +722,6 @@ ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 
 VITE_API_URL=https://zkroll.naamahdaemon.eu/api
 VITE_ONCHAIN_ENABLED=true
@@ -738,27 +745,29 @@ VITE_FIREBASE_VAPID_KEY=
 
 Important :
 
+- Le depot inclut `.env.production.example` et `docker-compose.prod.example.yml`. Copie-les pour creer une nouvelle production Docker, puis ajuste domaines et secrets.
 - Cette branche cree un compte zkApp par partie, donc aucune adresse de contrat global n'est requise.
 - Utilise une base SQLite neuve en passant de l'ancienne branche a racine globale vers cette branche.
 - Les variables `VITE_*` sont injectees dans l'image web au build. Il faut rebuilder `web` apres modification.
 - Renseigne `VITE_WALLETCONNECT_PROJECT_ID` avec un project id Reown Cloud pour activer Auro Mobile depuis Chrome/Safari. Laisse vide si tu veux uniquement le support extension desktop.
 - Les variables Firebase sont optionnelles. Une fois configurees, les utilisateurs peuvent installer zkroll en PWA et s'abonner aux notifications push par partie. L'image web a besoin des valeurs `VITE_FIREBASE_*` et l'API a besoin des valeurs du compte de service. Garde `FIREBASE_PRIVATE_KEY` secret et hors Git.
-- Garde `VITE_PROVER_MODE=client` pour le flux actuel de preuve navigateur qui preserve la confidentialite. `server` est experimental : l'API utilise l'alias serveur `o1js-native` (`o1js@2.15.0`) avec le prover natif, compile/genere la preuve de facon asynchrone et renvoie le JSON de transaction a signer. Les secrets de jeu requis par le circuit sont envoyes a l'API.
-- Avec `VITE_PROVER_MODE=server`, configure aussi `ZKROLL_PROVER_MODE=server` cote API. Configure `ZKROLL_ADMIN_PUBLIC_KEY` et `VITE_ADMIN_PUBLIC_KEY` avec le wallet owner si tu veux l'action admin Settings qui vide le cache o1js natif et reinitialise l'etat compile du prover.
+- Garde `VITE_PROVER_MODE=client` pour le flux de preuve navigateur qui preserve la confidentialite. `server` est experimental : le navigateur envoie les inputs de preuve a l'API, secrets de jeu inclus, puis signe le JSON de transaction retourne.
+- Avec `VITE_PROVER_MODE=server`, configure aussi `ZKROLL_PROVER_MODE=server`. En production Docker, configure `ZKROLL_PROVER_URL=http://prover:4001` cote API et lance le service `prover` separe. Cela garde `o1js-native` et le travail de preuve natif hors du process API public.
+- Configure `ZKROLL_ADMIN_PUBLIC_KEY` et `VITE_ADMIN_PUBLIC_KEY` avec le wallet owner si tu veux l'action admin Settings qui vide le cache o1js natif et reinitialise l'etat compile du prover. En mode isole, l'API transfere cette action au service `prover`.
 - Active temporairement `ZKROLL_PROVER_DEBUG=true` pour emettre des diagnostics structures du prover serveur. Les logs incluent cycle de vie du job, reseau selectionne, backend, cles du cache compile, hash de verification key et inputs non secrets. Ils omettent les secrets de jeu et les cles privees zkApp.
 
 Diagnostic cache prover serveur :
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml exec api node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
-docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
-docker compose --env-file .env.production -f docker-compose.prod.yml logs api --tail=1000 | grep "server-prover"
+docker compose --env-file .env.production -f docker-compose.prod.yml exec prover node -e "const cachedir=require('cachedir'); console.log(cachedir('o1js'))"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs prover --tail=1000 | grep -Ei "o1js|prover|proof|kimchi|permutation|error|failed"
+docker compose --env-file .env.production -f docker-compose.prod.yml logs prover --tail=1000 | grep "server-prover"
 ```
 
-L'action admin de purge refuse de tourner pendant une preuve serveur active. Si une erreur native o1js persiste apres purge, redemarre l'API :
+L'action admin de purge refuse de tourner pendant une preuve serveur active. Si une erreur native o1js persiste apres purge, redemarre le prover isole :
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml restart api
+docker compose --env-file .env.production -f docker-compose.prod.yml restart prover
 ```
 - Zeko Testnet est supporte, mais son API GraphQL publique n'est pas identique a Mina Devnet/Mainnet. Le backend evite les scans `bestChain` propres a Mina sur Zeko et s'appuie plutot sur l'etat zkApp de chaque partie.
 - Les deadlines refund/cancel Zeko utilisent une source de slot courant Mina L1. Garde `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet` pour Zeko Testnet sauf indication contraire de Zeko.
@@ -1111,6 +1120,55 @@ Exemple cron :
 ```
 
 ## 14. Problemes Courants
+
+### Adapter Un docker-compose.prod.yml Existant Pour Le Prover Isole
+
+Ajoute `ZKROLL_PROVER_URL` et `ZKROLL_PROVER_REQUEST_TIMEOUT_MS` au service `api`, puis ajoute un service `prover` interne. Exemple minimal base sur le compose production actuel :
+
+```yaml
+services:
+  api:
+    environment:
+      ZKROLL_PROVER_MODE: ${ZKROLL_PROVER_MODE}
+      ZKROLL_PROVER_URL: ${ZKROLL_PROVER_URL}
+      ZKROLL_PROVER_REQUEST_TIMEOUT_MS: ${ZKROLL_PROVER_REQUEST_TIMEOUT_MS}
+    depends_on:
+      - prover
+
+  prover:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    command: npm run start:prover --workspace @zkroll/api
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4001
+      ZKROLL_PROVER_MODE: server
+      ZKROLL_PROVER_WORKERS: ${ZKROLL_PROVER_WORKERS}
+      ZKROLL_PROVER_FEE_NANOMINA: ${ZKROLL_PROVER_FEE_NANOMINA}
+      ZKROLL_PROVER_DEBUG: ${ZKROLL_PROVER_DEBUG}
+      VITE_FEE_NANOMINA: ${VITE_FEE_NANOMINA}
+    expose:
+      - "4001"
+```
+
+Dans `.env.production` :
+
+```env
+ZKROLL_PROVER_MODE=server
+ZKROLL_PROVER_URL=http://prover:4001
+ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
+VITE_PROVER_MODE=server
+```
+
+Apres modification :
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build api prover web
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --force-recreate nginx
+docker compose --env-file .env.production -f docker-compose.prod.yml logs -f prover
+```
 
 ### 502 Bad Gateway Sur `/`
 

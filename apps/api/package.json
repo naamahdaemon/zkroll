@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "migrate:players-public-key": "tsx src/scripts/migrate-player-public-key.ts",
     "start": "node dist/server.js",
+    "start:prover": "node dist/proverServer.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit"
   },

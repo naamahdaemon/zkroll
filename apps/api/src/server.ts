@@ -63,8 +63,9 @@ import {
   serverCommitment,
   serverGameKey,
   serverProverInfo,
-  serverPseudoHash
-} from "./serverProver.js";
+  serverPseudoHash,
+  usesRemoteServerProver
+} from "./serverProverGateway.js";
 
 const app = Fastify({
   logger: true
@@ -76,7 +77,7 @@ const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_0
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
 const adminPublicKey = process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRAbdmDSFhv3MqtkDWh6jYNvK81db5S4KXJvgzLCn";
-const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server";
+const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server" || usesRemoteServerProver();
 const maxRefundTimeoutSlots = 2400;
 const pendingActionGameLimit = 5;
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
@@ -506,7 +507,7 @@ app.post("/admin/prover/cache/clear", async (request, reply) => {
 app.post("/prover/pseudo-hash", async (request, reply) => {
   try {
     const body = asBody(request.body);
-    return { pseudoHash: serverPseudoHash(requiredString(body, "pseudo")) };
+    return { pseudoHash: await serverPseudoHash(requiredString(body, "pseudo")) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -516,7 +517,7 @@ app.post("/prover/commitment", async (request, reply) => {
   try {
     const body = asBody(request.body);
     return {
-      commitment: serverCommitment(
+      commitment: await serverCommitment(
         requiredString(body, "secret"),
         requiredString(body, "publicKey"),
         requiredString(body, "gameIdField")
@@ -532,7 +533,7 @@ app.post("/prover/keygen", async () => serverGameKey());
 app.post("/prover/jobs", async (request, reply) => {
   try {
     const body = asBody(request.body);
-    return reply.code(202).send(createProverJob(requiredString(body, "type"), body.input ?? {}));
+    return reply.code(202).send(await createProverJob(requiredString(body, "type"), body.input ?? {}));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -540,7 +541,7 @@ app.post("/prover/jobs", async (request, reply) => {
 
 app.get("/prover/jobs/:id", async (request, reply) => {
   const { id } = request.params as { id: string };
-  const job = getProverJob(id);
+  const job = await getProverJob(id);
   if (!job) return reply.code(404).send({ error: "Prover job not found" });
   return job;
 });

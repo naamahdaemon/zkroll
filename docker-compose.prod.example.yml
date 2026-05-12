@@ -1,0 +1,96 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4000
+      ZKROLL_DB_PATH: ${ZKROLL_DB_PATH}
+      ZKROLL_WEB_ORIGIN: https://${DOMAIN}
+      ZKROLL_CURRENT_SLOT_CACHE_MS: ${ZKROLL_CURRENT_SLOT_CACHE_MS}
+      ZKROLL_ZKAPP_STATE_CACHE_MS: ${ZKROLL_ZKAPP_STATE_CACHE_MS}
+      ZKROLL_TX_STATUS_SCAN_BLOCKS: ${ZKROLL_TX_STATUS_SCAN_BLOCKS}
+      ZKROLL_CHAIN_REQUEST_TIMEOUT_MS: ${ZKROLL_CHAIN_REQUEST_TIMEOUT_MS}
+      ZKROLL_ZEKO_SLOT_SOURCE_NETWORK: ${ZKROLL_ZEKO_SLOT_SOURCE_NETWORK}
+      ZKROLL_PROVER_MODE: ${ZKROLL_PROVER_MODE}
+      ZKROLL_PROVER_URL: ${ZKROLL_PROVER_URL}
+      ZKROLL_PROVER_REQUEST_TIMEOUT_MS: ${ZKROLL_PROVER_REQUEST_TIMEOUT_MS}
+      ZKROLL_ADMIN_PUBLIC_KEY: ${ZKROLL_ADMIN_PUBLIC_KEY}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+    volumes:
+      - ./data/api:/data
+    expose:
+      - "4000"
+    depends_on:
+      - prover
+
+  prover:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    command: npm run start:prover --workspace @zkroll/api
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4001
+      ZKROLL_PROVER_MODE: server
+      ZKROLL_PROVER_WORKERS: ${ZKROLL_PROVER_WORKERS}
+      ZKROLL_PROVER_FEE_NANOMINA: ${ZKROLL_PROVER_FEE_NANOMINA}
+      ZKROLL_PROVER_DEBUG: ${ZKROLL_PROVER_DEBUG}
+      VITE_FEE_NANOMINA: ${VITE_FEE_NANOMINA}
+    expose:
+      - "4001"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_ONCHAIN_ENABLED: ${VITE_ONCHAIN_ENABLED}
+        VITE_PROVER_MODE: ${VITE_PROVER_MODE}
+        VITE_SERVER_PROVER_POLL_MS: ${VITE_SERVER_PROVER_POLL_MS}
+        VITE_SERVER_PROVER_WALLET_DELAY_MS: ${VITE_SERVER_PROVER_WALLET_DELAY_MS}
+        VITE_FEE_NANOMINA: ${VITE_FEE_NANOMINA}
+        VITE_WALLET_RESPONSE_TIMEOUT_MS: ${VITE_WALLET_RESPONSE_TIMEOUT_MS}
+        VITE_REFUND_TIMEOUT_SLOTS: ${VITE_REFUND_TIMEOUT_SLOTS}
+        VITE_O1JS_BROWSER_CACHE_ENABLED: ${VITE_O1JS_BROWSER_CACHE_ENABLED}
+        VITE_TX_POLL_INTERVAL_MS: ${VITE_TX_POLL_INTERVAL_MS}
+        VITE_SLOT_POLL_INTERVAL_MS: ${VITE_SLOT_POLL_INTERVAL_MS}
+        VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS: ${VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS}
+        VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS: ${VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS}
+        VITE_WALLETCONNECT_PROJECT_ID: ${VITE_WALLETCONNECT_PROJECT_ID}
+        VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY}
+        VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN}
+        VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID}
+        VITE_FIREBASE_MESSAGING_SENDER_ID: ${VITE_FIREBASE_MESSAGING_SENDER_ID}
+        VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID}
+        VITE_FIREBASE_VAPID_KEY: ${VITE_FIREBASE_VAPID_KEY}
+        VITE_ADMIN_PUBLIC_KEY: ${VITE_ADMIN_PUBLIC_KEY}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/reverse.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certbot/www:/var/www/certbot
+      - ./deploy/certbot/conf:/etc/letsencrypt
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./deploy/certbot/www:/var/www/certbot
+      - ./deploy/certbot/conf:/etc/letsencrypt

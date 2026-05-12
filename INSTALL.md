@@ -142,6 +142,8 @@ ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_MODE=client
+ZKROLL_PROVER_URL=
+ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
 ZKROLL_PROVER_WORKERS=2
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_DEBUG=false
@@ -164,6 +166,8 @@ $env:ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 $env:ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="20000"
 $env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 $env:ZKROLL_PROVER_MODE="client"
+$env:ZKROLL_PROVER_URL=""
+$env:ZKROLL_PROVER_REQUEST_TIMEOUT_MS="30000"
 $env:ZKROLL_PROVER_WORKERS="2"
 $env:ZKROLL_PROVER_FEE_NANOMINA="100000000"
 $env:ZKROLL_PROVER_DEBUG="false"
@@ -182,6 +186,8 @@ export ZKROLL_TX_STATUS_SCAN_BLOCKS="50"
 export ZKROLL_CHAIN_REQUEST_TIMEOUT_MS="20000"
 export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 export ZKROLL_PROVER_MODE="client"
+export ZKROLL_PROVER_URL=""
+export ZKROLL_PROVER_REQUEST_TIMEOUT_MS="30000"
 export ZKROLL_PROVER_WORKERS="2"
 export ZKROLL_PROVER_FEE_NANOMINA="100000000"
 export ZKROLL_PROVER_DEBUG="false"
@@ -210,17 +216,26 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 
 `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK` controls the Mina L1 slot source used for Zeko refund/cancel deadlines. Use `devnet` by default for Zeko Testnet. Set it to `mainnet` only if a future Zeko environment explicitly uses mainnet L1 slots. If the source does not match Zeko's slot semantics, the expected failure mode is a rejected refund/cancel transaction.
 
-`ZKROLL_PROVER_WORKERS` controls the number of concurrent server prover jobs when `VITE_PROVER_MODE=server`. The current implementation uses an in-process async queue, so keep this value conservative until a dedicated native prover worker pool is introduced.
+`ZKROLL_PROVER_WORKERS` controls the number of concurrent server prover jobs when `VITE_PROVER_MODE=server`. The queue is in memory inside the server prover process, so keep this value conservative.
 
 `ZKROLL_PROVER_MODE=server` enables server-prover-only admin maintenance endpoints. Keep it aligned with `VITE_PROVER_MODE=server` in deployments that use the native server prover.
 
-When server prover mode is enabled, the API uses the server-only `o1js-native` alias (`o1js@2.15.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
+When server prover mode is enabled, the server prover uses the server-only `o1js-native` alias (`o1js@2.15.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
+
+`ZKROLL_PROVER_URL` enables process/container isolation. Set it on the API to the internal prover service URL, for example `http://prover:4001` in Docker. When it is unset, the API falls back to the legacy in-process server prover for local development. `ZKROLL_PROVER_REQUEST_TIMEOUT_MS` bounds API-to-prover HTTP requests.
+
+For local isolated server-prover testing, run the prover and API in two terminals:
+
+```bash
+PORT=4001 ZKROLL_PROVER_MODE=server npm run start:prover --workspace @zkroll/api
+ZKROLL_PROVER_MODE=server ZKROLL_PROVER_URL=http://127.0.0.1:4001 npm run dev:api
+```
 
 `ZKROLL_PROVER_FEE_NANOMINA` is the fee used when the API builds proved transactions in server prover mode. The wallet still signs and pays the transaction fee.
 
 `ZKROLL_PROVER_DEBUG=true` enables structured server-prover diagnostics. It logs job lifecycle, selected network, native backend, compile-cache keys, verification key hash, and non-secret proving inputs. It intentionally omits game secrets and zkApp private keys.
 
-`ZKROLL_ADMIN_PUBLIC_KEY` controls access to server-prover admin maintenance actions, including clearing the o1js native cache. Set it to the same wallet public key as `VITE_ADMIN_PUBLIC_KEY`. If omitted, the API defaults to the project owner's current admin key.
+`ZKROLL_ADMIN_PUBLIC_KEY` controls access to server-prover admin maintenance actions, including clearing the o1js native cache. In isolated mode the API authenticates the admin wallet and forwards the clear-cache request to the prover service. Set it to the same wallet public key as `VITE_ADMIN_PUBLIC_KEY`. If omitted, the API defaults to the project owner's current admin key.
 
 ## 7. Configure The Web App
 
