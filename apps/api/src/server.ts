@@ -364,6 +364,23 @@ async function syncTransactionFromZkappState(network: NetworkId, hash: string, g
     };
   }
 
+  if (!included && chain.status === null) {
+    if (chainTransactionStatus.status === "INCLUDED") {
+      updateStoredTransactionStatus(network, hash, "INCLUDED");
+      return {
+        status: "INCLUDED" as TransactionStatus,
+        chainStatus: chain.status,
+        chainStatusError: chain.error
+      };
+    }
+
+    return {
+      status: chainTransactionStatus.status === "UNKNOWN" ? ("UNKNOWN" as TransactionStatus) : ("PENDING" as TransactionStatus),
+      chainStatus: chain.status,
+      chainStatusError: chain.error
+    };
+  }
+
   if (!included && chainTransactionStatus.status === "INCLUDED") {
     const failedGame = markTransactionFailed(
       network,
