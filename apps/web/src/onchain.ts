@@ -430,9 +430,6 @@ async function serverProverJob<T extends Record<string, unknown>>(
 
   while (job.status === "queued" || job.status === "running") {
     await new Promise((resolve) => window.setTimeout(resolve, SERVER_PROVER_POLL_MS));
-    if (job.progress.label === "progressCircuitReady") {
-      report(onProgress, "progressGenerateProof", 54);
-    }
     job = await apiRequest<ServerProverJob>(`/prover/jobs/${encodeURIComponent(job.id)}`);
     report(onProgress, job.progress.label, job.progress.progress);
   }
