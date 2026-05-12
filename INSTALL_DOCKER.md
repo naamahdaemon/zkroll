@@ -102,10 +102,11 @@ ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_URL=
 ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
-ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_WORKERS=1
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_DEBUG=false
+ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -144,6 +145,8 @@ Important:
 - When using `VITE_PROVER_MODE=server`, also set `ZKROLL_PROVER_MODE=server`. In Docker production, set `ZKROLL_PROVER_URL=http://prover:4001` on the API and run the separate `prover` service. This keeps `o1js-native` and native proving work out of the public API process.
 - Set `ZKROLL_ADMIN_PUBLIC_KEY` and `VITE_ADMIN_PUBLIC_KEY` to the owner wallet if you want the Settings admin action that clears the native o1js cache and resets compiled prover state. In isolated mode, the API forwards that action to the `prover` service.
 - Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured server-prover diagnostics. The logs include job lifecycle, selected network, backend, compile-cache keys, verification key hash, and non-secret proving inputs. They omit game secrets and zkApp private keys.
+- Keep `ZKROLL_PROVER_WORKERS=1`. Native o1js transaction construction is not reentrant inside one Node process; concurrent jobs can leave the process stuck with `Cannot start new transaction within another transaction`.
+- Keep `ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true` in isolated Docker deployments. After an admin cache clear succeeds, the prover process exits and Docker restarts the `prover` container automatically via `restart: unless-stopped`.
 
 Server prover cache diagnostics:
 
@@ -714,10 +717,11 @@ ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
 ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_URL=
 ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
-ZKROLL_PROVER_WORKERS=2
-ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_DEBUG=false
+ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true
+ZKROLL_PROVER_WORKERS=1
+ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -755,6 +759,8 @@ Important :
 - Avec `VITE_PROVER_MODE=server`, configure aussi `ZKROLL_PROVER_MODE=server`. En production Docker, configure `ZKROLL_PROVER_URL=http://prover:4001` cote API et lance le service `prover` separe. Cela garde `o1js-native` et le travail de preuve natif hors du process API public.
 - Configure `ZKROLL_ADMIN_PUBLIC_KEY` et `VITE_ADMIN_PUBLIC_KEY` avec le wallet owner si tu veux l'action admin Settings qui vide le cache o1js natif et reinitialise l'etat compile du prover. En mode isole, l'API transfere cette action au service `prover`.
 - Active temporairement `ZKROLL_PROVER_DEBUG=true` pour emettre des diagnostics structures du prover serveur. Les logs incluent cycle de vie du job, reseau selectionne, backend, cles du cache compile, hash de verification key et inputs non secrets. Ils omettent les secrets de jeu et les cles privees zkApp.
+- Garde `ZKROLL_PROVER_WORKERS=1`. La construction de transaction o1js native n'est pas reentrante dans un meme process Node ; des jobs concurrents peuvent bloquer le process avec `Cannot start new transaction within another transaction`.
+- Garde `ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true` dans les deploiements Docker isoles. Apres une purge admin reussie, le process prover s'arrete et Docker relance automatiquement le container `prover` via `restart: unless-stopped`.
 
 Diagnostic cache prover serveur :
 
@@ -1148,6 +1154,7 @@ services:
       ZKROLL_PROVER_WORKERS: ${ZKROLL_PROVER_WORKERS}
       ZKROLL_PROVER_FEE_NANOMINA: ${ZKROLL_PROVER_FEE_NANOMINA}
       ZKROLL_PROVER_DEBUG: ${ZKROLL_PROVER_DEBUG}
+      ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR: ${ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR}
       VITE_FEE_NANOMINA: ${VITE_FEE_NANOMINA}
     expose:
       - "4001"

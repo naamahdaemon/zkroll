@@ -144,9 +144,10 @@ ZKROLL_ZEKO_SLOT_SOURCE_NETWORK=devnet
 ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_URL=
 ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
-ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_WORKERS=1
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_DEBUG=false
+ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -168,9 +169,10 @@ $env:ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 $env:ZKROLL_PROVER_MODE="client"
 $env:ZKROLL_PROVER_URL=""
 $env:ZKROLL_PROVER_REQUEST_TIMEOUT_MS="30000"
-$env:ZKROLL_PROVER_WORKERS="2"
+$env:ZKROLL_PROVER_WORKERS="1"
 $env:ZKROLL_PROVER_FEE_NANOMINA="100000000"
 $env:ZKROLL_PROVER_DEBUG="false"
+$env:ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR="true"
 $env:ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
@@ -188,9 +190,10 @@ export ZKROLL_ZEKO_SLOT_SOURCE_NETWORK="devnet"
 export ZKROLL_PROVER_MODE="client"
 export ZKROLL_PROVER_URL=""
 export ZKROLL_PROVER_REQUEST_TIMEOUT_MS="30000"
-export ZKROLL_PROVER_WORKERS="2"
+export ZKROLL_PROVER_WORKERS="1"
 export ZKROLL_PROVER_FEE_NANOMINA="100000000"
 export ZKROLL_PROVER_DEBUG="false"
+export ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR="true"
 export ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
@@ -216,7 +219,7 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 
 `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK` controls the Mina L1 slot source used for Zeko refund/cancel deadlines. Use `devnet` by default for Zeko Testnet. Set it to `mainnet` only if a future Zeko environment explicitly uses mainnet L1 slots. If the source does not match Zeko's slot semantics, the expected failure mode is a rejected refund/cancel transaction.
 
-`ZKROLL_PROVER_WORKERS` controls the number of concurrent server prover jobs when `VITE_PROVER_MODE=server`. The queue is in memory inside the server prover process, so keep this value conservative.
+`ZKROLL_PROVER_WORKERS` is kept for configuration visibility, but the native prover process currently executes one o1js job at a time. o1js native transaction construction uses process-global state and is not safe to run concurrently inside the same Node process.
 
 `ZKROLL_PROVER_MODE=server` enables server-prover-only admin maintenance endpoints. Keep it aligned with `VITE_PROVER_MODE=server` in deployments that use the native server prover.
 
@@ -234,6 +237,8 @@ ZKROLL_PROVER_MODE=server ZKROLL_PROVER_URL=http://127.0.0.1:4001 npm run dev:ap
 `ZKROLL_PROVER_FEE_NANOMINA` is the fee used when the API builds proved transactions in server prover mode. The wallet still signs and pays the transaction fee.
 
 `ZKROLL_PROVER_DEBUG=true` enables structured server-prover diagnostics. It logs job lifecycle, selected network, native backend, compile-cache keys, verification key hash, and non-secret proving inputs. It intentionally omits game secrets and zkApp private keys.
+
+`ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true` makes the isolated prover process exit after a successful admin cache clear. With Docker `restart: unless-stopped`, Docker starts the `prover` container again automatically. This is intentionally only done by the isolated prover process; the API does not restart itself.
 
 `ZKROLL_ADMIN_PUBLIC_KEY` controls access to server-prover admin maintenance actions, including clearing the o1js native cache. In isolated mode the API authenticates the admin wallet and forwards the clear-cache request to the prover service. Set it to the same wallet public key as `VITE_ADMIN_PUBLIC_KEY`. If omitted, the API defaults to the project owner's current admin key.
 

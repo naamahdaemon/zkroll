@@ -110,7 +110,7 @@ An experimental server prover mode is available:
 ```env
 VITE_PROVER_MODE=server
 VITE_SERVER_PROVER_POLL_MS=1500
-ZKROLL_PROVER_WORKERS=2
+ZKROLL_PROVER_WORKERS=1
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_DEBUG=false
 ```
@@ -127,11 +127,11 @@ ZKROLL_PROVER_URL=http://prover:4001
 ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
 ```
 
-With `ZKROLL_PROVER_URL` set, the public API process does not import `serverProver.ts` or `o1js-native`; it proxies `/prover/*` work to the isolated prover service over internal HTTP. Without `ZKROLL_PROVER_URL`, the API falls back to the legacy in-process prover for local development. The prover queue is still in-memory and limited by `ZKROLL_PROVER_WORKERS`; queued jobs are lost if the prover process restarts.
+With `ZKROLL_PROVER_URL` set, the public API process does not import `serverProver.ts` or `o1js-native`; it proxies `/prover/*` work to the isolated prover service over internal HTTP. Without `ZKROLL_PROVER_URL`, the API falls back to the legacy in-process prover for local development. The prover queue is still in-memory and executes one native o1js job at a time per prover process; queued jobs are lost if the prover process restarts.
 
 Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured diagnostics for native-prover issues. The logs include job lifecycle, selected network, native backend, compile-cache keys, verification key hash, and non-secret proving inputs. They intentionally omit game secrets and zkApp private keys.
 
-When `ZKROLL_PROVER_MODE=server` is set on the API and `VITE_PROVER_MODE=server` is set on the web app, an admin-only maintenance action is available in Settings for the configured `ZKROLL_ADMIN_PUBLIC_KEY` / `VITE_ADMIN_PUBLIC_KEY`. It clears the native o1js filesystem cache, drops queued prover jobs, and resets in-memory compile promises. In isolated deployments this action is forwarded to the prover container. It refuses to run while a prover job is active. Because o1js native state is loaded in the prover process, restart the `prover` container if clearing the cache does not resolve a backend compiler/prover error.
+When `ZKROLL_PROVER_MODE=server` is set on the API and `VITE_PROVER_MODE=server` is set on the web app, an admin-only maintenance action is available in Settings for the configured `ZKROLL_ADMIN_PUBLIC_KEY` / `VITE_ADMIN_PUBLIC_KEY`. It clears the native o1js filesystem cache, drops queued prover jobs, and resets in-memory compile promises. In isolated deployments this action is forwarded to the prover container. It refuses to run while a prover job is active. With `ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true`, the isolated prover process exits after a successful clear; Docker restarts it through `restart: unless-stopped`. If o1js reports `Cannot start new transaction within another transaction`, this restart is required because that error means the in-process native transaction context is already contaminated.
 
 The native server prover is intended for Linux/Docker production, where `@o1js/native-linux-*` is present in the lockfile. Windows local development should keep using client proving unless native package support is verified for the local environment.
 

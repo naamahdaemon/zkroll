@@ -14,6 +14,7 @@ import { asBody, requiredString } from "./validation.js";
 const app = Fastify({
   logger: true
 });
+const restartOnCacheClear = process.env.ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR !== "false";
 
 await app.register(cors, {
   origin: false
@@ -26,7 +27,15 @@ app.get("/internal/prover/info", async () => ({ ...serverProverInfo(), isolated:
 app.post("/internal/prover/cache/clear", async (request, reply) => {
   try {
     request.log.warn("Clearing isolated server prover o1js cache");
-    return clearServerProverCache();
+    const result = await clearServerProverCache();
+    if (restartOnCacheClear) {
+      request.log.warn("Restarting isolated server prover process after cache clear");
+      setTimeout(() => process.exit(0), 250);
+    }
+    return {
+      ...result,
+      processRestartScheduled: restartOnCacheClear
+    };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

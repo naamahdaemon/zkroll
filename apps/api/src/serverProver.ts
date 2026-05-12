@@ -8,6 +8,7 @@ import {
   PublicKey,
   UInt32,
   UInt64,
+  fetchAccount,
   getBackendPreference,
   type VerificationKey
 } from "o1js-native";
@@ -19,7 +20,8 @@ import { createNativeMinaNetwork, diceOutcome, NativeZkDiceGame } from "./native
 const require = createRequire(import.meta.url);
 const cacheDir = require("cachedir") as (name: string) => string;
 const feeNanoMina = Number(process.env.ZKROLL_PROVER_FEE_NANOMINA ?? process.env.VITE_FEE_NANOMINA ?? 100_000_000);
-const maxWorkers = Math.max(1, Number(process.env.ZKROLL_PROVER_WORKERS ?? 2));
+const requestedWorkers = Math.max(1, Number(process.env.ZKROLL_PROVER_WORKERS ?? 1));
+const maxWorkers = 1;
 const proverDebug = process.env.ZKROLL_PROVER_DEBUG === "true" || process.env.ZKROLL_PROVER_DEBUG === "1";
 const minaAccountCreationFeeNanoMina = "1000000000";
 
@@ -253,6 +255,17 @@ function txResult(transactionJson: unknown, memo: string, extra: Record<string, 
 
 async function buildTransaction(job: ProverJob, network: NetworkId, memo: string, sender: PublicKey, callback: () => Promise<void>) {
   debugLog("transaction:start", { jobId: job.id, jobType: job.type, network, memo, senderPublicKey: sender.toBase58() });
+  const feePayerAccount = await fetchAccount({ publicKey: sender }, networks[network].minaEndpoint);
+  if (feePayerAccount.error || !feePayerAccount.account) {
+    if (feePayerAccount.error?.statusCode !== 404) {
+      throw new Error(
+        `Cannot fetch fee payer account ${sender.toBase58()} on ${network}: ${feePayerAccount.error?.statusText ?? "network endpoint unavailable"}.`
+      );
+    }
+    throw new Error(
+      `Fee payer account ${sender.toBase58()} was not found on ${network}. Fund this wallet on the selected network before using server proving.`
+    );
+  }
   const tx = await Mina.transaction({ sender, fee: feeNanoMina, memo }, callback);
   debugLog("transaction:built", { jobId: job.id, jobType: job.type, network, memo });
   return tx;
@@ -448,7 +461,10 @@ async function runJob(job: ProverJob) {
     debugLog("job:done", { jobId: job.id, jobType: job.type, progress: job.progress });
   } catch (error) {
     job.status = "failed";
-    job.error = (error as Error).message;
+    const errorMessage = (error as Error).message;
+    job.error = errorMessage.includes("Cannot start new transaction within another transaction")
+      ? `${errorMessage}. The native o1js transaction context is already open; restart the isolated prover process before retrying.`
+      : errorMessage;
     job.updatedAt = now();
     debugLog("job:failed", {
       jobId: job.id,
@@ -508,6 +524,9 @@ export function serverProverInfo() {
     o1jsVersion: "2.15.0",
     backend: getBackendPreference(),
     cacheDirectory: cacheDir("o1js"),
+    requestedWorkers,
+    effectiveWorkers: maxWorkers,
+    concurrencyModel: "single native o1js job per prover process",
     running,
     queued: queue.length
   };
@@ -532,10 +551,13 @@ export async function clearServerProverCache() {
 
   return {
     ok: true,
+    service: "prover",
     cacheDirectory,
     droppedQueuedJobs,
     running,
-    queued: queue.length
+    queued: queue.length,
+    processRestarted: false,
+    restartHint: "If native o1js keeps reporting an open transaction context, restart the isolated prover container."
   };
 }
 
