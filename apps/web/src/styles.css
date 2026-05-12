@@ -1288,6 +1288,14 @@ select {
   background: #b23b3b;
 }
 
+.status.cancelled {
+  background: #6a5b4b;
+}
+
+.status.unrecoverable {
+  background: #7f2f56;
+}
+
 dl {
   display: grid;
   gap: 12px;
