@@ -524,13 +524,16 @@ export function unreadMessageCounts(publicKey: string): Record<string, number> {
   const rows = db
     .prepare(
       `
-      select game_id as gameId, count(*) as count
-      from game_messages
-      where receiver_public_key = ? and read_at is null
-      group by game_id
+      select messages.game_id as gameId, count(*) as count
+      from game_messages messages
+      join games on games.id = messages.game_id
+      where messages.receiver_public_key = ?
+        and messages.read_at is null
+        and (games.creator_public_key = ? or games.joiner_public_key = ?)
+      group by messages.game_id
     `
     )
-    .all(publicKey) as { gameId: string; count: number }[];
+    .all(publicKey, publicKey, publicKey) as { gameId: string; count: number }[];
   return Object.fromEntries(rows.map((row) => [row.gameId, row.count]));
 }
 

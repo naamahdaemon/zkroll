@@ -182,6 +182,7 @@ type Theme = "light" | "dark";
 type ViewMode = "cards" | "app";
 type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "leaderboard" | "settings";
 type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
+type MessageFilter = "all" | "unread" | "messages";
 type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
 type LeaderboardPeriod = "all" | "month" | "week" | "day";
@@ -291,6 +292,10 @@ const copy: Record<string, Record<string, string>> = {
     activeStatuses: "Active games",
     myActiveStatuses: "My active games",
     allStatuses: "All statuses",
+    messageFilter: "Messages",
+    allMessageStatuses: "All",
+    withUnreadMessages: "With unread messages",
+    withMessages: "With messages",
     allNetworks: "All networks",
     searchPlayer: "Search player",
     searchGameId: "Search game id",
@@ -582,6 +587,10 @@ const copy: Record<string, Record<string, string>> = {
     activeStatuses: "Parties actives",
     myActiveStatuses: "Mes parties actives",
     allStatuses: "Tous les etats",
+    messageFilter: "Messages",
+    allMessageStatuses: "Tous",
+    withUnreadMessages: "Avec messages non lus",
+    withMessages: "Avec message",
     allNetworks: "Tous les reseaux",
     searchPlayer: "Rechercher joueur",
     searchGameId: "Rechercher game id",
@@ -1779,6 +1788,7 @@ function App() {
   const [selectedGameId, setSelectedGameId] = useState<string | null>(() => initialGameTarget?.id ?? null);
   const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(() => initialGameTarget);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("mine_active");
+  const [messageFilter, setMessageFilter] = useState<MessageFilter>("all");
   const [playerSearch, setPlayerSearch] = useState("");
   const [gameIdSearch, setGameIdSearch] = useState("");
   const [gamesPage, setGamesPage] = useState(1);
@@ -1962,6 +1972,9 @@ function App() {
     const gameIdNeedle = gameIdSearch.trim().toLowerCase();
     return visibleGames
       .filter((game) => {
+        const participant = isPlayerGame(game);
+        const unreadCount = participant ? (unreadMessageCounts[game.id] ?? 0) : 0;
+        const messageCount = participant ? (gameMessages[game.id]?.length ?? 0) : 0;
         const statusMatches =
           statusFilter === "active"
             ? !terminalGameStatuses.has(game.status)
@@ -1970,15 +1983,19 @@ function App() {
                 Boolean(publicKey) &&
                 (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey)
             : statusFilter === "all" || game.status === statusFilter;
+        const messageMatches =
+          messageFilter === "all" ||
+          (messageFilter === "unread" && unreadCount > 0) ||
+          (messageFilter === "messages" && (messageCount > 0 || unreadCount > 0));
         const searchMatches =
           !playerNeedle ||
           game.creatorPseudo.toLowerCase().includes(playerNeedle) ||
           (game.joinerPseudo?.toLowerCase().includes(playerNeedle) ?? false);
         const gameIdMatches = !gameIdNeedle || game.id.toLowerCase().includes(gameIdNeedle);
-        return statusMatches && searchMatches && gameIdMatches;
+        return statusMatches && messageMatches && searchMatches && gameIdMatches;
       })
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-  }, [gameIdSearch, playerSearch, publicKey, statusFilter, visibleGames]);
+  }, [gameIdSearch, gameMessages, messageFilter, playerSearch, publicKey, statusFilter, unreadMessageCounts, visibleGames]);
 
   const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
   const paginatedGames = useMemo(
@@ -2022,8 +2039,12 @@ function App() {
   ]);
 
   const totalUnreadMessages = useMemo(
-    () => Object.values(unreadMessageCounts).reduce((sum, count) => sum + count, 0),
-    [unreadMessageCounts]
+    () =>
+      games.reduce(
+        (sum, game) => sum + (game.network === network && isPlayerGame(game) ? (unreadMessageCounts[game.id] ?? 0) : 0),
+        0
+      ),
+    [games, network, publicKey, unreadMessageCounts]
   );
 
   async function refreshGames() {
@@ -2860,7 +2881,7 @@ function App() {
 
   useEffect(() => {
     setGamesPage(1);
-  }, [gameIdSearch, network, playerSearch, statusFilter]);
+  }, [gameIdSearch, messageFilter, network, playerSearch, statusFilter]);
 
   useEffect(() => {
     setGamesPage((current) => Math.min(current, totalGamePages));
@@ -3287,6 +3308,10 @@ function App() {
     );
   }
 
+  function isPlayerGame(game: Game) {
+    return Boolean(publicKey && (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey));
+  }
+
   function messageButtonFor(game: Game, receiverPublicKey: string | null | undefined, receiverPseudo: string | null | undefined) {
     if (!canMessagePlayer(game, receiverPublicKey) || !receiverPublicKey || !receiverPseudo) return null;
     if (playerMessagePrefs[receiverPublicKey] === false) return null;
@@ -3306,12 +3331,14 @@ function App() {
   }
 
   function unreadBadgeFor(game: Game) {
+    if (!isPlayerGame(game)) return null;
     const count = unreadMessageCounts[game.id] ?? 0;
     if (count <= 0) return null;
     return <span className="unreadBadge">{count > 99 ? "99+" : count}</span>;
   }
 
   function messageIndicatorFor(game: Game) {
+    if (!isPlayerGame(game)) return null;
     const messageCount = gameMessages[game.id]?.length ?? 0;
     const unreadCount = unreadMessageCounts[game.id] ?? 0;
     if (messageCount <= 0 && unreadCount <= 0) return null;
@@ -4928,6 +4955,14 @@ function App() {
                     {item}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label>
+              {t("messageFilter")}
+              <select value={messageFilter} onChange={(event) => setMessageFilter(event.target.value as MessageFilter)}>
+                <option value="all">{t("allMessageStatuses")}</option>
+                <option value="unread">{t("withUnreadMessages")}</option>
+                <option value="messages">{t("withMessages")}</option>
               </select>
             </label>
             <label>
