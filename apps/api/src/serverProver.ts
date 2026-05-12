@@ -216,6 +216,24 @@ function debugLog(message: string, data: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ level: "debug", component: "server-prover", message, at: now(), ...data }));
 }
 
+function shouldRetryCompile(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /internal error/i.test(message);
+}
+
+async function compileContract(job: ProverJob, network: NetworkId) {
+  setProgress(job, "progressCompileCircuit", 12);
+  debugLog("compile:start", { jobId: job.id, jobType: job.type, network });
+  try {
+    return (await NativeZkDiceGame.compile()) as { verificationKey: VerificationKey };
+  } catch (error) {
+    debugLog("compile:failed", { jobId: job.id, jobType: job.type, network, error: (error as Error).message });
+    if (!shouldRetryCompile(error)) throw error;
+    debugLog("compile:retry", { jobId: job.id, jobType: job.type, network });
+    return (await NativeZkDiceGame.compile()) as { verificationKey: VerificationKey };
+  }
+}
+
 async function setup(job: ProverJob, network: NetworkId) {
   debugLog("setup:start", {
     jobId: job.id,
@@ -229,9 +247,14 @@ async function setup(job: ProverJob, network: NetworkId) {
   });
   Mina.setActiveInstance(createNativeMinaNetwork(network));
   if (!compilePromises.has(network)) {
-    setProgress(job, "progressCompileCircuit", 12);
-    debugLog("compile:start", { jobId: job.id, jobType: job.type, network });
-    compilePromises.set(network, NativeZkDiceGame.compile() as Promise<{ verificationKey: VerificationKey }>);
+    compilePromises.set(
+      network,
+      compileContract(job, network).catch((error) => {
+        compilePromises.delete(network);
+        verificationKeys.delete(network);
+        throw error;
+      })
+    );
   }
   const compiled = await compilePromises.get(network)!;
   verificationKeys.set(network, compiled.verificationKey);
