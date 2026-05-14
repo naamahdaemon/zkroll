@@ -2189,6 +2189,12 @@ function App() {
     return game.status === "settled" && !isTrustedSettledGame(game);
   }
 
+  function settledGameValidationMessage(game: Game) {
+    const joinStatus = statusFor(game.joinTxHash);
+    if (joinStatus !== "INCLUDED" && joinStatus !== "FAILED") return t("joinPending");
+    return t("invalidGame");
+  }
+
   function assertGameTransactionHashAvailable(game: Game, kind: TransactionKind, hash: string) {
     const duplicate = [
       { kind: "creation", hash: game.creationTxHash },
@@ -5256,7 +5262,7 @@ function App() {
                 isInvalidSettledGame(selectedGame) ? (
                   <div className="winner failedBox">
                     <ShieldCheck size={22} />
-                    <strong>{t("invalidGame")}</strong>
+                    <strong>{settledGameValidationMessage(selectedGame)}</strong>
                   </div>
                 ) : (
                   <div className="winner">
