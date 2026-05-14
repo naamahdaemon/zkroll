@@ -336,6 +336,8 @@ const copy: Record<string, Record<string, string>> = {
     enterSettlementHash: "Enter settlement hash",
     pasteSettlementHash: "Paste the settlement transaction hash visible in Auro or the explorer.",
     settlementHashSaved: "Settlement hash saved. On-chain sync will be checked.",
+    settlementPending: "Settlement transaction pending",
+    settlementPendingMessage: "Settlement transaction sent. Waiting for on-chain inclusion.",
     clearPendingSettlement: "Release pending settlement",
     clearPendingSettlementConfirm: "Release this local pending settlement? Only do this if no settlement transaction exists on-chain.",
     pendingSettlementCleared: "Pending settlement released. You can settle again or enter the existing hash.",
@@ -631,6 +633,8 @@ const copy: Record<string, Record<string, string>> = {
     enterSettlementHash: "Renseigner le hash settlement",
     pasteSettlementHash: "Colle le hash de la transaction settlement visible dans Auro ou l'explorateur.",
     settlementHashSaved: "Hash settlement renseigne. La synchronisation on-chain va etre verifiee.",
+    settlementPending: "Transaction settlement en attente",
+    settlementPendingMessage: "Transaction settlement envoyee. En attente d'inclusion on-chain.",
     clearPendingSettlement: "Liberer settlement pending",
     clearPendingSettlementConfirm: "Liberer ce settlement pending local ? A faire uniquement si aucune transaction settlement n'existe on-chain.",
     pendingSettlementCleared: "Settlement pending libere. Tu peux relancer le settlement ou renseigner le hash existant.",
@@ -2190,8 +2194,12 @@ function App() {
   }
 
   function settledGameValidationMessage(game: Game) {
+    const creationStatus = creationStatusFor(game);
     const joinStatus = statusFor(game.joinTxHash);
+    const settlementStatus = statusFor(game.settlementTxHash);
+    if (creationStatus !== "INCLUDED" && creationStatus !== "FAILED") return t("waitingCreation");
     if (joinStatus !== "INCLUDED" && joinStatus !== "FAILED") return t("joinPending");
+    if (settlementStatus !== "INCLUDED" && settlementStatus !== "FAILED") return t("settlementPending");
     return t("invalidGame");
   }
 
@@ -4196,13 +4204,15 @@ function App() {
         }
       }
 
-      await settleGame(game.id, {
+      const settled = await settleGame(game.id, {
         creatorDie,
         joinerDie,
         winnerPublicKey,
         settlementTxHash: txHash
       });
-      setMessage(onchainEnabled ? t("settledOnchain") : t("settledMock"));
+      updateGameInState(settled);
+      setTxStatuses((current) => ({ ...current, [txHash]: settled.settlementTxStatus ?? "PENDING" }));
+      setMessage(onchainEnabled ? t("settlementPendingMessage") : t("settledMock"));
     });
   }
 
