@@ -86,6 +86,9 @@ export function clearPlayerReferral(publicKey: string, adminPublicKey: string) {
 export type PlayerSignal = {
   publicKey: string;
   value: string;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
   firstSeenAt: string;
   lastSeenAt: string;
   seenCount: number;

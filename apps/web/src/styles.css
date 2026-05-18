@@ -1083,10 +1083,27 @@ select {
 }
 
 .adminSignalList code,
-.adminSignalList small {
+.adminSignalList > small {
   color: var(--muted);
   font-size: 11px;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.adminSignalItem {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  line-height: 1.25;
+  padding: 4px 6px;
+}
+
+.adminSignalItem small {
+  color: var(--text);
+  font-family: inherit;
+  font-size: 10px;
+  opacity: 0.78;
   overflow-wrap: anywhere;
 }
 

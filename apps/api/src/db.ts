@@ -123,6 +123,9 @@ db.exec(`
     public_key text not null,
     signal_hash text not null,
     signal_payload text not null,
+    signal_country text,
+    signal_latitude real,
+    signal_longitude real,
     first_seen_at text not null,
     last_seen_at text not null,
     seen_count integer not null default 1,
@@ -136,6 +139,9 @@ for (const statement of [
   "alter table players add column referral_code text",
   "alter table players add column referred_by_public_key text",
   "alter table players add column referred_at text",
+  "alter table player_signals add column signal_country text",
+  "alter table player_signals add column signal_latitude real",
+  "alter table player_signals add column signal_longitude real",
   "alter table games add column zkapp_address text",
   "alter table games add column game_id_field text",
   "alter table games add column creator_pseudo_hash text",
@@ -317,6 +323,9 @@ type GameMessageRow = {
 type PlayerSignalRow = {
   public_key: string;
   signal_payload: string;
+  signal_country: string | null;
+  signal_latitude: number | null;
+  signal_longitude: number | null;
   first_seen_at: string;
   last_seen_at: string;
   seen_count: number;
@@ -325,6 +334,9 @@ type PlayerSignalRow = {
 export type PlayerSignal = {
   publicKey: string;
   value: string;
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
   firstSeenAt: string;
   lastSeenAt: string;
   seenCount: number;
@@ -462,6 +474,9 @@ function playerSignalFromRow(row: PlayerSignalRow): PlayerSignal {
   return {
     publicKey: row.public_key,
     value: unpackSignal(row.signal_payload),
+    country: row.signal_country,
+    latitude: row.signal_latitude,
+    longitude: row.signal_longitude,
     firstSeenAt: row.first_seen_at,
     lastSeenAt: row.last_seen_at,
     seenCount: row.seen_count
@@ -596,19 +611,54 @@ export function clearPlayerReferral(publicKey: string): Player {
   return getPlayerByPublicKey(publicKey)!;
 }
 
-export function recordPlayerSignal(publicKey: string, value: string): void {
+export function recordPlayerSignal(
+  publicKey: string,
+  value: string,
+  location?: { country?: string | null; latitude?: number | null; longitude?: number | null }
+): void {
   const normalizedValue = value.trim();
   if (!publicKey || !normalizedValue || normalizedValue.length > 255 || !getPlayerByPublicKey(publicKey)) return;
   const now = new Date().toISOString();
   db.prepare(
     `
-    insert into player_signals (public_key, signal_hash, signal_payload, first_seen_at, last_seen_at, seen_count)
-    values (?, ?, ?, ?, ?, 1)
+    insert into player_signals (public_key, signal_hash, signal_payload, signal_country, signal_latitude, signal_longitude, first_seen_at, last_seen_at, seen_count)
+    values (?, ?, ?, ?, ?, ?, ?, ?, 1)
     on conflict(public_key, signal_hash) do update set
       last_seen_at = excluded.last_seen_at,
-      seen_count = player_signals.seen_count + 1
+      seen_count = player_signals.seen_count + 1,
+      signal_country = coalesce(excluded.signal_country, player_signals.signal_country),
+      signal_latitude = coalesce(excluded.signal_latitude, player_signals.signal_latitude),
+      signal_longitude = coalesce(excluded.signal_longitude, player_signals.signal_longitude)
   `
-  ).run(publicKey, signalHash(normalizedValue), packSignal(normalizedValue), now, now);
+  ).run(
+    publicKey,
+    signalHash(normalizedValue),
+    packSignal(normalizedValue),
+    location?.country ?? null,
+    location?.latitude ?? null,
+    location?.longitude ?? null,
+    now,
+    now
+  );
+}
+
+export function updatePlayerSignalLocation(
+  publicKey: string,
+  value: string,
+  location: { country?: string | null; latitude?: number | null; longitude?: number | null }
+): void {
+  const normalizedValue = value.trim();
+  if (!publicKey || !normalizedValue || normalizedValue.length > 255) return;
+  db.prepare(
+    `
+    update player_signals
+    set signal_country = coalesce(?, signal_country),
+        signal_latitude = coalesce(?, signal_latitude),
+        signal_longitude = coalesce(?, signal_longitude)
+    where public_key = ?
+      and signal_hash = ?
+  `
+  ).run(location.country ?? null, location.latitude ?? null, location.longitude ?? null, publicKey, signalHash(normalizedValue));
 }
 
 export function deletePlayerSignalForOtherPlayers(publicKeys: string[], value: string, ownerPublicKey: string): void {
@@ -633,7 +683,7 @@ export function listRecentPlayerSignals(publicKeys: string[], limitPerPlayer = 1
   const rows = db
     .prepare(
       `
-      select public_key, signal_payload, first_seen_at, last_seen_at, seen_count
+      select public_key, signal_payload, signal_country, signal_latitude, signal_longitude, first_seen_at, last_seen_at, seen_count
       from (
         select pa.*,
           row_number() over (partition by public_key order by last_seen_at desc, signal_hash asc) as signal_rank

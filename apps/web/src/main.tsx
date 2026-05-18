@@ -86,6 +86,7 @@ import {
   unsubscribeNewGameNotifications,
   listNotificationSubscriptions
 } from "./api";
+import type { PlayerSignal } from "./api";
 import { fakeTxHash, randomFieldString, temporaryCommitment, temporaryDie } from "./crypto";
 import {
   commitment as onchainCommitment,
@@ -1691,6 +1692,14 @@ function formatDateTime(value: string | null | undefined, locale: Locale): strin
   }).format(new Date(value));
 }
 
+function formatSignalLocation(item: Pick<PlayerSignal, "country" | "latitude" | "longitude">, locale: Locale): string {
+  const coordinates =
+    item.latitude !== null && item.longitude !== null
+      ? `${item.latitude.toLocaleString(localeTag(locale), { maximumFractionDigits: 2 })}, ${item.longitude.toLocaleString(localeTag(locale), { maximumFractionDigits: 2 })}`
+      : "";
+  return [item.country, coordinates].filter(Boolean).join(" - ");
+}
+
 function formatDateOnly(value: Date, locale: Locale): string {
   return new Intl.DateTimeFormat(localeTag(locale), {
     dateStyle: "medium"
@@ -1972,7 +1981,7 @@ function App() {
   const [playerMessagePrefs, setPlayerMessagePrefs] = useState<Record<string, boolean>>({});
   const [playerDetailsByPublicKey, setPlayerDetailsByPublicKey] = useState<Record<string, Player>>({});
   const [playerPseudosByPublicKey, setPlayerPseudosByPublicKey] = useState<Record<string, string>>({});
-  const [adminSignalsByPublicKey, setAdminSignalsByPublicKey] = useState<Record<string, { value: string; lastSeenAt: string; seenCount: number }[]>>({});
+  const [adminSignalsByPublicKey, setAdminSignalsByPublicKey] = useState<Record<string, PlayerSignal[]>>({});
   const [messageDialog, setMessageDialog] = useState<{ game: Game; receiverPublicKey: string; receiverPseudo: string } | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
 
@@ -2652,11 +2661,19 @@ function App() {
                     <strong>{row.pseudo}</strong>
                     <div className="adminSignalList">
                       {(adminSignalsByPublicKey[row.publicKey] ?? []).length > 0 ? (
-                        (adminSignalsByPublicKey[row.publicKey] ?? []).map((item) => (
-                          <code key={`${row.publicKey}:${item.value}:${item.lastSeenAt}`} title={formatDateTime(item.lastSeenAt, locale)}>
-                            {item.value}
-                          </code>
-                        ))
+                        (adminSignalsByPublicKey[row.publicKey] ?? []).map((item) => {
+                          const location = formatSignalLocation(item, locale);
+                          return (
+                            <code
+                              className="adminSignalItem"
+                              key={`${row.publicKey}:${item.value}:${item.lastSeenAt}`}
+                              title={formatDateTime(item.lastSeenAt, locale)}
+                            >
+                              <span>{item.value}</span>
+                              {location && <small>{location}</small>}
+                            </code>
+                          );
+                        })
                       ) : (
                         <small>{t("noAdminRecentAddresses")}</small>
                       )}
@@ -3182,7 +3199,7 @@ function App() {
     void listPlayerSignals(publicKeys, publicKey)
       .then((result) => {
         if (cancelled) return;
-        const next: Record<string, { value: string; lastSeenAt: string; seenCount: number }[]> = {};
+        const next: Record<string, PlayerSignal[]> = {};
         for (const item of result.items) {
           next[item.publicKey] = [...(next[item.publicKey] ?? []), item];
         }

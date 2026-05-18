@@ -46,6 +46,7 @@ import {
   unsubscribeNewGameNotification,
   unsubscribeGameNotification,
   unreadMessageCounts,
+  updatePlayerSignalLocation,
   updateStoredTransactionStatus,
   upsertPlayer
 } from "./db.js";
@@ -82,6 +83,9 @@ const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_0
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
 const adminPublicKey = process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRAbdmDSFhv3MqtkDWh6jYNvK81db5S4KXJvgzLCn";
+const signalLookupEnabled = process.env.ZKROLL_SIGNAL_LOOKUP_ENABLED !== "false";
+const signalLookupTimeoutMs = Number(process.env.ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS ?? 1200);
+const signalLookupUrl = process.env.ZKROLL_SIGNAL_LOOKUP_URL ?? "https://ipwho.is/{signal}";
 const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server" || usesRemoteServerProver();
 const maxRefundTimeoutSlots = 2400;
 const pendingActionGameLimit = 5;
@@ -93,18 +97,91 @@ const zkappStateCache = new Map<string, { expiresAt: number; result: { status: n
 const zkappStateRequests = new Map<string, Promise<{ status: number | null; error: string | null }>>();
 const transactionStatusCache = new Map<string, { expiresAt: number; result: { status: TransactionStatus; failureReason: string | null } }>();
 const transactionStatusRequests = new Map<string, Promise<{ status: TransactionStatus; failureReason: string | null }>>();
+const signalLocationCache = new Map<string, { expiresAt: number; location: SignalLocation | null }>();
+
+type SignalLocation = {
+  country: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
 
 function requestSignal(request: { headers: Record<string, unknown>; ip: string }) {
-  const forwardedFor = String(request.headers["x-forwarded-for"] ?? "")
+  const forwardedFor = headerValue(request.headers["x-forwarded-for"])
     .split(",")
     .map((item) => item.trim())
     .find(Boolean);
-  const realIp = String(request.headers["x-real-ip"] ?? "").trim();
-  return forwardedFor || realIp || request.ip;
+  const realIp = headerValue(request.headers["x-real-ip"]).trim();
+  return normalizeSignalValue(forwardedFor || realIp || request.ip);
+}
+
+function headerValue(value: unknown) {
+  return Array.isArray(value) ? String(value[0] ?? "") : String(value ?? "");
+}
+
+function normalizeSignalValue(value: string) {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("::ffff:")) return trimmed.slice("::ffff:".length);
+  const portMatch = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(trimmed);
+  return portMatch?.[1] ?? trimmed;
+}
+
+function isPrivateSignal(value: string) {
+  return (
+    value === "127.0.0.1" ||
+    value === "localhost" ||
+    value === "::1" ||
+    value.startsWith("10.") ||
+    value.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(value)
+  );
+}
+
+function signalLookupEndpoint(value: string) {
+  return signalLookupUrl.includes("{signal}")
+    ? signalLookupUrl.replace("{signal}", encodeURIComponent(value))
+    : `${signalLookupUrl.replace(/\/$/, "")}/${encodeURIComponent(value)}`;
+}
+
+async function lookupSignalLocation(value: string): Promise<SignalLocation | null> {
+  if (!signalLookupEnabled || !value || isPrivateSignal(value) || typeof fetch !== "function") return null;
+  const cached = signalLocationCache.get(value);
+  if (cached && cached.expiresAt > Date.now()) return cached.location;
+  try {
+    const response = await withTimeout(fetch(signalLookupEndpoint(value)), signalLookupTimeoutMs, "IP geolocation lookup");
+    const payload = (await response.json()) as {
+      success?: boolean;
+      country?: string;
+      country_name?: string;
+      country_code?: string;
+      latitude?: number;
+      longitude?: number;
+      lat?: number;
+      lon?: number;
+    };
+    const latitude = payload.latitude ?? payload.lat ?? null;
+    const longitude = payload.longitude ?? payload.lon ?? null;
+    const location =
+      response.ok && payload.success !== false
+        ? {
+            country: payload.country || payload.country_name || payload.country_code || null,
+            latitude: Number.isFinite(latitude) ? latitude : null,
+            longitude: Number.isFinite(longitude) ? longitude : null
+          }
+        : null;
+    signalLocationCache.set(value, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, location });
+    return location;
+  } catch {
+    signalLocationCache.set(value, { expiresAt: Date.now() + 60 * 60 * 1000, location: null });
+    return null;
+  }
 }
 
 function rememberRequestSignal(request: { headers: Record<string, unknown>; ip: string }, publicKey: string) {
-  recordPlayerSignal(publicKey, requestSignal(request));
+  const value = requestSignal(request);
+  recordPlayerSignal(publicKey, value);
+  void lookupSignalLocation(value).then((location) => {
+    if (location) updatePlayerSignalLocation(publicKey, value, location);
+  }).catch(() => undefined);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
