@@ -76,6 +76,13 @@ export function applyReferralCode(publicKey: string, referralCode: string) {
   });
 }
 
+export function clearPlayerReferral(publicKey: string, adminPublicKey: string) {
+  return request<Player>(`/players/${encodeURIComponent(publicKey)}/referral`, {
+    method: "DELETE",
+    body: JSON.stringify({ adminPublicKey })
+  });
+}
+
 export function getTransactionStatuses(items: { network: NetworkId; hash: string }[]) {
   return request<{ items: { hash: string; network: NetworkId; status: TransactionStatus }[] }>(
     "/transactions/statuses",

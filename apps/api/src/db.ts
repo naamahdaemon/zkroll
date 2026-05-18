@@ -524,6 +524,20 @@ export function applyReferralCode(publicKey: string, code: string): Player {
   return getPlayerByPublicKey(publicKey)!;
 }
 
+export function clearPlayerReferral(publicKey: string): Player {
+  const player = getPlayerByPublicKey(publicKey);
+  if (!player) throw new Error("Player not found");
+  db.prepare(
+    `
+    update players
+    set referred_by_public_key = null,
+        referred_at = null
+    where public_key = ?
+  `
+  ).run(publicKey);
+  return getPlayerByPublicKey(publicKey)!;
+}
+
 export function setPlayerMessagePreference(publicKey: string, acceptMessages: boolean): Player {
   const result = db
     .prepare("update players set accept_messages = ? where public_key = ?")

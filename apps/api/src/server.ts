@@ -5,6 +5,7 @@ import { fetchAccount, fetchLastBlock } from "o1js";
 import { assertNetworkId, assertPayoutMode, networks, type Game, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
   applyReferralCode,
+  clearPlayerReferral,
   clearPendingRefundTx,
   clearPendingSettlementTx,
   createGame,
@@ -604,6 +605,19 @@ app.patch("/players/:publicKey/referral", async (request, reply) => {
     const { publicKey } = request.params as { publicKey: string };
     const body = asBody(request.body);
     return applyReferralCode(publicKey, requiredString(body, "referralCode"));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.delete("/players/:publicKey/referral", async (request, reply) => {
+  try {
+    const { publicKey } = request.params as { publicKey: string };
+    const body = asBody(request.body);
+    if (requiredString(body, "adminPublicKey") !== adminPublicKey) {
+      return reply.code(403).send({ error: "Admin access denied" });
+    }
+    return clearPlayerReferral(publicKey);
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

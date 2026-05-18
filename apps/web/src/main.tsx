@@ -48,6 +48,7 @@ import {
   applyReferralCode,
   createGame,
   createPlayer,
+  clearPlayerReferral,
   clearServerProverCache,
   confirmJoinGame,
   clearPendingRefundTx,
@@ -149,6 +150,7 @@ const maxRefundTimeoutSlots = 2400;
 const pendingActionGameLimit = 5;
 const minaTransactionHashPattern = /^5J[1-9A-HJ-NP-Za-km-z]{40,}$/;
 const autoConnectStorageKey = "zkroll:auto-connect-wallet";
+const pendingReferralInviteStorageKey = "zkroll:pending-referral-invite";
 const pseudoAdjectives = [
   "Brave",
   "Lucky",
@@ -187,6 +189,10 @@ type MessageFilter = "all" | "unread" | "messages";
 type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
 type LeaderboardPeriod = "all" | "month" | "week" | "day";
+type ReferralInvite = {
+  code: string;
+  referrerName: string | null;
+};
 type LeaderboardRow = {
   publicKey: string;
   pseudo: string;
@@ -389,6 +395,11 @@ const copy: Record<string, Record<string, string>> = {
     clientProverMode: "Client",
     serverProverMode: "Server",
     adminTools: "Admin tools",
+    adminReferralTarget: "Target wallet",
+    adminReferralTargetPlaceholder: "Wallet public key to update",
+    clearReferral: "Remove referral",
+    clearReferralConfirm: "Remove the referral from this wallet?",
+    referralCleared: "Referral removed.",
     clearServerProverCache: "Clear server prover cache",
     clearServerProverCacheConfirm: "Clear the server o1js cache and reset compiled prover state? Do this only when no server proof is running.",
     serverProverCacheCleared: "Server prover cache cleared.",
@@ -401,6 +412,15 @@ const copy: Record<string, Record<string, string>> = {
     referralBonus: "Referral bonus",
     activeReferrals: "Active referrals",
     referralCode: "Referral code",
+    referralInviteLink: "Invitation link",
+    copyReferralInviteLink: "Copy invitation link",
+    referralInviteCopied: "Invitation link copied.",
+    referralInviteCopyFailed: "Unable to copy the invitation link.",
+    referralInviteTitle: "Referral invitation",
+    referralInviteMessage: "{referrer} invited you to zkRoll. Accept the invitation?",
+    referralInviteAcceptedConnectWallet: "Invitation accepted. Connect your wallet to apply it.",
+    referralInviteDeclined: "Invitation declined.",
+    referralInviteAlreadyLinked: "This wallet already has a referrer.",
     referralCodePlaceholder: "Enter a referral code",
     referrer: "Referrer",
     applyReferral: "Apply",
@@ -693,6 +713,11 @@ const copy: Record<string, Record<string, string>> = {
     clientProverMode: "Client",
     serverProverMode: "Serveur",
     adminTools: "Outils admin",
+    adminReferralTarget: "Wallet cible",
+    adminReferralTargetPlaceholder: "Cle publique du wallet a modifier",
+    clearReferral: "Supprimer referral",
+    clearReferralConfirm: "Supprimer le referral de ce wallet ?",
+    referralCleared: "Referral supprime.",
     clearServerProverCache: "Vider cache prover serveur",
     clearServerProverCacheConfirm: "Vider le cache o1js serveur et reinitialiser l'etat compile du prover ? A faire seulement quand aucune preuve serveur ne tourne.",
     serverProverCacheCleared: "Cache prover serveur vide.",
@@ -705,6 +730,15 @@ const copy: Record<string, Record<string, string>> = {
     referralBonus: "Bonus parrainage",
     activeReferrals: "Filleuls actifs",
     referralCode: "Code de parrainage",
+    referralInviteLink: "Lien d'invitation",
+    copyReferralInviteLink: "Copier le lien d'invitation",
+    referralInviteCopied: "Lien d'invitation copie.",
+    referralInviteCopyFailed: "Impossible de copier le lien d'invitation.",
+    referralInviteTitle: "Invitation parrainage",
+    referralInviteMessage: "{referrer} vous a invite sur zkRoll. Accepter l'invitation ?",
+    referralInviteAcceptedConnectWallet: "Invitation acceptee. Connecte ton wallet pour l'appliquer.",
+    referralInviteDeclined: "Invitation refusee.",
+    referralInviteAlreadyLinked: "Ce wallet a deja un parrain.",
     referralCodePlaceholder: "Renseigner un code de parrainage",
     referrer: "Parrain",
     applyReferral: "Valider",
@@ -1726,6 +1760,56 @@ function initialDeepLinkedGameTarget(): { id: string; network: NetworkId } | nul
   return id && network ? { id, network } : null;
 }
 
+function normalizeReferralInviteCode(value: string | null) {
+  return (value ?? "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function decodeBase64ReferralInviteName(value: string | null) {
+  if (!value) return null;
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+    return decodeURIComponent(escape(atob(padded))).trim() || null;
+  } catch {
+    return value.trim() || null;
+  }
+}
+
+function referralInviteFromUrl(): ReferralInvite | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const code = normalizeReferralInviteCode(params.get("ref") ?? params.get("referral"));
+  if (!code) return null;
+  const rawReferrer = (params.get("referrer") ?? "").trim();
+  const referrerName = rawReferrer || decodeBase64ReferralInviteName(params.get("referrer_b64")) || ((params.get("by") ?? "").trim() || null);
+  return { code, referrerName };
+}
+
+function loadPendingReferralInvite(): ReferralInvite | null {
+  try {
+    const value = localStorage.getItem(pendingReferralInviteStorageKey);
+    if (!value) return null;
+    const parsed = JSON.parse(value) as ReferralInvite;
+    const code = normalizeReferralInviteCode(parsed.code);
+    if (!code) return null;
+    return { code, referrerName: parsed.referrerName?.trim() || null };
+  } catch {
+    return null;
+  }
+}
+
+function cleanReferralInviteUrl() {
+  const params = new URLSearchParams(window.location.search);
+  params.delete("ref");
+  params.delete("referral");
+  params.delete("referrer");
+  params.delete("referrer_b64");
+  params.delete("by");
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+  window.history.replaceState(window.history.state, "", nextUrl);
+}
+
 async function refundDeadlineForCreate(network: NetworkId, timeoutSlots: number) {
   const currentSlot = (await getCurrentSlot(network)).currentSlot;
   return nextRefundDeadlineSlot(currentSlot, timeoutSlots);
@@ -1801,10 +1885,11 @@ function removePendingCreationMaterial(game: Game) {
 
 function App() {
   const initialGameTarget = useMemo(() => initialDeepLinkedGameTarget(), []);
+  const initialReferralInvite = useMemo(() => referralInviteFromUrl(), []);
   const [locale, setLocale] = useState<Locale>(() => savedLocale());
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("zkroll:theme") === "dark" ? "dark" : "light"));
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem("zkroll:view-mode") === "app" ? "app" : "cards"));
-  const [appScreen, setAppScreen] = useState<AppScreen>("games");
+  const [appScreen, setAppScreen] = useState<AppScreen>(() => (initialReferralInvite && localStorage.getItem("zkroll:view-mode") === "app" ? "player" : "games"));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [networkMenuOpen, setNetworkMenuOpen] = useState(false);
   const [pseudo, setPseudo] = useState("");
@@ -1812,6 +1897,9 @@ function App() {
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [pseudoDraft, setPseudoDraft] = useState("");
   const [referralDraft, setReferralDraft] = useState("");
+  const [referralInvite, setReferralInvite] = useState<ReferralInvite | null>(() => initialReferralInvite);
+  const [acceptedReferralInvite, setAcceptedReferralInvite] = useState<ReferralInvite | null>(() => loadPendingReferralInvite());
+  const [adminReferralTarget, setAdminReferralTarget] = useState("");
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
   const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? savedNetwork());
   const [stake, setStake] = useState("1");
@@ -1894,6 +1982,19 @@ function App() {
   const currentReferrer = currentPlayer?.referredByPublicKey
     ? playerDetailsByPublicKey[currentPlayer.referredByPublicKey] ?? null
     : null;
+  const referralInviteUrl = currentPlayer
+    ? (() => {
+        const url = new URL(window.location.href);
+        if (!["localhost", "127.0.0.1", "::1"].includes(url.hostname)) {
+          url.protocol = "https:";
+        }
+        url.search = "";
+        url.hash = "";
+        url.searchParams.set("ref", currentPlayer.referralCode);
+        url.searchParams.set("referrer", currentPlayer.pseudo);
+        return url.toString();
+      })()
+    : "";
 
   const leaderboardWindow = useMemo(
     () => leaderboardWindowFor(leaderboardPeriod, leaderboardWindowOffset, locale),
@@ -2925,8 +3026,17 @@ function App() {
     cleanDeepLinkUrl(params);
   }
 
+  function selectReferralInviteFromUrl() {
+    const invite = referralInviteFromUrl();
+    setReferralInvite(invite);
+    if (invite) {
+      setAppScreen((current) => (viewMode === "app" ? "player" : current));
+    }
+  }
+
   useEffect(() => {
     void refreshGames().then((items) => selectGameFromUrl(items));
+    selectReferralInviteFromUrl();
     const savedVault = localStorage.getItem("zkroll:secrets");
     if (savedVault) {
       setSecretVault(JSON.parse(savedVault) as Record<string, string>);
@@ -2941,7 +3051,10 @@ function App() {
   useEffect(() => {
     selectGameFromUrl();
 
-    const handleDeepLink = () => selectGameFromUrl();
+    const handleDeepLink = () => {
+      selectGameFromUrl();
+      selectReferralInviteFromUrl();
+    };
     window.addEventListener("focus", handleDeepLink);
     window.addEventListener("popstate", handleDeepLink);
     navigator.serviceWorker?.addEventListener("message", handleDeepLink);
@@ -3042,6 +3155,18 @@ function App() {
       })
       .catch(() => undefined);
   }, [currentPlayer?.referredByPublicKey, playerDetailsByPublicKey]);
+
+  useEffect(() => {
+    if (!acceptedReferralInvite || !publicKey || !currentPlayer || pseudoModalOpen) return;
+    void applyAcceptedReferralInvite(acceptedReferralInvite, currentPlayer);
+  }, [acceptedReferralInvite, currentPlayer, publicKey, pseudoModalOpen]);
+
+  useEffect(() => {
+    if (!referralInvite || !currentPlayer?.referredByPublicKey) return;
+    setReferralInvite(null);
+    cleanReferralInviteUrl();
+    setMessage(t("referralInviteAlreadyLinked"));
+  }, [currentPlayer?.referredByPublicKey, referralInvite, locale]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -3513,6 +3638,23 @@ function App() {
     });
   }
 
+  async function handleClearReferral() {
+    const targetPublicKey = adminReferralTarget.trim();
+    if (!targetPublicKey) return;
+    await runAction(async () => {
+      if (!publicKey || publicKey !== adminPublicKey) {
+        throw new Error("Admin access denied");
+      }
+      const confirmed = window.confirm(t("clearReferralConfirm"));
+      if (!confirmed) return;
+      const player = await clearPlayerReferral(targetPublicKey, publicKey);
+      setPlayerDetailsByPublicKey((current) => ({ ...current, [player.publicKey]: player }));
+      if (player.publicKey === currentPlayer?.publicKey) setCurrentPlayer(player);
+      setAdminReferralTarget("");
+      setMessage(t("referralCleared"));
+    });
+  }
+
   function handleGameCardSelect(gameId: string) {
     setDeepLinkedGameTarget(null);
     setSelectedGameId(gameId);
@@ -3620,13 +3762,28 @@ function App() {
             <b>{proverMode() === "server" ? t("serverProverMode") : t("clientProverMode")}</b>
           </span>
         </div>
-        {proverMode() === "server" && publicKey === adminPublicKey && (
+        {publicKey === adminPublicKey && (
           <div className="settingsInfoBox">
             <strong>{t("adminTools")}</strong>
-            <button className="warningButton" disabled={busy} onClick={() => void handleClearServerProverCache()} type="button">
-              <RefreshCw size={16} />
-              {t("clearServerProverCache")}
+            <label>
+              {t("adminReferralTarget")}
+              <input
+                disabled={busy}
+                onChange={(event) => setAdminReferralTarget(event.target.value)}
+                placeholder={t("adminReferralTargetPlaceholder")}
+                value={adminReferralTarget}
+              />
+            </label>
+            <button className="warningButton" disabled={busy || !adminReferralTarget.trim()} onClick={() => void handleClearReferral()} type="button">
+              <X size={16} />
+              {t("clearReferral")}
             </button>
+            {proverMode() === "server" && (
+              <button className="warningButton" disabled={busy} onClick={() => void handleClearServerProverCache()} type="button">
+                <RefreshCw size={16} />
+                {t("clearServerProverCache")}
+              </button>
+            )}
           </div>
         )}
       </>
@@ -3775,6 +3932,62 @@ function App() {
     setPseudo(player.pseudo);
     setPseudoModalOpen(false);
     setMessage(`${wasEditing ? t("pseudoUpdated") : t("pseudoSaved")} ${player.pseudo}.`);
+  }
+
+  async function applyAcceptedReferralInvite(invite: ReferralInvite, player = currentPlayer) {
+    if (!publicKey || !player || player.referredByPublicKey) {
+      if (player?.referredByPublicKey) {
+        localStorage.removeItem(pendingReferralInviteStorageKey);
+        setAcceptedReferralInvite(null);
+        setMessage(t("referralInviteAlreadyLinked"));
+      }
+      return;
+    }
+
+    try {
+      const updatedPlayer = await applyReferralCode(publicKey, invite.code);
+      setCurrentPlayer(updatedPlayer);
+      setPlayerDetailsByPublicKey((current) => ({ ...current, [updatedPlayer.publicKey]: updatedPlayer }));
+      setReferralDraft("");
+      localStorage.removeItem(pendingReferralInviteStorageKey);
+      setAcceptedReferralInvite(null);
+      setMessage(t("referralApplied"));
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
+  }
+
+  function dismissReferralInvite(invite: ReferralInvite) {
+    setReferralInvite(null);
+    cleanReferralInviteUrl();
+  }
+
+  async function acceptReferralInvite(invite: ReferralInvite) {
+    dismissReferralInvite(invite);
+    localStorage.setItem(pendingReferralInviteStorageKey, JSON.stringify(invite));
+    setAcceptedReferralInvite(invite);
+    setReferralDraft(invite.code);
+    if (publicKey && currentPlayer) {
+      await applyAcceptedReferralInvite(invite);
+      return;
+    }
+    setMessage(t("referralInviteAcceptedConnectWallet"));
+    await connectWallet();
+  }
+
+  function declineReferralInvite(invite: ReferralInvite) {
+    dismissReferralInvite(invite);
+    setMessage(t("referralInviteDeclined"));
+  }
+
+  async function copyReferralInviteLink() {
+    if (!referralInviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(referralInviteUrl);
+      setMessage(t("referralInviteCopied"));
+    } catch {
+      setMessage(t("referralInviteCopyFailed"));
+    }
   }
 
   async function handleApplyReferral(event: FormEvent) {
@@ -4500,6 +4713,23 @@ function App() {
 
   return (
     <main className={`shell ${viewMode === "app" ? "appShell" : "cardsShell"}`} data-app-screen={appScreen}>
+      {referralInvite && !currentPlayer?.referredByPublicKey && (
+        <div className="modalBackdrop">
+          <div className="modal">
+            <h2>{t("referralInviteTitle")}</h2>
+            <p className="notice">
+              {t("referralInviteMessage").replace("{referrer}", referralInvite.referrerName ?? referralInvite.code)}
+            </p>
+            <button className="primary" disabled={busy} onClick={() => void acceptReferralInvite(referralInvite)} type="button">
+              {t("yes")}
+            </button>
+            <button className="ghostButton" onClick={() => declineReferralInvite(referralInvite)} type="button">
+              {t("no")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {pseudoModalOpen && (
         <div className="modalBackdrop">
           <form className="modal" onSubmit={(event) => void savePseudo(event)}>
@@ -4912,6 +5142,23 @@ function App() {
               <div>
                 <span>{t("referralCode")}</span>
                 <strong>{currentPlayer.referralCode}</strong>
+              </div>
+              <div>
+                <span>{t("referralInviteLink")}</span>
+                <div className="referralInviteRow">
+                  <a className="referralInviteLink" href={referralInviteUrl}>
+                    {referralInviteUrl}
+                  </a>
+                  <button
+                    className="tinyIconButton"
+                    disabled={!referralInviteUrl}
+                    onClick={() => void copyReferralInviteLink()}
+                    title={t("copyReferralInviteLink")}
+                    type="button"
+                  >
+                    <Copy size={15} />
+                  </button>
+                </div>
               </div>
               {currentPlayer.referredByPublicKey ? (
                 <div>
