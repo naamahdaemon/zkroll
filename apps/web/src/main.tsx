@@ -45,6 +45,7 @@ import {
   type TransactionStatus
 } from "@zkroll/shared";
 import {
+  applyReferralCode,
   createGame,
   createPlayer,
   clearServerProverCache,
@@ -194,6 +195,8 @@ type LeaderboardRow = {
   gamesWon: number;
   uniqueOpponents: number;
   unfinishedGames: number;
+  activeReferralCount: number;
+  referralBonus: number;
   amountWonNanoMina: string;
 };
 const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
@@ -395,6 +398,13 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Leaderboard",
     leaderboardTab: "Ranks",
     leaderboardScore: "Score",
+    referralBonus: "Referral bonus",
+    activeReferrals: "Active referrals",
+    referralCode: "Referral code",
+    referralCodePlaceholder: "Enter a referral code",
+    referrer: "Referrer",
+    applyReferral: "Apply",
+    referralApplied: "Referral code applied.",
     gamesPlayed: "Games",
     gamesWon: "Won",
     uniqueOpponents: "Opponents",
@@ -692,6 +702,13 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Classement",
     leaderboardTab: "Classement",
     leaderboardScore: "Score",
+    referralBonus: "Bonus parrainage",
+    activeReferrals: "Filleuls actifs",
+    referralCode: "Code de parrainage",
+    referralCodePlaceholder: "Renseigner un code de parrainage",
+    referrer: "Parrain",
+    applyReferral: "Valider",
+    referralApplied: "Code de parrainage enregistre.",
     gamesPlayed: "Parties",
     gamesWon: "Gagnees",
     uniqueOpponents: "Adversaires",
@@ -1586,14 +1603,27 @@ function payoutNanoMinaForWinner(game: Game): bigint {
   return game.payoutMode === "opponent_takes_all" ? stake : stake * 2n;
 }
 
-function leaderboardScore(gamesPlayed: number, gamesWon: number, uniqueOpponents: number, unfinishedGames: number): number {
+function referralScore(hasReferrer: boolean, activeReferralCount: number): number {
+  const referredScore = hasReferrer ? 8 : 0;
+  const cappedLinearScore = Math.min(activeReferralCount, 10) * 4;
+  const longTailScore = Math.sqrt(Math.max(activeReferralCount - 10, 0)) * 3;
+  return referredScore + cappedLinearScore + longTailScore;
+}
+
+function leaderboardScore(
+  gamesPlayed: number,
+  gamesWon: number,
+  uniqueOpponents: number,
+  unfinishedGames: number,
+  referralBonus: number
+): number {
   if (gamesPlayed <= 0) return 0;
   const winScore = gamesWon * 10;
   const activityScore = Math.sqrt(gamesPlayed) * 3;
   const opponentScore = uniqueOpponents * 5;
   const winrateScore = gamesPlayed >= 5 ? (gamesWon / gamesPlayed) * 20 : 0;
   const unfinishedPenalty = Math.min(unfinishedGames, 10) * 4;
-  return winScore + activityScore + opponentScore + winrateScore - unfinishedPenalty;
+  return winScore + activityScore + opponentScore + winrateScore + referralBonus - unfinishedPenalty;
 }
 
 function formatLeaderboardScore(value: number, locale: Locale): string {
@@ -1781,6 +1811,7 @@ function App() {
   const [publicKey, setPublicKey] = useState("");
   const [currentPlayer, setCurrentPlayer] = useState<Player | null>(null);
   const [pseudoDraft, setPseudoDraft] = useState("");
+  const [referralDraft, setReferralDraft] = useState("");
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
   const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? savedNetwork());
   const [stake, setStake] = useState("1");
@@ -1841,6 +1872,7 @@ function App() {
   const [gameMessages, setGameMessages] = useState<Record<string, GameMessage[]>>({});
   const [unreadMessageCounts, setUnreadMessageCounts] = useState<Record<string, number>>({});
   const [playerMessagePrefs, setPlayerMessagePrefs] = useState<Record<string, boolean>>({});
+  const [playerDetailsByPublicKey, setPlayerDetailsByPublicKey] = useState<Record<string, Player>>({});
   const [playerPseudosByPublicKey, setPlayerPseudosByPublicKey] = useState<Record<string, string>>({});
   const [messageDialog, setMessageDialog] = useState<{ game: Game; receiverPublicKey: string; receiverPseudo: string } | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
@@ -1859,6 +1891,9 @@ function App() {
     return Array.from(keys).sort();
   }, [visibleGames]);
   const visibleGamePlayerKey = visibleGamePlayerKeys.join("|");
+  const currentReferrer = currentPlayer?.referredByPublicKey
+    ? playerDetailsByPublicKey[currentPlayer.referredByPublicKey] ?? null
+    : null;
 
   const leaderboardWindow = useMemo(
     () => leaderboardWindowFor(leaderboardPeriod, leaderboardWindowOffset, locale),
@@ -1910,6 +1945,8 @@ function App() {
       return created;
     };
 
+    const activePlayerKeys = new Set<string>();
+
     visibleGames
       .map((game) => ({ game, finalizedAt: leaderboardFinalizedAt(game) }))
       .filter((item): item is { game: Game; finalizedAt: string } => {
@@ -1925,9 +1962,11 @@ function App() {
         const pseudoSeenAt = new Date(finalizedAt).getTime();
         const creator = ensureRow(game.creatorPublicKey, game.creatorPseudo, pseudoSeenAt);
         creator.gamesPlayed += 1;
+        activePlayerKeys.add(game.creatorPublicKey);
         if (game.joinerPublicKey && game.joinerPseudo) {
           const joiner = ensureRow(game.joinerPublicKey, game.joinerPseudo, pseudoSeenAt);
           joiner.gamesPlayed += 1;
+          activePlayerKeys.add(game.joinerPublicKey);
           creator.opponentKeys.add(game.joinerPublicKey);
           joiner.opponentKeys.add(game.creatorPublicKey);
         }
@@ -1940,16 +1979,29 @@ function App() {
         }
       });
 
+    const activeReferralCounts = new Map<string, number>();
+    for (const playerKey of activePlayerKeys) {
+      const referrerKey = playerDetailsByPublicKey[playerKey]?.referredByPublicKey;
+      if (referrerKey) activeReferralCounts.set(referrerKey, (activeReferralCounts.get(referrerKey) ?? 0) + 1);
+    }
+
     return Array.from(rows.values())
       .map(
         ({ opponentKeys, pseudoSeenAt, ...row }) => {
           const uniqueOpponents = opponentKeys.size;
           const unfinishedGames = unfinishedGamesByPublicKey.get(row.publicKey) ?? 0;
+          const activeReferralCount = activeReferralCounts.get(row.publicKey) ?? 0;
+          const referralBonus = referralScore(
+            Boolean(playerDetailsByPublicKey[row.publicKey]?.referredByPublicKey),
+            activeReferralCount
+          );
           return {
             ...row,
-            score: leaderboardScore(row.gamesPlayed, row.gamesWon, uniqueOpponents, unfinishedGames),
+            score: leaderboardScore(row.gamesPlayed, row.gamesWon, uniqueOpponents, unfinishedGames, referralBonus),
             uniqueOpponents,
             unfinishedGames,
+            activeReferralCount,
+            referralBonus,
             amountWonNanoMina: row.amountWonNanoMina.toString()
           } satisfies LeaderboardRow;
         }
@@ -1969,7 +2021,17 @@ function App() {
         if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
         return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
       });
-  }, [games, leaderboardWindow.end, leaderboardWindow.start, locale, network, playerPseudosByPublicKey, txStatuses, visibleGames]);
+  }, [
+    games,
+    leaderboardWindow.end,
+    leaderboardWindow.start,
+    locale,
+    network,
+    playerDetailsByPublicKey,
+    playerPseudosByPublicKey,
+    txStatuses,
+    visibleGames
+  ]);
 
   const filteredGames = useMemo(() => {
     const playerNeedle = playerSearch.trim().toLowerCase();
@@ -2450,6 +2512,12 @@ function App() {
                   <strong>{row.pseudo}</strong>
                   <span>
                     {t("leaderboardScore")}: {formatLeaderboardScore(row.score, locale)}
+                  </span>
+                  <span>
+                    {t("referralBonus")}: {formatLeaderboardScore(row.referralBonus, locale)}
+                  </span>
+                  <span>
+                    {t("activeReferrals")}: {row.activeReferralCount}
                   </span>
                   <span>
                     {t("gamesPlayed")}: {row.gamesPlayed}
@@ -2950,6 +3018,10 @@ function App() {
     void getPlayersByPublicKeys(publicKeys)
       .then((result) => {
         if (cancelled) return;
+        setPlayerDetailsByPublicKey((current) => ({
+          ...current,
+          ...Object.fromEntries(result.items.map((player) => [player.publicKey, player]))
+        }));
         setPlayerPseudosByPublicKey(
           Object.fromEntries(result.items.map((player) => [player.publicKey, player.pseudo]))
         );
@@ -2959,6 +3031,17 @@ function App() {
       cancelled = true;
     };
   }, [visibleGamePlayerKey]);
+
+  useEffect(() => {
+    const referrerPublicKey = currentPlayer?.referredByPublicKey;
+    if (!referrerPublicKey || playerDetailsByPublicKey[referrerPublicKey]) return;
+    void getPlayerByPublicKey(referrerPublicKey)
+      .then((player) => {
+        setPlayerDetailsByPublicKey((current) => ({ ...current, [player.publicKey]: player }));
+        setPlayerPseudosByPublicKey((current) => ({ ...current, [player.publicKey]: player.pseudo }));
+      })
+      .catch(() => undefined);
+  }, [currentPlayer?.referredByPublicKey, playerDetailsByPublicKey]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -3646,6 +3729,7 @@ function App() {
       const player = await getPlayerByPublicKey(account);
       setCurrentPlayer(player);
       setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
+      setPlayerDetailsByPublicKey((current) => ({ ...current, [player.publicKey]: player }));
       setPlayerPseudosByPublicKey((current) => ({ ...current, [player.publicKey]: player.pseudo }));
       setPseudo(player.pseudo);
       setPseudoModalOpen(false);
@@ -3672,6 +3756,7 @@ function App() {
     setPseudo("");
     setCurrentPlayer(null);
     setPseudoDraft("");
+    setReferralDraft("");
     setPseudoModalOpen(false);
     setWalletConnectPrompt(null);
     localStorage.removeItem(autoConnectStorageKey);
@@ -3685,10 +3770,25 @@ function App() {
     const wasEditing = Boolean(pseudo);
     setCurrentPlayer(player);
     setPlayerMessagePrefs((current) => ({ ...current, [player.publicKey]: player.acceptMessages }));
+    setPlayerDetailsByPublicKey((current) => ({ ...current, [player.publicKey]: player }));
     setPlayerPseudosByPublicKey((current) => ({ ...current, [player.publicKey]: player.pseudo }));
     setPseudo(player.pseudo);
     setPseudoModalOpen(false);
     setMessage(`${wasEditing ? t("pseudoUpdated") : t("pseudoSaved")} ${player.pseudo}.`);
+  }
+
+  async function handleApplyReferral(event: FormEvent) {
+    event.preventDefault();
+    if (!publicKey || !referralDraft.trim()) return;
+    try {
+      const player = await applyReferralCode(publicKey, referralDraft);
+      setCurrentPlayer(player);
+      setPlayerDetailsByPublicKey((current) => ({ ...current, [player.publicKey]: player }));
+      setReferralDraft("");
+      setMessage(t("referralApplied"));
+    } catch (error) {
+      setMessage((error as Error).message);
+    }
   }
 
   function openPseudoEditor() {
@@ -4807,6 +4907,39 @@ function App() {
             </div>
             <strong>{pseudo || t("noPseudo")}</strong>
           </div>
+          {currentPlayer && (
+            <div className="referralBox">
+              <div>
+                <span>{t("referralCode")}</span>
+                <strong>{currentPlayer.referralCode}</strong>
+              </div>
+              {currentPlayer.referredByPublicKey ? (
+                <div>
+                  <span>{t("referrer")}</span>
+                  <strong>
+                    {currentReferrer
+                      ? `${currentReferrer.pseudo} (${currentReferrer.referralCode})`
+                      : currentPlayer.referredByPublicKey}
+                  </strong>
+                </div>
+              ) : (
+                <form className="referralForm" onSubmit={handleApplyReferral}>
+                  <label>
+                    {t("referrer")}
+                    <input
+                      disabled={busy}
+                      onChange={(event) => setReferralDraft(event.target.value.toUpperCase())}
+                      placeholder={t("referralCodePlaceholder")}
+                      value={referralDraft}
+                    />
+                  </label>
+                  <button className="secondaryButton" disabled={busy || !referralDraft.trim()} type="submit">
+                    {t("applyReferral")}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
           {publicKey && (
             <div className="walletAddressBox">
               <span>{t("walletAddress")}</span>

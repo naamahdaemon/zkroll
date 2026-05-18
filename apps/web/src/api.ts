@@ -69,6 +69,13 @@ export function setMessagePreference(publicKey: string, acceptMessages: boolean)
   });
 }
 
+export function applyReferralCode(publicKey: string, referralCode: string) {
+  return request<Player>(`/players/${encodeURIComponent(publicKey)}/referral`, {
+    method: "PATCH",
+    body: JSON.stringify({ referralCode })
+  });
+}
+
 export function getTransactionStatuses(items: { network: NetworkId; hash: string }[]) {
   return request<{ items: { hash: string; network: NetworkId; status: TransactionStatus }[] }>(
     "/transactions/statuses",

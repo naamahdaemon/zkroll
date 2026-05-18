@@ -20,6 +20,9 @@ export type PayoutMode = "classic" | "opponent_takes_all";
 export type Player = {
   pseudo: string;
   publicKey: string;
+  referralCode: string;
+  referredByPublicKey: string | null;
+  referredAt: string | null;
   acceptMessages: boolean;
   createdAt: string;
 };

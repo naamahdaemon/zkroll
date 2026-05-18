@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { randomBytes } from "node:crypto";
 import type { Game, GameMessage, GameStatus, NetworkId, PayoutMode, Player, TransactionStatus } from "@zkroll/shared";
 
 const dbPath = process.env.ZKROLL_DB_PATH ?? "zkroll.db";
@@ -7,12 +8,37 @@ export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
+const referralAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const referralCodeLength = 9;
+
+function normalizeReferralCode(code: string) {
+  return code.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function randomReferralCandidate() {
+  const bytes = randomBytes(referralCodeLength);
+  return Array.from(bytes, (byte) => referralAlphabet[byte % referralAlphabet.length]).join("");
+}
+
+function generateReferralCode() {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const code = randomReferralCandidate();
+    const existing = db.prepare("select 1 from players where referral_code = ?").get(code);
+    if (!existing) return code;
+  }
+  throw new Error("Unable to generate referral code");
+}
+
 db.exec(`
   create table if not exists players (
     public_key text primary key,
     pseudo text not null unique,
+    referral_code text unique,
+    referred_by_public_key text,
+    referred_at text,
     accept_messages integer not null default 1,
-    created_at text not null
+    created_at text not null,
+    foreign key (referred_by_public_key) references players(public_key)
   );
 
   create table if not exists games (
@@ -94,6 +120,9 @@ db.exec(`
 
 for (const statement of [
   "alter table players add column accept_messages integer not null default 1",
+  "alter table players add column referral_code text",
+  "alter table players add column referred_by_public_key text",
+  "alter table players add column referred_at text",
   "alter table games add column zkapp_address text",
   "alter table games add column game_id_field text",
   "alter table games add column creator_pseudo_hash text",
@@ -124,6 +153,12 @@ for (const statement of [
     }
   }
 }
+
+for (const row of db.prepare("select public_key from players where referral_code is null or referral_code = ''").all() as { public_key: string }[]) {
+  db.prepare("update players set referral_code = ? where public_key = ?").run(generateReferralCode(), row.public_key);
+}
+
+db.exec("create unique index if not exists players_referral_code_unique on players(referral_code)");
 
 db.exec(`
   update games
@@ -173,6 +208,9 @@ db.exec(`
 type PlayerRow = {
   pseudo: string;
   public_key: string;
+  referral_code: string | null;
+  referred_by_public_key: string | null;
+  referred_at: string | null;
   accept_messages: number;
   created_at: string;
 };
@@ -352,6 +390,9 @@ function playerFromRow(row: PlayerRow): Player {
   return {
     pseudo: row.pseudo,
     publicKey: row.public_key,
+    referralCode: row.referral_code ?? "",
+    referredByPublicKey: row.referred_by_public_key,
+    referredAt: row.referred_at,
     acceptMessages: row.accept_messages !== 0,
     createdAt: row.created_at
   };
@@ -437,6 +478,7 @@ function newGameSubscriptionFromRow(row: NewGameNotificationSubscriptionRow): Ne
 
 export function upsertPlayer(pseudo: string, publicKey: string): Player {
   const now = new Date().toISOString();
+  const existingPlayer = getPlayerByPublicKey(publicKey);
   const existingPseudoOwner = getPlayerByPseudo(pseudo);
   if (existingPseudoOwner && existingPseudoOwner.publicKey !== publicKey) {
     throw new Error("Pseudo already used by another wallet");
@@ -444,12 +486,41 @@ export function upsertPlayer(pseudo: string, publicKey: string): Player {
 
   db.prepare(
     `
-    insert into players (public_key, pseudo, created_at)
-    values (?, ?, ?)
-    on conflict(public_key) do update set pseudo = excluded.pseudo
+    insert into players (public_key, pseudo, referral_code, created_at)
+    values (?, ?, ?, ?)
+    on conflict(public_key) do update set
+      pseudo = excluded.pseudo,
+      referral_code = coalesce(players.referral_code, excluded.referral_code)
   `
-  ).run(publicKey, pseudo, now);
+  ).run(publicKey, pseudo, existingPlayer?.referralCode || generateReferralCode(), now);
 
+  return getPlayerByPublicKey(publicKey)!;
+}
+
+export function applyReferralCode(publicKey: string, code: string): Player {
+  const player = getPlayerByPublicKey(publicKey);
+  if (!player) throw new Error("Player not found");
+  if (player.referredByPublicKey) throw new Error("Referral code already applied");
+
+  const normalizedCode = normalizeReferralCode(code);
+  if (!/^[A-Z0-9]{6,16}$/.test(normalizedCode)) throw new Error("Invalid referral code");
+
+  const referrer = getPlayerByReferralCode(normalizedCode);
+  if (!referrer) throw new Error("Referral code not found");
+  if (referrer.publicKey === publicKey) throw new Error("You cannot use your own referral code");
+
+  const result = db
+    .prepare(
+      `
+      update players
+      set referred_by_public_key = ?,
+          referred_at = ?
+      where public_key = ?
+        and referred_by_public_key is null
+    `
+    )
+    .run(referrer.publicKey, new Date().toISOString(), publicKey);
+  if (result.changes !== 1) throw new Error("Referral code already applied");
   return getPlayerByPublicKey(publicKey)!;
 }
 
@@ -463,6 +534,13 @@ export function setPlayerMessagePreference(publicKey: string, acceptMessages: bo
 
 export function getPlayerByPseudo(pseudo: string): Player | null {
   const row = db.prepare("select * from players where pseudo = ?").get(pseudo) as PlayerRow | undefined;
+  return row ? playerFromRow(row) : null;
+}
+
+export function getPlayerByReferralCode(code: string): Player | null {
+  const row = db
+    .prepare("select * from players where referral_code = ?")
+    .get(normalizeReferralCode(code)) as PlayerRow | undefined;
   return row ? playerFromRow(row) : null;
 }
 

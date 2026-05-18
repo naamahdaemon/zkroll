@@ -399,14 +399,40 @@ h2 {
   padding: 12px;
 }
 
-.walletAddressBox span {
+.referralBox {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.referralBox > div {
+  display: grid;
+  gap: 4px;
+}
+
+.referralForm {
+  display: grid;
+  gap: 8px;
+}
+
+.referralForm label {
+  display: grid;
+  gap: 6px;
+}
+
+.walletAddressBox span,
+.referralBox span,
+.referralForm label {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.walletAddressBox strong {
+.walletAddressBox strong,
+.referralBox strong {
   font-size: 13px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -897,7 +923,7 @@ select {
 .leaderboardRank {
   color: var(--primary);
   font-weight: 900;
-  grid-row: span 7;
+  grid-row: span 9;
 }
 
 .leaderboardRow strong,

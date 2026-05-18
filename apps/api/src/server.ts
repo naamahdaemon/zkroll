@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { fetchAccount, fetchLastBlock } from "o1js";
 import { assertNetworkId, assertPayoutMode, networks, type Game, type NetworkId, type TransactionStatus } from "@zkroll/shared";
 import {
+  applyReferralCode,
   clearPendingRefundTx,
   clearPendingSettlementTx,
   createGame,
@@ -593,6 +594,16 @@ app.patch("/players/:publicKey/message-preference", async (request, reply) => {
     const { publicKey } = request.params as { publicKey: string };
     const body = asBody(request.body);
     return setPlayerMessagePreference(publicKey, Boolean(body.acceptMessages));
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.patch("/players/:publicKey/referral", async (request, reply) => {
+  try {
+    const { publicKey } = request.params as { publicKey: string };
+    const body = asBody(request.body);
+    return applyReferralCode(publicKey, requiredString(body, "referralCode"));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
