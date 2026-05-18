@@ -83,6 +83,21 @@ export function clearPlayerReferral(publicKey: string, adminPublicKey: string) {
   });
 }
 
+export type PlayerSignal = {
+  publicKey: string;
+  value: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  seenCount: number;
+};
+
+export function listPlayerSignals(publicKeys: string[], adminPublicKey: string) {
+  return request<{ items: PlayerSignal[] }>("/admin/player-signals", {
+    method: "POST",
+    body: JSON.stringify({ publicKeys, adminPublicKey })
+  });
+}
+
 export function getTransactionStatuses(items: { network: NetworkId; hash: string }[]) {
   return request<{ items: { hash: string; network: NetworkId; status: TransactionStatus }[] }>(
     "/transactions/statuses",

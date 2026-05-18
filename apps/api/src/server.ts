@@ -24,6 +24,7 @@ import {
   listNewGameNotificationSubscriptionsForPublicKey,
   listNotificationSubscriptionsForPublicKey,
   listPlayersByPublicKeys,
+  listRecentPlayerSignals,
   listPreviousOpponents,
   markGameMessagesRead,
   markCreationFailed,
@@ -31,6 +32,7 @@ import {
   markTransactionFailed,
   prepareRefundTx,
   prepareSettlementTx,
+  recordPlayerSignal,
   reconcileCreationTx,
   reconcileJoinTx,
   refundGame,
@@ -90,6 +92,19 @@ const zkappStateCache = new Map<string, { expiresAt: number; result: { status: n
 const zkappStateRequests = new Map<string, Promise<{ status: number | null; error: string | null }>>();
 const transactionStatusCache = new Map<string, { expiresAt: number; result: { status: TransactionStatus; failureReason: string | null } }>();
 const transactionStatusRequests = new Map<string, Promise<{ status: TransactionStatus; failureReason: string | null }>>();
+
+function requestSignal(request: { headers: Record<string, unknown>; ip: string }) {
+  const forwardedFor = String(request.headers["x-forwarded-for"] ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .find(Boolean);
+  const realIp = String(request.headers["x-real-ip"] ?? "").trim();
+  return forwardedFor || realIp || request.ip;
+}
+
+function rememberRequestSignal(request: { headers: Record<string, unknown>; ip: string }, publicKey: string) {
+  recordPlayerSignal(publicKey, requestSignal(request));
+}
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -551,7 +566,10 @@ app.get("/prover/jobs/:id", async (request, reply) => {
 app.post("/players", async (request, reply) => {
   try {
     const body = asBody(request.body);
-    return upsertPlayer(requiredString(body, "pseudo"), requiredString(body, "publicKey"));
+    const publicKey = requiredString(body, "publicKey");
+    const player = upsertPlayer(requiredString(body, "pseudo"), publicKey);
+    rememberRequestSignal(request, publicKey);
+    return player;
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -568,6 +586,7 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
   const { publicKey } = request.params as { publicKey: string };
   const player = getPlayerByPublicKey(publicKey);
   if (!player) return reply.code(404).send({ error: "Player not found" });
+  rememberRequestSignal(request, publicKey);
   return player;
 });
 
@@ -604,7 +623,9 @@ app.patch("/players/:publicKey/referral", async (request, reply) => {
   try {
     const { publicKey } = request.params as { publicKey: string };
     const body = asBody(request.body);
-    return applyReferralCode(publicKey, requiredString(body, "referralCode"));
+    const player = applyReferralCode(publicKey, requiredString(body, "referralCode"));
+    rememberRequestSignal(request, publicKey);
+    return player;
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -618,6 +639,19 @@ app.delete("/players/:publicKey/referral", async (request, reply) => {
       return reply.code(403).send({ error: "Admin access denied" });
     }
     return clearPlayerReferral(publicKey);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/admin/player-signals", async (request, reply) => {
+  try {
+    const body = asBody(request.body);
+    if (requiredString(body, "adminPublicKey") !== adminPublicKey) {
+      return reply.code(403).send({ error: "Admin access denied" });
+    }
+    const publicKeys = Array.isArray(body.publicKeys) ? body.publicKeys.map(String) : [];
+    return { items: listRecentPlayerSignals(publicKeys, 10) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

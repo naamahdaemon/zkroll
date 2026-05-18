@@ -65,6 +65,7 @@ import {
   listPreviousOpponents,
   listGameMessages,
   listGames,
+  listPlayerSignals,
   markGameMessagesRead,
   markTransactionIncluded,
   markCreationFailed,
@@ -409,6 +410,8 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Leaderboard",
     leaderboardTab: "Ranks",
     leaderboardScore: "Score",
+    adminRecentAddresses: "Recent addresses",
+    noAdminRecentAddresses: "No address recorded",
     referralBonus: "Referral bonus",
     activeReferrals: "Active referrals",
     referralCode: "Referral code",
@@ -727,6 +730,8 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Classement",
     leaderboardTab: "Classement",
     leaderboardScore: "Score",
+    adminRecentAddresses: "Adresses recentes",
+    noAdminRecentAddresses: "Aucune adresse enregistree",
     referralBonus: "Bonus parrainage",
     activeReferrals: "Filleuls actifs",
     referralCode: "Code de parrainage",
@@ -1962,6 +1967,7 @@ function App() {
   const [playerMessagePrefs, setPlayerMessagePrefs] = useState<Record<string, boolean>>({});
   const [playerDetailsByPublicKey, setPlayerDetailsByPublicKey] = useState<Record<string, Player>>({});
   const [playerPseudosByPublicKey, setPlayerPseudosByPublicKey] = useState<Record<string, string>>({});
+  const [adminSignalsByPublicKey, setAdminSignalsByPublicKey] = useState<Record<string, { value: string; lastSeenAt: string; seenCount: number }[]>>({});
   const [messageDialog, setMessageDialog] = useState<{ game: Game; receiverPublicKey: string; receiverPseudo: string } | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
 
@@ -2171,6 +2177,7 @@ function App() {
   );
   const totalLeaderboardPages = Math.max(1, Math.ceil(leaderboardRows.length / leaderboardPerPage));
   const leaderboardStartIndex = (leaderboardPage - 1) * leaderboardPerPage;
+  const leaderboardPublicKeyKey = leaderboardRows.map((row) => row.publicKey).join("|");
   const paginatedLeaderboardRows = useMemo(
     () => leaderboardRows.slice(leaderboardStartIndex, leaderboardPage * leaderboardPerPage),
     [leaderboardRows, leaderboardPage, leaderboardStartIndex]
@@ -2608,9 +2615,30 @@ function App() {
           <>
             <div className="leaderboardList">
               {paginatedLeaderboardRows.map((row, index) => (
-                <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
+                <div
+                  className={`${row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} ${
+                    publicKey === adminPublicKey ? "adminLeaderboardRow" : ""
+                  }`}
+                  key={row.publicKey}
+                >
                   <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
                   <strong>{row.pseudo}</strong>
+                  {publicKey === adminPublicKey && (
+                    <div className="adminSignalColumn">
+                      <span>{t("adminRecentAddresses")}</span>
+                      <div className="adminSignalList">
+                        {(adminSignalsByPublicKey[row.publicKey] ?? []).length > 0 ? (
+                          (adminSignalsByPublicKey[row.publicKey] ?? []).map((item) => (
+                            <code key={`${item.value}:${item.lastSeenAt}`} title={`${formatDateTime(item.lastSeenAt, locale)} (${item.seenCount})`}>
+                              {item.value}
+                            </code>
+                          ))
+                        ) : (
+                          <small>{t("noAdminRecentAddresses")}</small>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <span>
                     {t("leaderboardScore")}: {formatLeaderboardScore(row.score, locale)}
                   </span>
@@ -3089,6 +3117,30 @@ function App() {
   useEffect(() => {
     setLeaderboardPage((current) => Math.min(current, totalLeaderboardPages));
   }, [totalLeaderboardPages]);
+
+  useEffect(() => {
+    if (publicKey !== adminPublicKey || leaderboardRows.length === 0) {
+      setAdminSignalsByPublicKey({});
+      return;
+    }
+    let cancelled = false;
+    const publicKeys = leaderboardRows.map((row) => row.publicKey);
+    void listPlayerSignals(publicKeys, publicKey)
+      .then((result) => {
+        if (cancelled) return;
+        const next: Record<string, { value: string; lastSeenAt: string; seenCount: number }[]> = {};
+        for (const item of result.items) {
+          next[item.publicKey] = [...(next[item.publicKey] ?? []), item];
+        }
+        setAdminSignalsByPublicKey(next);
+      })
+      .catch(() => {
+        if (!cancelled) setAdminSignalsByPublicKey({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [leaderboardPublicKeyKey, publicKey]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

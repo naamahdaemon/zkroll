@@ -941,6 +941,49 @@ select {
   grid-row: span 9;
 }
 
+.leaderboardRow.adminLeaderboardRow {
+  grid-template-columns: auto fit-content(150px) minmax(0, 1fr);
+}
+
+.leaderboardRow.adminLeaderboardRow .leaderboardRank {
+  grid-row: span 10;
+}
+
+.adminSignalColumn {
+  align-self: stretch;
+  display: grid;
+  gap: 5px;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-row: span 10;
+  min-height: 0;
+}
+
+.adminSignalColumn > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.adminSignalList {
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.adminSignalList code,
+.adminSignalList small {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .leaderboardRow strong,
 .leaderboardRow span:not(.leaderboardRank) {
   min-width: 0;
@@ -2127,5 +2170,19 @@ dd {
 
   .gameFilters {
     grid-template-columns: 1fr;
+  }
+
+  .leaderboardRow.adminLeaderboardRow {
+    gap: 4px 8px;
+    grid-template-columns: auto fit-content(150px) minmax(0, 1fr);
+  }
+
+  .adminSignalList {
+    padding: 5px;
+  }
+
+  .adminSignalList code,
+  .adminSignalList small {
+    font-size: 10px;
   }
 }

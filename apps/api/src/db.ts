@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import type { Game, GameMessage, GameStatus, NetworkId, PayoutMode, Player, TransactionStatus } from "@zkroll/shared";
 
 const dbPath = process.env.ZKROLL_DB_PATH ?? "zkroll.db";
@@ -10,6 +10,8 @@ db.pragma("foreign_keys = ON");
 
 const referralAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const referralCodeLength = 9;
+const signalSecret = process.env.ZKROLL_SIGNAL_SECRET ?? process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "zkroll-local-signal-secret";
+const signalEncryptionKey = createHash("sha256").update(signalSecret).digest();
 
 function normalizeReferralCode(code: string) {
   return code.trim().toUpperCase().replace(/\s+/g, "");
@@ -115,6 +117,17 @@ db.exec(`
     created_at text not null,
     read_at text,
     foreign key (game_id) references games(id) on delete cascade
+  );
+
+  create table if not exists player_signals (
+    public_key text not null,
+    signal_hash text not null,
+    signal_payload text not null,
+    first_seen_at text not null,
+    last_seen_at text not null,
+    seen_count integer not null default 1,
+    primary key (public_key, signal_hash),
+    foreign key (public_key) references players(public_key) on delete cascade
   );
 `);
 
@@ -301,6 +314,22 @@ type GameMessageRow = {
   read_at: string | null;
 };
 
+type PlayerSignalRow = {
+  public_key: string;
+  signal_payload: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  seen_count: number;
+};
+
+export type PlayerSignal = {
+  publicKey: string;
+  value: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  seenCount: number;
+};
+
 type GameTransactionPhase = "creation" | "join" | "settlement" | "refund";
 
 const localTransactionPrefixes = ["pending:", "fake", "create_", "join_", "settle_", "refund_"];
@@ -407,6 +436,35 @@ function messageFromRow(row: GameMessageRow): GameMessage {
     body: row.body,
     createdAt: row.created_at,
     readAt: row.read_at
+  };
+}
+
+function packSignal(value: string) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", signalEncryptionKey, iv);
+  const encrypted = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return `${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function unpackSignal(payload: string) {
+  const [ivValue, tagValue, encryptedValue] = payload.split(".");
+  if (!ivValue || !tagValue || !encryptedValue) return "";
+  const decipher = createDecipheriv("aes-256-gcm", signalEncryptionKey, Buffer.from(ivValue, "base64url"));
+  decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
+  return Buffer.concat([decipher.update(Buffer.from(encryptedValue, "base64url")), decipher.final()]).toString("utf8");
+}
+
+function signalHash(value: string) {
+  return createHmac("sha256", signalSecret).update(value).digest("base64url");
+}
+
+function playerSignalFromRow(row: PlayerSignalRow): PlayerSignal {
+  return {
+    publicKey: row.public_key,
+    value: unpackSignal(row.signal_payload),
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    seenCount: row.seen_count
   };
 }
 
@@ -536,6 +594,44 @@ export function clearPlayerReferral(publicKey: string): Player {
   `
   ).run(publicKey);
   return getPlayerByPublicKey(publicKey)!;
+}
+
+export function recordPlayerSignal(publicKey: string, value: string): void {
+  const normalizedValue = value.trim();
+  if (!publicKey || !normalizedValue || normalizedValue.length > 255 || !getPlayerByPublicKey(publicKey)) return;
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    insert into player_signals (public_key, signal_hash, signal_payload, first_seen_at, last_seen_at, seen_count)
+    values (?, ?, ?, ?, ?, 1)
+    on conflict(public_key, signal_hash) do update set
+      last_seen_at = excluded.last_seen_at,
+      seen_count = player_signals.seen_count + 1
+  `
+  ).run(publicKey, signalHash(normalizedValue), packSignal(normalizedValue), now, now);
+}
+
+export function listRecentPlayerSignals(publicKeys: string[], limitPerPlayer = 10): PlayerSignal[] {
+  const uniquePublicKeys = Array.from(new Set(publicKeys.filter(Boolean)));
+  if (uniquePublicKeys.length === 0) return [];
+  const limit = Math.max(1, Math.min(50, Math.floor(limitPerPlayer)));
+  const placeholders = uniquePublicKeys.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `
+      select public_key, signal_payload, first_seen_at, last_seen_at, seen_count
+      from (
+        select pa.*,
+          row_number() over (partition by public_key order by last_seen_at desc, signal_hash asc) as signal_rank
+        from player_signals pa
+        where public_key in (${placeholders})
+      )
+      where signal_rank <= ?
+      order by public_key asc, last_seen_at desc
+    `
+    )
+    .all(...uniquePublicKeys, limit) as PlayerSignalRow[];
+  return rows.map(playerSignalFromRow);
 }
 
 export function setPlayerMessagePreference(publicKey: string, acceptMessages: boolean): Player {
