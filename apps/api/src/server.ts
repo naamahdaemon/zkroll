@@ -83,7 +83,7 @@ const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_0
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
 const adminPublicKey = process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRAbdmDSFhv3MqtkDWh6jYNvK81db5S4KXJvgzLCn";
-const signalLookupEnabled = process.env.ZKROLL_SIGNAL_LOOKUP_ENABLED !== "false";
+const signalLookupEnabled = process.env.ZKROLL_SIGNAL_LOOKUP_ENABLED === "true";
 const signalLookupTimeoutMs = Number(process.env.ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS ?? 1200);
 const signalLookupUrl = process.env.ZKROLL_SIGNAL_LOOKUP_URL ?? "https://ipwho.is/{signal}";
 const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server" || usesRemoteServerProver();
@@ -179,9 +179,12 @@ async function lookupSignalLocation(value: string): Promise<SignalLocation | nul
 function rememberRequestSignal(request: { headers: Record<string, unknown>; ip: string }, publicKey: string) {
   const value = requestSignal(request);
   recordPlayerSignal(publicKey, value);
-  void lookupSignalLocation(value).then((location) => {
-    if (location) updatePlayerSignalLocation(publicKey, value, location);
-  }).catch(() => undefined);
+  if (!signalLookupEnabled) return;
+  setTimeout(() => {
+    void lookupSignalLocation(value).then((location) => {
+      if (location) updatePlayerSignalLocation(publicKey, value, location);
+    }).catch(() => undefined);
+  }, 0);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
