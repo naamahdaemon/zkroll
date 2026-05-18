@@ -911,7 +911,7 @@ select {
   align-items: center;
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, auto));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
 }
 
@@ -922,7 +922,7 @@ select {
   border-radius: 6px;
   display: inline-flex;
   gap: 8px;
-  justify-content: flex-start;
+  justify-content: center;
   min-height: 34px;
   padding: 6px 8px;
 }
@@ -934,8 +934,12 @@ select {
 }
 
 .leaderboardModeTabs button span {
-  font-size: 18px;
+  font-size: clamp(12px, 3.8vw, 18px);
   font-weight: 900;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .leaderboardList {
@@ -950,15 +954,15 @@ select {
 }
 
 .leaderboardRow {
-  align-items: center;
+  align-items: start;
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 8px;
   display: grid;
-  gap: 4px 10px;
+  gap: 10px;
   grid-template-columns: auto minmax(0, 1fr);
-  min-height: 146px;
-  padding: 10px;
+  min-height: 0;
+  padding: 10px 10px 12px;
 }
 
 .leaderboardRow.current {
@@ -967,9 +971,56 @@ select {
 }
 
 .leaderboardRank {
+  align-self: center;
   color: var(--primary);
   font-weight: 900;
-  grid-row: span 9;
+}
+
+.leaderboardPlayerStats {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cardsShell .leaderboardRow {
+  display: block;
+  min-height: 190px;
+  padding-left: 42px;
+  position: relative;
+}
+
+.cardsShell .leaderboardList {
+  display: block;
+  flex: initial;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.cardsShell .leaderboardList .leaderboardRow + .leaderboardRow {
+  margin-top: 10px;
+}
+
+.cardsShell .leaderboardRank {
+  left: 10px;
+  padding-top: 0;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.cardsShell .leaderboardPlayerStats {
+  display: block;
+}
+
+.cardsShell .leaderboardPlayerStats strong,
+.cardsShell .leaderboardPlayerStats span {
+  display: block;
+}
+
+.cardsShell .leaderboardPlayerStats span {
+  margin-top: 3px;
 }
 
 .adminSignalList {
@@ -1040,14 +1091,15 @@ select {
 }
 
 .leaderboardRow strong,
-.leaderboardRow span:not(.leaderboardRank) {
+.leaderboardPlayerStats span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.leaderboardRow span:not(.leaderboardRank) {
+.leaderboardPlayerStats span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .unreadBadge,

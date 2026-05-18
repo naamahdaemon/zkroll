@@ -2690,31 +2690,33 @@ function App() {
               {paginatedLeaderboardRows.map((row, index) => (
                 <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
                   <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
-                  <strong>{row.pseudo}</strong>
-                  <span>
-                    {t("leaderboardScore")}: {formatLeaderboardScore(row.score, locale)}
-                  </span>
-                  <span>
-                    {t("referralBonus")}: {formatLeaderboardScore(row.referralBonus, locale)}
-                  </span>
-                  <span>
-                    {t("activeReferrals")}: {row.activeReferralCount}
-                  </span>
-                  <span>
-                    {t("gamesPlayed")}: {row.gamesPlayed}
-                  </span>
-                  <span>
-                    {t("gamesWon")}: {row.gamesWon}
-                  </span>
-                  <span>
-                    {t("uniqueOpponents")}: {row.uniqueOpponents}
-                  </span>
-                  <span>
-                    {t("unfinishedGames")}: {row.unfinishedGames}
-                  </span>
-                  <span>
-                    {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
-                  </span>
+                  <div className="leaderboardPlayerStats">
+                    <strong>{row.pseudo}</strong>
+                    <span>
+                      {t("leaderboardScore")}: {formatLeaderboardScore(row.score, locale)}
+                    </span>
+                    <span>
+                      {t("referralBonus")}: {formatLeaderboardScore(row.referralBonus, locale)}
+                    </span>
+                    <span>
+                      {t("activeReferrals")}: {row.activeReferralCount}
+                    </span>
+                    <span>
+                      {t("gamesPlayed")}: {row.gamesPlayed}
+                    </span>
+                    <span>
+                      {t("gamesWon")}: {row.gamesWon}
+                    </span>
+                    <span>
+                      {t("uniqueOpponents")}: {row.uniqueOpponents}
+                    </span>
+                    <span>
+                      {t("unfinishedGames")}: {row.unfinishedGames}
+                    </span>
+                    <span>
+                      {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
