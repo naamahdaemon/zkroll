@@ -834,6 +834,7 @@ app.post("/games", async (request, reply) => {
       );
     }
     upsertPlayer(creatorPseudo, creatorPublicKey);
+    rememberRequestSignal(request, creatorPublicKey);
 
     const game = createGame({
         id: optionalString(body, "id") ?? nanoid(12),
@@ -964,6 +965,7 @@ app.post("/games/:id/join", async (request, reply) => {
     const refundDeadlineSlot = optionalString(body, "refundDeadlineSlot");
     const joinTxHash = requiredString(body, "joinTxHash");
     upsertPlayer(joinerPseudo, joinerPublicKey);
+    rememberRequestSignal(request, joinerPublicKey);
 
     request.log.info(
       {
