@@ -907,6 +907,37 @@ select {
   white-space: nowrap;
 }
 
+.leaderboardModeTabs {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  width: 100%;
+}
+
+.leaderboardModeTabs button {
+  align-items: center;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-start;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.leaderboardModeTabs button.active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  color: var(--primary);
+}
+
+.leaderboardModeTabs button span {
+  font-size: 18px;
+  font-weight: 900;
+}
+
 .leaderboardList {
   align-content: start;
   display: grid;
@@ -941,30 +972,6 @@ select {
   grid-row: span 9;
 }
 
-.leaderboardRow.adminLeaderboardRow {
-  grid-template-columns: auto fit-content(150px) minmax(0, 1fr);
-}
-
-.leaderboardRow.adminLeaderboardRow .leaderboardRank {
-  grid-row: span 10;
-}
-
-.adminSignalColumn {
-  align-self: stretch;
-  display: grid;
-  gap: 5px;
-  grid-template-rows: auto minmax(0, 1fr);
-  grid-row: span 10;
-  min-height: 0;
-}
-
-.adminSignalColumn > span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
 .adminSignalList {
   align-content: start;
   border: 1px solid var(--border);
@@ -974,6 +981,54 @@ select {
   min-height: 0;
   overflow: auto;
   padding: 6px;
+}
+
+.adminConnectionsList {
+  align-content: start;
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.adminConnectionRow {
+  align-items: start;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 118px;
+  padding: 10px;
+}
+
+.adminConnectionRow strong {
+  align-self: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.adminConnectionRow .leaderboardRank {
+  align-self: center;
+  grid-column: 1;
+  grid-row: 1;
+  padding-top: 2px;
+}
+
+.adminConnectionRow strong {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.adminConnectionRow .adminSignalList {
+  align-content: start;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  height: 100%;
 }
 
 .adminSignalList code,
@@ -2172,9 +2227,23 @@ dd {
     grid-template-columns: 1fr;
   }
 
-  .leaderboardRow.adminLeaderboardRow {
-    gap: 4px 8px;
-    grid-template-columns: auto fit-content(150px) minmax(0, 1fr);
+  .leaderboardModeTabs {
+    gap: 6px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .leaderboardModeTabs button {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 6px;
+  }
+
+  .leaderboardModeTabs button span {
+    font-size: 13px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .adminSignalList {
@@ -2184,5 +2253,10 @@ dd {
   .adminSignalList code,
   .adminSignalList small {
     font-size: 10px;
+  }
+
+  .adminConnectionRow {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
   }
 }

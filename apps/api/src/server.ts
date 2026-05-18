@@ -10,6 +10,7 @@ import {
   clearPendingSettlementTx,
   createGame,
   createGameMessage,
+  deletePlayerSignalForOtherPlayers,
   confirmJoinGame,
   failPendingJoin,
   getGameByTransaction,
@@ -586,7 +587,6 @@ app.get("/players/by-public-key/:publicKey", async (request, reply) => {
   const { publicKey } = request.params as { publicKey: string };
   const player = getPlayerByPublicKey(publicKey);
   if (!player) return reply.code(404).send({ error: "Player not found" });
-  rememberRequestSignal(request, publicKey);
   return player;
 });
 
@@ -651,6 +651,7 @@ app.post("/admin/player-signals", async (request, reply) => {
       return reply.code(403).send({ error: "Admin access denied" });
     }
     const publicKeys = Array.isArray(body.publicKeys) ? body.publicKeys.map(String) : [];
+    deletePlayerSignalForOtherPlayers(publicKeys, requestSignal(request), adminPublicKey);
     return { items: listRecentPlayerSignals(publicKeys, 10) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

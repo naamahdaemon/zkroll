@@ -31,6 +31,7 @@ import {
   Sun,
   Trophy,
   User,
+  Wifi,
   X,
   Wallet
 } from "lucide-react";
@@ -190,6 +191,7 @@ type MessageFilter = "all" | "unread" | "messages";
 type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
 type LeaderboardPeriod = "all" | "month" | "week" | "day";
+type LeaderboardAdminView = "scores" | "signals";
 type ReferralInvite = {
   code: string;
   referrerName: string | null;
@@ -410,6 +412,7 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Leaderboard",
     leaderboardTab: "Ranks",
     leaderboardScore: "Score",
+    adminConnections: "Recent connections",
     adminRecentAddresses: "Recent addresses",
     noAdminRecentAddresses: "No address recorded",
     referralBonus: "Referral bonus",
@@ -730,6 +733,7 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Classement",
     leaderboardTab: "Classement",
     leaderboardScore: "Score",
+    adminConnections: "Connexions recentes",
     adminRecentAddresses: "Adresses recentes",
     noAdminRecentAddresses: "Aucune adresse enregistree",
     referralBonus: "Bonus parrainage",
@@ -1923,6 +1927,7 @@ function App() {
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("all");
   const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(0);
+  const [leaderboardAdminView, setLeaderboardAdminView] = useState<LeaderboardAdminView>("scores");
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -2569,13 +2574,39 @@ function App() {
     ];
     const selectPeriod = (period: LeaderboardPeriod) => {
       setLeaderboardPeriod(period);
-      setLeaderboardWindowOffset(0);
-    };
+              setLeaderboardWindowOffset(0);
+              setLeaderboardPage(1);
+            };
     return (
       <section className="panel leaderboardPanel">
         <div className="sectionHead">
-          <h2>{t("leaderboard")}</h2>
-          <Trophy size={20} />
+          {publicKey === adminPublicKey ? (
+            <div className="leaderboardModeTabs" role="tablist" aria-label={t("leaderboard")}>
+              <button
+                className={leaderboardAdminView === "scores" ? "active" : ""}
+                onClick={() => setLeaderboardAdminView("scores")}
+                role="tab"
+                type="button"
+              >
+                <Trophy size={17} />
+                <span>{t("leaderboard")}</span>
+              </button>
+              <button
+                className={leaderboardAdminView === "signals" ? "active" : ""}
+                onClick={() => setLeaderboardAdminView("signals")}
+                role="tab"
+                type="button"
+              >
+                <Wifi size={17} />
+                <span>{t("adminConnections")}</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              <h2>{t("leaderboard")}</h2>
+              <Trophy size={20} />
+            </>
+          )}
         </div>
         <div className="segmentedControl">
           {periods.map((period) => (
@@ -2611,34 +2642,55 @@ function App() {
             </button>
           </div>
         )}
-        {leaderboardRows.length > 0 ? (
+        {publicKey === adminPublicKey && leaderboardAdminView === "signals" ? (
+          leaderboardRows.length > 0 ? (
+            <>
+              <div className="adminConnectionsList">
+                {paginatedLeaderboardRows.map((row, index) => (
+                  <div className="adminConnectionRow" key={row.publicKey}>
+                    <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
+                    <strong>{row.pseudo}</strong>
+                    <div className="adminSignalList">
+                      {(adminSignalsByPublicKey[row.publicKey] ?? []).length > 0 ? (
+                        (adminSignalsByPublicKey[row.publicKey] ?? []).map((item) => (
+                          <code key={`${row.publicKey}:${item.value}:${item.lastSeenAt}`} title={formatDateTime(item.lastSeenAt, locale)}>
+                            {item.value}
+                          </code>
+                        ))
+                      ) : (
+                        <small>{t("noAdminRecentAddresses")}</small>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {leaderboardRows.length > leaderboardPerPage && (
+                <div className="pagination leaderboardPagination">
+                  <button disabled={leaderboardPage === 1} onClick={() => setLeaderboardPage((page) => Math.max(1, page - 1))}>
+                    {t("previous")}
+                  </button>
+                  <span>
+                    {t("page")} {leaderboardPage} / {totalLeaderboardPages}
+                  </span>
+                  <button
+                    disabled={leaderboardPage === totalLeaderboardPages}
+                    onClick={() => setLeaderboardPage((page) => Math.min(totalLeaderboardPages, page + 1))}
+                  >
+                    {t("next")}
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="empty">{t("emptyLeaderboard")}</p>
+          )
+        ) : leaderboardRows.length > 0 ? (
           <>
             <div className="leaderboardList">
               {paginatedLeaderboardRows.map((row, index) => (
-                <div
-                  className={`${row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} ${
-                    publicKey === adminPublicKey ? "adminLeaderboardRow" : ""
-                  }`}
-                  key={row.publicKey}
-                >
+                <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
                   <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
                   <strong>{row.pseudo}</strong>
-                  {publicKey === adminPublicKey && (
-                    <div className="adminSignalColumn">
-                      <span>{t("adminRecentAddresses")}</span>
-                      <div className="adminSignalList">
-                        {(adminSignalsByPublicKey[row.publicKey] ?? []).length > 0 ? (
-                          (adminSignalsByPublicKey[row.publicKey] ?? []).map((item) => (
-                            <code key={`${item.value}:${item.lastSeenAt}`} title={`${formatDateTime(item.lastSeenAt, locale)} (${item.seenCount})`}>
-                              {item.value}
-                            </code>
-                          ))
-                        ) : (
-                          <small>{t("noAdminRecentAddresses")}</small>
-                        )}
-                      </div>
-                    </div>
-                  )}
                   <span>
                     {t("leaderboardScore")}: {formatLeaderboardScore(row.score, locale)}
                   </span>

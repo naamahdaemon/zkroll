@@ -611,6 +611,20 @@ export function recordPlayerSignal(publicKey: string, value: string): void {
   ).run(publicKey, signalHash(normalizedValue), packSignal(normalizedValue), now, now);
 }
 
+export function deletePlayerSignalForOtherPlayers(publicKeys: string[], value: string, ownerPublicKey: string): void {
+  const normalizedValue = value.trim();
+  const targetPublicKeys = Array.from(new Set(publicKeys.filter((key) => key && key !== ownerPublicKey)));
+  if (!normalizedValue || targetPublicKeys.length === 0) return;
+  const placeholders = targetPublicKeys.map(() => "?").join(", ");
+  db.prepare(
+    `
+    delete from player_signals
+    where signal_hash = ?
+      and public_key in (${placeholders})
+  `
+  ).run(signalHash(normalizedValue), ...targetPublicKeys);
+}
+
 export function listRecentPlayerSignals(publicKeys: string[], limitPerPlayer = 10): PlayerSignal[] {
   const uniquePublicKeys = Array.from(new Set(publicKeys.filter(Boolean)));
   if (uniquePublicKeys.length === 0) return [];
