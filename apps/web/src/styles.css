@@ -910,7 +910,7 @@ select {
 .leaderboardModeTabs {
   align-items: center;
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
 }
@@ -921,10 +921,10 @@ select {
   border-color: transparent;
   border-radius: 6px;
   display: inline-flex;
-  gap: 8px;
+  gap: 6px;
   justify-content: center;
   min-height: 34px;
-  padding: 6px 8px;
+  padding: 6px;
 }
 
 .leaderboardModeTabs button.active {
@@ -934,7 +934,7 @@ select {
 }
 
 .leaderboardModeTabs button span {
-  font-size: clamp(12px, 3.8vw, 18px);
+  font-size: clamp(12px, 3vw, 14px);
   font-weight: 900;
   min-width: 0;
   overflow: hidden;
@@ -1023,15 +1023,59 @@ select {
   margin-top: 3px;
 }
 
+.adminConnectionFilters {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.adminConnectionIpFilter {
+  display: grid;
+  gap: 4px;
+}
+
+.adminConnectionIpFilter span,
+.adminConnectionUserFilter span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.adminConnectionIpFilter input {
+  width: 100%;
+}
+
+.adminConnectionUserFilter {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.adminConnectionUserFilter select {
+  font-size: 11px;
+  line-height: 1.35;
+  max-height: 148px;
+  min-width: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+.adminConnectionUserFilter option {
+  padding: 4px 6px;
+}
+
 .adminSignalList {
   align-content: start;
   border: 1px solid var(--border);
   border-radius: 8px;
-  display: grid;
-  gap: 4px;
   min-height: 0;
+  max-width: 100%;
   overflow: auto;
   padding: 6px;
+  width: 100%;
 }
 
 .adminConnectionsList {
@@ -1088,6 +1132,59 @@ select {
   font-size: 11px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.adminSignalTable {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.adminSignalTable th:first-child,
+.adminSignalTable td:first-child {
+  width: 34%;
+}
+
+.adminSignalTable th:nth-child(2),
+.adminSignalTable td:nth-child(2) {
+  width: 38%;
+}
+
+.adminSignalTable th:nth-child(3),
+.adminSignalTable td:nth-child(3) {
+  width: 28%;
+}
+
+.adminSignalTable th,
+.adminSignalTable td {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 10px;
+  line-height: 1.25;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 6px 5px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.adminSignalTable th {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: normal;
+}
+
+.adminSignalTable td {
+  color: var(--text);
+}
+
+.adminSignalTable tr:last-child td {
+  border-bottom: 0;
+}
+
+.adminSignalTable code {
+  color: var(--accent);
 }
 
 .adminSignalItem {

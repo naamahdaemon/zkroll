@@ -415,6 +415,13 @@ const copy: Record<string, Record<string, string>> = {
     leaderboardScore: "Score",
     adminConnections: "Recent connections",
     adminRecentAddresses: "Recent addresses",
+    adminConnectionFilters: "Connection filters",
+    adminConnectionUsers: "Users",
+    adminConnectionAllUsers: "All users",
+    adminConnectionIpFilter: "IP filter",
+    adminConnectionIpFilterPlaceholder: "Partial search or wildcard, e.g. 192.168.*",
+    lastConnection: "Last connection",
+    location: "Location",
     noAdminRecentAddresses: "No address recorded",
     referralBonus: "Referral bonus",
     activeReferrals: "Active referrals",
@@ -736,6 +743,13 @@ const copy: Record<string, Record<string, string>> = {
     leaderboardScore: "Score",
     adminConnections: "Connexions recentes",
     adminRecentAddresses: "Adresses recentes",
+    adminConnectionFilters: "Filtres connexions",
+    adminConnectionUsers: "Utilisateurs",
+    adminConnectionAllUsers: "Tous",
+    adminConnectionIpFilter: "Filtre IP",
+    adminConnectionIpFilterPlaceholder: "Recherche partielle ou wildcard, ex. 192.168.*",
+    lastConnection: "Derniere connexion",
+    location: "Localisation",
     noAdminRecentAddresses: "Aucune adresse enregistree",
     referralBonus: "Bonus parrainage",
     activeReferrals: "Filleuls actifs",
@@ -1700,6 +1714,15 @@ function formatSignalLocation(item: Pick<PlayerSignal, "country" | "latitude" | 
   return [item.country, coordinates].filter(Boolean).join(" - ");
 }
 
+function matchesWildcardSearch(value: string, query: string): boolean {
+  const normalizedValue = value.toLowerCase();
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  if (!normalizedQuery.includes("*")) return normalizedValue.includes(normalizedQuery);
+  const escaped = normalizedQuery.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(escaped).test(normalizedValue);
+}
+
 function formatDateOnly(value: Date, locale: Locale): string {
   return new Intl.DateTimeFormat(localeTag(locale), {
     dateStyle: "medium"
@@ -1937,6 +1960,8 @@ function App() {
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("all");
   const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(0);
   const [leaderboardAdminView, setLeaderboardAdminView] = useState<LeaderboardAdminView>("scores");
+  const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>([]);
+  const [adminConnectionIpSearch, setAdminConnectionIpSearch] = useState("");
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -2196,6 +2221,38 @@ function App() {
     () => leaderboardRows.slice(leaderboardStartIndex, leaderboardPage * leaderboardPerPage),
     [leaderboardRows, leaderboardPage, leaderboardStartIndex]
   );
+  const adminConnectionRows = useMemo(() => {
+    const selectedKeys = new Set(adminConnectionSelectedPublicKeys);
+    const hasUserFilter = selectedKeys.size > 0;
+    const hasIpFilter = adminConnectionIpSearch.trim().length > 0;
+    return leaderboardRows
+      .map((row, index) => {
+        const signals = (adminSignalsByPublicKey[row.publicKey] ?? [])
+          .filter((item) => matchesWildcardSearch(item.value, adminConnectionIpSearch))
+          .sort((left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime());
+        const latestSignalAt = signals[0]?.lastSeenAt ?? null;
+        return {
+          row,
+          rank: index + 1,
+          signals,
+          latestSignalAt
+        };
+      })
+      .filter((item) => (!hasUserFilter || selectedKeys.has(item.row.publicKey)) && (!hasIpFilter || item.signals.length > 0))
+      .sort((left, right) => {
+        const leftTime = left.latestSignalAt ? new Date(left.latestSignalAt).getTime() : 0;
+        const rightTime = right.latestSignalAt ? new Date(right.latestSignalAt).getTime() : 0;
+        if (leftTime !== rightTime) return rightTime - leftTime;
+        return left.rank - right.rank;
+      });
+  }, [adminConnectionIpSearch, adminConnectionSelectedPublicKeys, adminSignalsByPublicKey, leaderboardRows]);
+  const totalAdminConnectionPages = Math.max(1, Math.ceil(adminConnectionRows.length / leaderboardPerPage));
+  const paginatedAdminConnectionRows = useMemo(
+    () => adminConnectionRows.slice(leaderboardStartIndex, leaderboardPage * leaderboardPerPage),
+    [adminConnectionRows, leaderboardPage, leaderboardStartIndex]
+  );
+  const activeLeaderboardPages =
+    publicKey === adminPublicKey && leaderboardAdminView === "signals" ? totalAdminConnectionPages : totalLeaderboardPages;
 
   const selectedGame = useMemo(
     () => {
@@ -2583,9 +2640,9 @@ function App() {
     ];
     const selectPeriod = (period: LeaderboardPeriod) => {
       setLeaderboardPeriod(period);
-              setLeaderboardWindowOffset(0);
-              setLeaderboardPage(1);
-            };
+      setLeaderboardWindowOffset(0);
+      setLeaderboardPage(1);
+    };
     return (
       <section className="panel leaderboardPanel">
         <div className="sectionHead">
@@ -2602,7 +2659,10 @@ function App() {
               </button>
               <button
                 className={leaderboardAdminView === "signals" ? "active" : ""}
-                onClick={() => setLeaderboardAdminView("signals")}
+                onClick={() => {
+                  setLeaderboardAdminView("signals");
+                  setLeaderboardPage(1);
+                }}
                 role="tab"
                 type="button"
               >
@@ -2654,44 +2714,89 @@ function App() {
         {publicKey === adminPublicKey && leaderboardAdminView === "signals" ? (
           leaderboardRows.length > 0 ? (
             <>
-              <div className="adminConnectionsList">
-                {paginatedLeaderboardRows.map((row, index) => (
-                  <div className="adminConnectionRow" key={row.publicKey}>
-                    <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
-                    <strong>{row.pseudo}</strong>
-                    <div className="adminSignalList">
-                      {(adminSignalsByPublicKey[row.publicKey] ?? []).length > 0 ? (
-                        (adminSignalsByPublicKey[row.publicKey] ?? []).map((item) => {
-                          const location = formatSignalLocation(item, locale);
-                          return (
-                            <code
-                              className="adminSignalItem"
-                              key={`${row.publicKey}:${item.value}:${item.lastSeenAt}`}
-                              title={formatDateTime(item.lastSeenAt, locale)}
-                            >
-                              <span>{item.value}</span>
-                              {location && <small>{location}</small>}
-                            </code>
-                          );
-                        })
-                      ) : (
-                        <small>{t("noAdminRecentAddresses")}</small>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div className="adminConnectionFilters" aria-label={t("adminConnectionFilters")}>
+                <label className="adminConnectionIpFilter">
+                  <span>{t("adminConnectionIpFilter")}</span>
+                  <input
+                    onChange={(event) => {
+                      setAdminConnectionIpSearch(event.target.value);
+                      setLeaderboardPage(1);
+                    }}
+                    placeholder={t("adminConnectionIpFilterPlaceholder")}
+                    type="search"
+                    value={adminConnectionIpSearch}
+                  />
+                </label>
+                <label className="adminConnectionUserFilter">
+                  <span>{t("adminConnectionUsers")}</span>
+                  <select
+                    multiple
+                    onChange={(event) => {
+                      const selected = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+                      setAdminConnectionSelectedPublicKeys(selected.includes("all") ? [] : selected);
+                      setLeaderboardPage(1);
+                    }}
+                    size={Math.min(8, Math.max(3, leaderboardRows.length + 1))}
+                    value={adminConnectionSelectedPublicKeys.length === 0 ? ["all"] : adminConnectionSelectedPublicKeys}
+                  >
+                    <option value="all">{t("adminConnectionAllUsers")}</option>
+                    {leaderboardRows.map((row) => (
+                      <option key={row.publicKey} value={row.publicKey}>
+                        {row.pseudo}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
-              {leaderboardRows.length > leaderboardPerPage && (
+              <div className="adminConnectionsList">
+                {paginatedAdminConnectionRows.length > 0 ? (
+                  paginatedAdminConnectionRows.map((item) => (
+                    <div className="adminConnectionRow" key={item.row.publicKey}>
+                      <span className="leaderboardRank">#{item.rank}</span>
+                      <strong>{item.row.pseudo}</strong>
+                      <div className="adminSignalList">
+                        {item.signals.length > 0 ? (
+                          <table className="adminSignalTable">
+                            <thead>
+                              <tr>
+                                <th>{t("adminRecentAddresses")}</th>
+                                <th>{t("lastConnection")}</th>
+                                <th>{t("location")}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {item.signals.map((signal) => (
+                                <tr key={`${item.row.publicKey}:${signal.value}:${signal.lastSeenAt}`}>
+                                  <td>
+                                    <code title={signal.value}>{signal.value}</code>
+                                  </td>
+                                  <td>{formatDateTime(signal.lastSeenAt, locale)}</td>
+                                  <td>{formatSignalLocation(signal, locale) || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <small>{t("noAdminRecentAddresses")}</small>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty">{t("emptyLeaderboard")}</p>
+                )}
+              </div>
+              {adminConnectionRows.length > leaderboardPerPage && (
                 <div className="pagination leaderboardPagination">
                   <button disabled={leaderboardPage === 1} onClick={() => setLeaderboardPage((page) => Math.max(1, page - 1))}>
                     {t("previous")}
                   </button>
                   <span>
-                    {t("page")} {leaderboardPage} / {totalLeaderboardPages}
+                    {t("page")} {leaderboardPage} / {totalAdminConnectionPages}
                   </span>
                   <button
-                    disabled={leaderboardPage === totalLeaderboardPages}
-                    onClick={() => setLeaderboardPage((page) => Math.min(totalLeaderboardPages, page + 1))}
+                    disabled={leaderboardPage === totalAdminConnectionPages}
+                    onClick={() => setLeaderboardPage((page) => Math.min(totalAdminConnectionPages, page + 1))}
                   >
                     {t("next")}
                   </button>
@@ -3186,8 +3291,8 @@ function App() {
   }, [leaderboardPeriod, leaderboardWindowOffset, network]);
 
   useEffect(() => {
-    setLeaderboardPage((current) => Math.min(current, totalLeaderboardPages));
-  }, [totalLeaderboardPages]);
+    setLeaderboardPage((current) => Math.min(current, activeLeaderboardPages));
+  }, [activeLeaderboardPages]);
 
   useEffect(() => {
     if (publicKey !== adminPublicKey || leaderboardRows.length === 0) {
