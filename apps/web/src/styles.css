@@ -1185,17 +1185,18 @@ select {
 
 .adminSignalTable th:first-child,
 .adminSignalTable td:first-child {
-  width: 34%;
+  width: 36%;
 }
 
 .adminSignalTable th:nth-child(2),
 .adminSignalTable td:nth-child(2) {
-  width: 38%;
+  width: clamp(92px, 34%, 128px);
+  white-space: nowrap;
 }
 
 .adminSignalTable th:nth-child(3),
 .adminSignalTable td:nth-child(3) {
-  width: 28%;
+  width: 30%;
 }
 
 .adminSignalTable th,

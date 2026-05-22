@@ -1710,6 +1710,22 @@ function formatDateTime(value: string | null | undefined, locale: Locale): strin
   }).format(new Date(value));
 }
 
+function formatCompactDateTime(value: string | null | undefined, locale: Locale): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  const datePart = new Intl.DateTimeFormat(localeTag(locale), {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit"
+  }).format(date);
+  const timePart = new Intl.DateTimeFormat(localeTag(locale), {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+  return `${datePart}-${timePart}`.replace(/\s/g, "");
+}
+
 function formatSignalLocation(item: Pick<PlayerSignal, "country" | "latitude" | "longitude">, locale: Locale): string {
   const coordinates =
     item.latitude !== null && item.longitude !== null
@@ -2819,7 +2835,7 @@ function App() {
                                   <td>
                                     <code title={signal.value}>{signal.value}</code>
                                   </td>
-                                  <td>{formatDateTime(signal.lastSeenAt, locale)}</td>
+                                  <td title={formatDateTime(signal.lastSeenAt, locale)}>{formatCompactDateTime(signal.lastSeenAt, locale)}</td>
                                   <td>{formatSignalLocation(signal, locale) || "-"}</td>
                                 </tr>
                               ))}
