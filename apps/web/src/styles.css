@@ -1054,17 +1054,60 @@ select {
   min-width: 0;
 }
 
-.adminConnectionUserFilter select {
-  font-size: 11px;
-  line-height: 1.35;
-  max-height: 148px;
-  min-width: 0;
-  overflow: auto;
-  padding: 6px;
+.adminConnectionUserFilter input {
+  width: 100%;
 }
 
-.adminConnectionUserFilter option {
-  padding: 4px 6px;
+.adminConnectionFacets,
+.adminConnectionUserSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.adminConnectionFacets {
+  max-height: 72px;
+  overflow: auto;
+}
+
+.adminConnectionFacets button,
+.adminConnectionUserSuggestions button {
+  align-items: center;
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+  min-height: 26px;
+  min-width: 0;
+  padding: 4px 8px;
+}
+
+.adminConnectionFacets button {
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface));
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  color: var(--text);
+}
+
+.adminConnectionFacets button span {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.adminConnectionUserSuggestions {
+  max-height: 86px;
+  overflow: auto;
+}
+
+.adminConnectionUserSuggestions button {
+  background: var(--surface);
+  color: var(--muted);
 }
 
 .adminSignalList {

@@ -418,6 +418,8 @@ const copy: Record<string, Record<string, string>> = {
     adminConnectionFilters: "Connection filters",
     adminConnectionUsers: "Users",
     adminConnectionAllUsers: "All users",
+    adminConnectionUserSearch: "Search a user",
+    adminConnectionUserSearchPlaceholder: "Type a pseudo",
     adminConnectionIpFilter: "IP filter",
     adminConnectionIpFilterPlaceholder: "Partial search or wildcard, e.g. 192.168.*",
     lastConnection: "Last connection",
@@ -746,6 +748,8 @@ const copy: Record<string, Record<string, string>> = {
     adminConnectionFilters: "Filtres connexions",
     adminConnectionUsers: "Utilisateurs",
     adminConnectionAllUsers: "Tous",
+    adminConnectionUserSearch: "Rechercher un utilisateur",
+    adminConnectionUserSearchPlaceholder: "Saisir un pseudo",
     adminConnectionIpFilter: "Filtre IP",
     adminConnectionIpFilterPlaceholder: "Recherche partielle ou wildcard, ex. 192.168.*",
     lastConnection: "Derniere connexion",
@@ -1961,6 +1965,7 @@ function App() {
   const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(0);
   const [leaderboardAdminView, setLeaderboardAdminView] = useState<LeaderboardAdminView>("scores");
   const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>([]);
+  const [adminConnectionUserSearch, setAdminConnectionUserSearch] = useState("");
   const [adminConnectionIpSearch, setAdminConnectionIpSearch] = useState("");
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
@@ -2253,6 +2258,18 @@ function App() {
   );
   const activeLeaderboardPages =
     publicKey === adminPublicKey && leaderboardAdminView === "signals" ? totalAdminConnectionPages : totalLeaderboardPages;
+  const selectedAdminConnectionUsers = useMemo(
+    () => leaderboardRows.filter((row) => adminConnectionSelectedPublicKeys.includes(row.publicKey)),
+    [adminConnectionSelectedPublicKeys, leaderboardRows]
+  );
+  const adminConnectionUserSuggestions = useMemo(() => {
+    const selectedKeys = new Set(adminConnectionSelectedPublicKeys);
+    const needle = adminConnectionUserSearch.trim().toLowerCase();
+    return leaderboardRows
+      .filter((row) => !selectedKeys.has(row.publicKey))
+      .filter((row) => !needle || row.pseudo.toLowerCase().includes(needle))
+      .slice(0, 8);
+  }, [adminConnectionSelectedPublicKeys, adminConnectionUserSearch, leaderboardRows]);
 
   const selectedGame = useMemo(
     () => {
@@ -2729,23 +2746,55 @@ function App() {
                 </label>
                 <label className="adminConnectionUserFilter">
                   <span>{t("adminConnectionUsers")}</span>
-                  <select
-                    multiple
-                    onChange={(event) => {
-                      const selected = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
-                      setAdminConnectionSelectedPublicKeys(selected.includes("all") ? [] : selected);
-                      setLeaderboardPage(1);
-                    }}
-                    size={Math.min(8, Math.max(3, leaderboardRows.length + 1))}
-                    value={adminConnectionSelectedPublicKeys.length === 0 ? ["all"] : adminConnectionSelectedPublicKeys}
-                  >
-                    <option value="all">{t("adminConnectionAllUsers")}</option>
-                    {leaderboardRows.map((row) => (
-                      <option key={row.publicKey} value={row.publicKey}>
+                  <input
+                    onChange={(event) => setAdminConnectionUserSearch(event.target.value)}
+                    placeholder={t("adminConnectionUserSearchPlaceholder")}
+                    type="search"
+                    value={adminConnectionUserSearch}
+                  />
+                  {selectedAdminConnectionUsers.length > 0 && (
+                    <div className="adminConnectionFacets">
+                      {selectedAdminConnectionUsers.map((row) => (
+                        <button
+                          key={row.publicKey}
+                          onClick={() => {
+                            setAdminConnectionSelectedPublicKeys((current) => current.filter((key) => key !== row.publicKey));
+                            setLeaderboardPage(1);
+                          }}
+                          type="button"
+                        >
+                          <span>{row.pseudo}</span>
+                          <X size={12} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="adminConnectionUserSuggestions">
+                    {adminConnectionSelectedPublicKeys.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setAdminConnectionSelectedPublicKeys([]);
+                          setLeaderboardPage(1);
+                        }}
+                        type="button"
+                      >
+                        {t("adminConnectionAllUsers")}
+                      </button>
+                    )}
+                    {adminConnectionUserSuggestions.map((row) => (
+                      <button
+                        key={row.publicKey}
+                        onClick={() => {
+                          setAdminConnectionSelectedPublicKeys((current) => [...current, row.publicKey]);
+                          setAdminConnectionUserSearch("");
+                          setLeaderboardPage(1);
+                        }}
+                        type="button"
+                      >
                         {row.pseudo}
-                      </option>
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </label>
               </div>
               <div className="adminConnectionsList">
