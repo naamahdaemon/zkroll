@@ -301,6 +301,7 @@ VITE_API_URL=http://127.0.0.1:4000
 VITE_ONCHAIN_ENABLED=true
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
+VITE_WALLET_RETURN_GRACE_MS=45000
 VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
 VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30
@@ -336,7 +337,7 @@ The Vite server is configured with COOP/COEP headers because o1js browser provin
 
 The web app is installable as a PWA. Firebase push notifications require all `VITE_FIREBASE_*` variables plus a public web push certificate key in `VITE_FIREBASE_VAPID_KEY`. After changing any `VITE_*` variable, restart or rebuild the web app because Vite bakes these values into the bundle.
 
-`VITE_WALLET_RESPONSE_TIMEOUT_MS` controls the fallback when the wallet sends a transaction but does not return a hash to the page. After this timeout, the UI asks you to paste the hash shown by Auro or the explorer so the backend can index the game.
+`VITE_WALLET_RESPONSE_TIMEOUT_MS` controls the first fallback when the wallet sends a transaction but does not return a hash to the page. If the page was backgrounded in Auro, `VITE_WALLET_RETURN_GRACE_MS` gives the wallet response an extra grace period after the app comes back before asking you to paste the hash shown by Auro or the explorer.
 
 `VITE_REFUND_TIMEOUT_SLOTS` is the default refund timeout, in Mina global slots, used when creating a challenge. The creator can change it in the UI before creating a game. The chosen timeout is converted into an absolute `refundDeadlineSlot` and stored in the game zkApp state hash. The app enforces a hard maximum of `2400` slots on both the web form and API so abandoned games can eventually be refunded/cancelled.
 
@@ -676,6 +677,7 @@ VITE_API_URL=https://api.zkroll.example.com
 VITE_ONCHAIN_ENABLED=true
 VITE_FEE_NANOMINA=100000000
 VITE_WALLET_RESPONSE_TIMEOUT_MS=120000
+VITE_WALLET_RETURN_GRACE_MS=45000
 VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
 VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30

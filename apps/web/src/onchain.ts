@@ -3,6 +3,7 @@ import type { MinaProvider } from "./types";
 
 const FEE_NANOMINA = Number(import.meta.env.VITE_FEE_NANOMINA ?? 100_000_000);
 const WALLET_RESPONSE_TIMEOUT_MS = Number(import.meta.env.VITE_WALLET_RESPONSE_TIMEOUT_MS ?? 120_000);
+const WALLET_RETURN_GRACE_MS = Number(import.meta.env.VITE_WALLET_RETURN_GRACE_MS ?? 45_000);
 const O1JS_BROWSER_CACHE_ENABLED = import.meta.env.VITE_O1JS_BROWSER_CACHE_ENABLED !== "false";
 const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 const PROVER_MODE = import.meta.env.VITE_PROVER_MODE === "server" ? "server" : "client";
@@ -327,6 +328,33 @@ function compactGameMemo(action: string, gameId?: string) {
   return `zkroll ${action}${suffix}`.slice(0, 32);
 }
 
+function waitForWalletReturn(timeoutMs: number) {
+  if (typeof document === "undefined" || document.visibilityState === "visible") return Promise.resolve("visible" as const);
+  return new Promise<"visible" | "timeout">((resolve) => {
+    let timeout: number | undefined;
+    const cleanup = () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      if (timeout) window.clearTimeout(timeout);
+    };
+    const finish = (result: "visible" | "timeout") => {
+      cleanup();
+      resolve(result);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") finish("visible");
+    };
+    const onFocus = () => finish("visible");
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus, { once: true });
+    timeout = window.setTimeout(() => finish("timeout"), Math.max(0, timeoutMs));
+  });
+}
+
+function walletTimeout(timeoutMs: number) {
+  return new Promise<"timeout">((resolve) => window.setTimeout(() => resolve("timeout"), timeoutMs));
+}
+
 async function sendWithWallet(
   provider: MinaProvider,
   transactionJson: string,
@@ -345,24 +373,29 @@ async function sendWithWallet(
     feePayer: memo ? { fee: FEE_NANOMINA, memo } : undefined,
     walletOpenDelayMs
   });
+  void sendPromise.catch(() => undefined);
 
-  const result = await Promise.race([
+  let result = await Promise.race([
     sendPromise,
     manualResolutionPromise,
-    new Promise<"timeout">((resolve) => window.setTimeout(() => resolve("timeout"), WALLET_RESPONSE_TIMEOUT_MS))
-  ]).finally(() => {
+    walletTimeout(WALLET_RESPONSE_TIMEOUT_MS)
+  ]);
+
+  if (result === "timeout") {
+    report(onProgress, "progressWalletNoAutoReturn", 92);
+    await waitForWalletReturn(Math.min(WALLET_RETURN_GRACE_MS, Math.max(5_000, WALLET_RESPONSE_TIMEOUT_MS)));
+    result = await Promise.race([
+      sendPromise,
+      manualResolutionPromise,
+      walletTimeout(WALLET_RETURN_GRACE_MS)
+    ]);
+  }
+
+  await Promise.resolve().finally(() => {
     if (manualWalletResolution === localManualResolver) {
       manualWalletResolution = null;
     }
   });
-
-  if (typeof result === "object" && result && "kind" in result) {
-    if (result.kind === "failed") {
-      throw new Error(result.reason);
-    }
-    report(onProgress, "progressTransactionProvided", 100);
-    return requiredTransactionHash(result.hash);
-  }
 
   if (result === "timeout") {
     report(onProgress, "progressWalletNoAutoReturn", 92);
@@ -376,7 +409,21 @@ async function sendWithWallet(
     return requiredTransactionHash(manualHash);
   }
 
-  const hash = normalizeWalletHash(result);
+  const finalResult = await Promise.resolve(result).finally(() => {
+    if (manualWalletResolution === localManualResolver) {
+      manualWalletResolution = null;
+    }
+  });
+
+  if (typeof finalResult === "object" && finalResult && "kind" in finalResult) {
+    if (finalResult.kind === "failed") {
+      throw new Error(finalResult.reason);
+    }
+    report(onProgress, "progressTransactionProvided", 100);
+    return requiredTransactionHash(finalResult.hash);
+  }
+
+  const hash = normalizeWalletHash(finalResult);
   if (!hash) {
     const manualHash = window.prompt(
       "Le wallet a repondu sans hash exploitable. Colle le hash de transaction affiche dans Auro ou l'explorateur."
