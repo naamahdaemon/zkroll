@@ -143,18 +143,61 @@ function isPrivateSignal(value: string) {
   );
 }
 
+function describeSignal(value: string) {
+  const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value);
+  if (ipv4Match) return `${ipv4Match[1]}.${ipv4Match[2]}.x.x`;
+  if (value.includes(":")) return `${value.slice(0, 8)}...`;
+  return value ? `${value.slice(0, 3)}...${value.slice(-3)}` : "";
+}
+
 function signalLookupEndpoint(value: string) {
   return signalLookupUrl.includes("{signal}")
     ? signalLookupUrl.replace("{signal}", encodeURIComponent(value))
     : `${signalLookupUrl.replace(/\/$/, "")}/${encodeURIComponent(value)}`;
 }
 
-async function lookupSignalLocation(value: string): Promise<SignalLocation | null> {
-  if (!signalLookupEnabled || !value || isPrivateSignal(value) || typeof fetch !== "function") return null;
-  const cached = signalLocationCache.get(value);
-  if (cached && cached.expiresAt > Date.now()) return cached.location;
+function describeEndpoint(value: string) {
   try {
-    const response = await withTimeout(fetch(signalLookupEndpoint(value)), signalLookupTimeoutMs, "IP geolocation lookup");
+    const endpoint = new URL(signalLookupEndpoint(value));
+    return endpoint.host;
+  } catch {
+    return signalLookupUrl.includes("{signal}") ? signalLookupUrl.replace("{signal}", "{masked}") : signalLookupUrl;
+  }
+}
+
+async function lookupSignalLocation(value: string, publicKey: string): Promise<SignalLocation | null> {
+  const signal = describeSignal(value);
+  if (!signalLookupEnabled) {
+    app.log.info({ component: "player-signal-location", publicKey, signal, reason: "disabled" }, "Player signal location lookup skipped");
+    return null;
+  }
+  if (!value) {
+    app.log.info({ component: "player-signal-location", publicKey, reason: "empty" }, "Player signal location lookup skipped");
+    return null;
+  }
+  if (isPrivateSignal(value)) {
+    app.log.info({ component: "player-signal-location", publicKey, signal, reason: "private-or-local" }, "Player signal location lookup skipped");
+    return null;
+  }
+  if (typeof fetch !== "function") {
+    app.log.warn({ component: "player-signal-location", publicKey, signal, reason: "fetch-unavailable" }, "Player signal location lookup skipped");
+    return null;
+  }
+  const cached = signalLocationCache.get(value);
+  if (cached && cached.expiresAt > Date.now()) {
+    app.log.info(
+      { component: "player-signal-location", publicKey, signal, found: Boolean(cached.location) },
+      "Player signal location cache hit"
+    );
+    return cached.location;
+  }
+  try {
+    const endpoint = signalLookupEndpoint(value);
+    app.log.info(
+      { component: "player-signal-location", publicKey, signal, endpoint: describeEndpoint(value) },
+      "Player signal location lookup started"
+    );
+    const response = await withTimeout(fetch(endpoint), signalLookupTimeoutMs, "IP geolocation lookup");
     const payload = (await response.json()) as {
       success?: boolean;
       country?: string;
@@ -176,9 +219,24 @@ async function lookupSignalLocation(value: string): Promise<SignalLocation | nul
           }
         : null;
     signalLocationCache.set(value, { expiresAt: Date.now() + 24 * 60 * 60 * 1000, location });
+    if (location) {
+      app.log.info(
+        { component: "player-signal-location", publicKey, signal, statusCode: response.status, location },
+        "Player signal location lookup succeeded"
+      );
+    } else {
+      app.log.warn(
+        { component: "player-signal-location", publicKey, signal, statusCode: response.status, success: payload.success ?? null },
+        "Player signal location lookup returned no usable location"
+      );
+    }
     return location;
-  } catch {
+  } catch (error) {
     signalLocationCache.set(value, { expiresAt: Date.now() + 60 * 60 * 1000, location: null });
+    app.log.warn(
+      { component: "player-signal-location", publicKey, signal, error: (error as Error).message },
+      "Player signal location lookup failed"
+    );
     return null;
   }
 }
@@ -186,11 +244,21 @@ async function lookupSignalLocation(value: string): Promise<SignalLocation | nul
 function rememberRequestSignal(request: { headers: Record<string, unknown>; ip: string }, publicKey: string) {
   const value = requestSignal(request);
   recordPlayerSignal(publicKey, value);
-  if (!signalLookupEnabled) return;
+  app.log.info(
+    { component: "player-signal", publicKey, signal: describeSignal(value), locationLookupEnabled: signalLookupEnabled },
+    "Player signal recorded"
+  );
   setTimeout(() => {
-    void lookupSignalLocation(value).then((location) => {
-      if (location) updatePlayerSignalLocation(publicKey, value, location);
-    }).catch(() => undefined);
+    void lookupSignalLocation(value, publicKey)
+      .then((location) => {
+        if (!location) return;
+        const updated = updatePlayerSignalLocation(publicKey, value, location);
+        app.log.info(
+          { component: "player-signal-location", publicKey, signal: describeSignal(value), updated },
+          "Player signal location stored"
+        );
+      })
+      .catch(() => undefined);
   }, 0);
 }
 

@@ -209,6 +209,11 @@ type LeaderboardRow = {
   referralBonus: number;
   amountWonNanoMina: string;
 };
+type AdminConnectionPlayerRow = {
+  publicKey: string;
+  pseudo: string;
+  rank: number;
+};
 const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
 const gameStatuses: GameStatus[] = [
   "pending_signature",
@@ -2237,24 +2242,89 @@ function App() {
   );
   const totalLeaderboardPages = Math.max(1, Math.ceil(leaderboardRows.length / leaderboardPerPage));
   const leaderboardStartIndex = (leaderboardPage - 1) * leaderboardPerPage;
-  const leaderboardPublicKeyKey = leaderboardRows.map((row) => row.publicKey).join("|");
   const paginatedLeaderboardRows = useMemo(
     () => leaderboardRows.slice(leaderboardStartIndex, leaderboardPage * leaderboardPerPage),
     [leaderboardRows, leaderboardPage, leaderboardStartIndex]
   );
+  const adminConnectionPlayerRows = useMemo(() => {
+    const rows = new Map<string, { publicKey: string; pseudo: string; rank: number; seenAt: number }>();
+    leaderboardRows.forEach((row, index) => {
+      rows.set(row.publicKey, {
+        publicKey: row.publicKey,
+        pseudo: row.pseudo,
+        rank: index + 1,
+        seenAt: Number.POSITIVE_INFINITY
+      });
+    });
+    const isInsideWindow = (value: string | null | undefined) => {
+      if (leaderboardWindow.start === null && leaderboardWindow.end === null) return true;
+      if (!value) return false;
+      const time = new Date(value).getTime();
+      return (
+        Number.isFinite(time) &&
+        (leaderboardWindow.start === null || time >= leaderboardWindow.start) &&
+        (leaderboardWindow.end === null || time < leaderboardWindow.end)
+      );
+    };
+    const rememberPlayer = (publicKeyValue: string, pseudoValue: string | null | undefined, seenAtValue: string | null | undefined) => {
+      if (!publicKeyValue) return;
+      const seenAt = seenAtValue ? new Date(seenAtValue).getTime() : 0;
+      const existing = rows.get(publicKeyValue);
+      const pseudo = playerPseudosByPublicKey[publicKeyValue] ?? pseudoValue ?? publicKeyValue;
+      if (existing) {
+        if (Number.isFinite(seenAt) && seenAt > existing.seenAt) existing.pseudo = pseudo;
+        return;
+      }
+      rows.set(publicKeyValue, {
+        publicKey: publicKeyValue,
+        pseudo,
+        rank: rows.size + 1,
+        seenAt: Number.isFinite(seenAt) ? seenAt : 0
+      });
+    };
+
+    for (const game of visibleGames) {
+      if (isInsideWindow(game.createdAt) || isInsideWindow(game.updatedAt)) {
+        rememberPlayer(game.creatorPublicKey, game.creatorPseudo, game.createdAt);
+      }
+      if (game.joinerPublicKey && (isInsideWindow(game.joinAt) || isInsideWindow(game.updatedAt))) {
+        rememberPlayer(game.joinerPublicKey, game.joinerPseudo, game.joinAt ?? game.updatedAt);
+      }
+    }
+
+    return Array.from(rows.values()).sort((left, right) => {
+      const leftLeaderboardRank = left.seenAt === Number.POSITIVE_INFINITY;
+      const rightLeaderboardRank = right.seenAt === Number.POSITIVE_INFINITY;
+      if (leftLeaderboardRank && rightLeaderboardRank) return left.rank - right.rank;
+      if (leftLeaderboardRank !== rightLeaderboardRank) return leftLeaderboardRank ? -1 : 1;
+      if (left.seenAt !== right.seenAt) return right.seenAt - left.seenAt;
+      return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
+    }) satisfies AdminConnectionPlayerRow[];
+  }, [leaderboardRows, leaderboardWindow.end, leaderboardWindow.start, locale, playerPseudosByPublicKey, visibleGames]);
+  const adminConnectionPlayerKey = adminConnectionPlayerRows.map((row) => row.publicKey).join("|");
   const adminConnectionRows = useMemo(() => {
     const selectedKeys = new Set(adminConnectionSelectedPublicKeys);
     const hasUserFilter = selectedKeys.size > 0;
     const hasIpFilter = adminConnectionIpSearch.trim().length > 0;
-    return leaderboardRows
-      .map((row, index) => {
+    const isSignalInsideWindow = (value: string) => {
+      if (leaderboardWindow.start === null && leaderboardWindow.end === null) return true;
+      const time = new Date(value).getTime();
+      return (
+        Number.isFinite(time) &&
+        (leaderboardWindow.start === null || time >= leaderboardWindow.start) &&
+        (leaderboardWindow.end === null || time < leaderboardWindow.end)
+      );
+    };
+    return adminConnectionPlayerRows
+      .map((row) => {
         const signals = (adminSignalsByPublicKey[row.publicKey] ?? [])
+          .filter((item) => isSignalInsideWindow(item.lastSeenAt))
           .filter((item) => matchesWildcardSearch(item.value, adminConnectionIpSearch))
           .sort((left, right) => new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime());
         const latestSignalAt = signals[0]?.lastSeenAt ?? null;
         return {
           row,
-          rank: index + 1,
+          rank: row.rank,
           signals,
           latestSignalAt
         };
@@ -2266,7 +2336,14 @@ function App() {
         if (leftTime !== rightTime) return rightTime - leftTime;
         return left.rank - right.rank;
       });
-  }, [adminConnectionIpSearch, adminConnectionSelectedPublicKeys, adminSignalsByPublicKey, leaderboardRows]);
+  }, [
+    adminConnectionIpSearch,
+    adminConnectionPlayerRows,
+    adminConnectionSelectedPublicKeys,
+    adminSignalsByPublicKey,
+    leaderboardWindow.end,
+    leaderboardWindow.start
+  ]);
   const totalAdminConnectionPages = Math.max(1, Math.ceil(adminConnectionRows.length / leaderboardPerPage));
   const paginatedAdminConnectionRows = useMemo(
     () => adminConnectionRows.slice(leaderboardStartIndex, leaderboardPage * leaderboardPerPage),
@@ -2275,17 +2352,17 @@ function App() {
   const activeLeaderboardPages =
     publicKey === adminPublicKey && leaderboardAdminView === "signals" ? totalAdminConnectionPages : totalLeaderboardPages;
   const selectedAdminConnectionUsers = useMemo(
-    () => leaderboardRows.filter((row) => adminConnectionSelectedPublicKeys.includes(row.publicKey)),
-    [adminConnectionSelectedPublicKeys, leaderboardRows]
+    () => adminConnectionPlayerRows.filter((row) => adminConnectionSelectedPublicKeys.includes(row.publicKey)),
+    [adminConnectionPlayerRows, adminConnectionSelectedPublicKeys]
   );
   const adminConnectionUserSuggestions = useMemo(() => {
     const selectedKeys = new Set(adminConnectionSelectedPublicKeys);
     const needle = adminConnectionUserSearch.trim().toLowerCase();
-    return leaderboardRows
+    return adminConnectionPlayerRows
       .filter((row) => !selectedKeys.has(row.publicKey))
       .filter((row) => !needle || row.pseudo.toLowerCase().includes(needle))
       .slice(0, 8);
-  }, [adminConnectionSelectedPublicKeys, adminConnectionUserSearch, leaderboardRows]);
+  }, [adminConnectionPlayerRows, adminConnectionSelectedPublicKeys, adminConnectionUserSearch]);
 
   const selectedGame = useMemo(
     () => {
@@ -2745,7 +2822,7 @@ function App() {
           </div>
         )}
         {publicKey === adminPublicKey && leaderboardAdminView === "signals" ? (
-          leaderboardRows.length > 0 ? (
+          adminConnectionPlayerRows.length > 0 ? (
             <>
               <div className="adminConnectionFilters" aria-label={t("adminConnectionFilters")}>
                 <label className="adminConnectionIpFilter">
@@ -3360,12 +3437,12 @@ function App() {
   }, [activeLeaderboardPages]);
 
   useEffect(() => {
-    if (publicKey !== adminPublicKey || leaderboardRows.length === 0) {
+    if (publicKey !== adminPublicKey || adminConnectionPlayerRows.length === 0) {
       setAdminSignalsByPublicKey({});
       return;
     }
     let cancelled = false;
-    const publicKeys = leaderboardRows.map((row) => row.publicKey);
+    const publicKeys = adminConnectionPlayerRows.map((row) => row.publicKey);
     void listPlayerSignals(publicKeys, publicKey)
       .then((result) => {
         if (cancelled) return;
@@ -3381,7 +3458,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [leaderboardPublicKeyKey, publicKey]);
+  }, [adminConnectionPlayerKey, publicKey]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

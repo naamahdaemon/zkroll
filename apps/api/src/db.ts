@@ -653,10 +653,10 @@ export function updatePlayerSignalLocation(
   publicKey: string,
   value: string,
   location: { country?: string | null; latitude?: number | null; longitude?: number | null }
-): void {
+): boolean {
   const normalizedValue = value.trim();
-  if (!publicKey || !normalizedValue || normalizedValue.length > 255) return;
-  db.prepare(
+  if (!publicKey || !normalizedValue || normalizedValue.length > 255) return false;
+  const result = db.prepare(
     `
     update player_signals
     set signal_country = coalesce(?, signal_country),
@@ -666,6 +666,7 @@ export function updatePlayerSignalLocation(
       and signal_hash = ?
   `
   ).run(location.country ?? null, location.latitude ?? null, location.longitude ?? null, publicKey, signalHash(normalizedValue));
+  return result.changes > 0;
 }
 
 export function deletePlayerSignalForOtherPlayers(publicKeys: string[], value: string, ownerPublicKey: string): void {
