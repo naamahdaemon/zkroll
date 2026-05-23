@@ -470,10 +470,17 @@ function signalHash(value: string) {
   return createHmac("sha256", signalSecret).update(value).digest("base64url");
 }
 
-function playerSignalFromRow(row: PlayerSignalRow): PlayerSignal {
+function playerSignalFromRow(row: PlayerSignalRow): PlayerSignal | null {
+  let value = "";
+  try {
+    value = unpackSignal(row.signal_payload);
+  } catch {
+    return null;
+  }
+  if (!value) return null;
   return {
     publicKey: row.public_key,
-    value: unpackSignal(row.signal_payload),
+    value,
     country: row.signal_country,
     latitude: row.signal_latitude,
     longitude: row.signal_longitude,
@@ -695,7 +702,7 @@ export function listRecentPlayerSignals(publicKeys: string[], limitPerPlayer = 1
     `
     )
     .all(...uniquePublicKeys, limit) as PlayerSignalRow[];
-  return rows.map(playerSignalFromRow);
+  return rows.map(playerSignalFromRow).filter((item): item is PlayerSignal => item !== null);
 }
 
 export function setPlayerMessagePreference(publicKey: string, acceptMessages: boolean): Player {
