@@ -121,10 +121,11 @@ ZKROLL_AUTO_REFUND_ENABLED=false
 ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
 ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
 ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS=1800000
 ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
 ```
 
-The worker scans active games, checks the current slot, skips games with pending settlement/refund transactions, and only submits candidates whose create transaction is included. Joined-game refunds also require a trusted included join plus complete `joinerPseudoHash` and `joinerCommitment` data.
+The worker scans active games, checks the current slot, skips games with pending settlement/refund transactions, and only submits candidates whose create transaction is included. Joined-game refunds also require a trusted included join plus complete `joinerPseudoHash` and `joinerCommitment` data. A failed auto-refund candidate is cooled down by `ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS` so it cannot block later expired games in the same queue.
 
 When `ZKROLL_PROVER_URL` is not set, the API process proves, signs, and sends the auto-refund transaction, so the fee-payer private key must be configured on the API. When an isolated prover is used, the API calls internal prover endpoints and the fee-payer private key must be configured only on the prover process. This keeps the key out of the public API process.
 

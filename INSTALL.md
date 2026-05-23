@@ -152,6 +152,7 @@ ZKROLL_AUTO_REFUND_ENABLED=false
 ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
 ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
 ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS=1800000
 ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
 ZKROLL_SIGNAL_SECRET=
 ZKROLL_SIGNAL_LOOKUP_ENABLED=false
@@ -186,6 +187,7 @@ $env:ZKROLL_AUTO_REFUND_ENABLED="false"
 $env:ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=""
 $env:ZKROLL_AUTO_REFUND_INTERVAL_MS="120000"
 $env:ZKROLL_AUTO_REFUND_BATCH_SIZE="1"
+$env:ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS="1800000"
 $env:ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS="900000"
 $env:ZKROLL_SIGNAL_SECRET=""
 $env:ZKROLL_SIGNAL_LOOKUP_ENABLED="false"
@@ -216,6 +218,7 @@ export ZKROLL_AUTO_REFUND_ENABLED="false"
 export ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=""
 export ZKROLL_AUTO_REFUND_INTERVAL_MS="120000"
 export ZKROLL_AUTO_REFUND_BATCH_SIZE="1"
+export ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS="1800000"
 export ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS="900000"
 export ZKROLL_SIGNAL_SECRET=""
 export ZKROLL_SIGNAL_LOOKUP_ENABLED="false"
@@ -271,7 +274,7 @@ ZKROLL_PROVER_MODE=server ZKROLL_PROVER_URL=http://127.0.0.1:4001 npm run dev:ap
 
 `ZKROLL_AUTO_REFUND_ENABLED=true` starts an optional worker that scans active games and submits on-chain refund transactions once `currentSlot >= refundDeadlineSlot`. It does not modify the contract or allow pre-deadline admin cancellation. It only automates the public post-deadline refund methods already available on the game zkApp.
 
-`ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY` must be a funded fee-payer key. If `ZKROLL_PROVER_URL` is unset, set the key in the API process. If `ZKROLL_PROVER_URL` points to an isolated prover, set the key only in the prover process; the API asks the prover to sign/send the refund through internal endpoints. `ZKROLL_AUTO_REFUND_INTERVAL_MS` controls scan frequency, `ZKROLL_AUTO_REFUND_BATCH_SIZE` limits how many games are refunded per scan, and `ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS` bounds the long API-to-prover request for automatic refunds.
+`ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY` must be a funded fee-payer key. If `ZKROLL_PROVER_URL` is unset, set the key in the API process. If `ZKROLL_PROVER_URL` points to an isolated prover, set the key only in the prover process; the API asks the prover to sign/send the refund through internal endpoints. `ZKROLL_AUTO_REFUND_INTERVAL_MS` controls scan frequency, `ZKROLL_AUTO_REFUND_BATCH_SIZE` limits how many games are refunded per scan, `ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS` prevents one failing candidate from blocking later expired games, and `ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS` bounds the long API-to-prover request for automatic refunds.
 
 `ZKROLL_SIGNAL_SECRET` is used to encrypt admin-only recent-connection diagnostics in SQLite. Set it before collecting production data; changing it later prevents decrypting older entries. The API records IP diagnostics on player upsert, referral application, game creation, and game join. Values are only returned to the configured admin wallet through the leaderboard admin tab.
 
@@ -657,6 +660,7 @@ ZKROLL_AUTO_REFUND_ENABLED=false
 ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
 ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
 ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS=1800000
 ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
 ZKROLL_SIGNAL_SECRET=
 ZKROLL_SIGNAL_LOOKUP_ENABLED=false

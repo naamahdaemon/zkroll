@@ -94,6 +94,10 @@ const autoRefundEnabled = process.env.ZKROLL_AUTO_REFUND_ENABLED === "true";
 const autoRefundFeePayerPrivateKey = process.env.ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY ?? "";
 const autoRefundIntervalMs = Math.max(30_000, Number(process.env.ZKROLL_AUTO_REFUND_INTERVAL_MS ?? 120_000));
 const autoRefundBatchSize = Math.max(1, Math.min(5, Number(process.env.ZKROLL_AUTO_REFUND_BATCH_SIZE ?? 1)));
+const autoRefundFailureCooldownMs = Math.max(
+  autoRefundIntervalMs,
+  Number(process.env.ZKROLL_AUTO_REFUND_FAILURE_COOLDOWN_MS ?? 30 * 60 * 1000)
+);
 const maxRefundTimeoutSlots = 2400;
 const pendingActionGameLimit = 5;
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
@@ -597,6 +601,7 @@ async function sendUpdatedGame(game: Game) {
 const autoRefundStatuses = new Set(["created", "joined", "player_one_revealed", "player_two_revealed", "both_revealed"]);
 let autoRefundRunning = false;
 let autoRefundFeePayerPublicKey: string | null = null;
+const autoRefundFailedUntil = new Map<string, number>();
 
 function isAutoRefundCandidate(game: Game, currentSlot: string) {
   if (!autoRefundStatuses.has(game.status)) return false;
@@ -616,18 +621,38 @@ async function autoRefundExpiredGames() {
     autoRefundFeePayerPublicKey ??= await autoRefundPublicKey(autoRefundFeePayerPrivateKey || undefined);
     const currentSlots = new Map<NetworkId, string>();
     const candidates: Game[] = [];
+    const now = Date.now();
+    const candidateScanLimit = Math.max(10, autoRefundBatchSize * 10);
     for (const game of listGames()) {
       if (!autoRefundStatuses.has(game.status)) continue;
+      const failedUntil = autoRefundFailedUntil.get(game.id) ?? 0;
+      if (failedUntil > now) {
+        app.log.info(
+          { gameId: game.id, network: game.network, retryAfterMs: failedUntil - now },
+          "Auto refund candidate skipped after recent failure"
+        );
+        continue;
+      }
       if (!currentSlots.has(game.network)) {
-        currentSlots.set(game.network, await currentSlotFor(game.network));
+        try {
+          currentSlots.set(game.network, await currentSlotFor(game.network));
+        } catch (error) {
+          app.log.warn(
+            { network: game.network, error: (error as Error).message },
+            "Auto refund network slot fetch failed"
+          );
+          continue;
+        }
       }
       if (isAutoRefundCandidate(game, currentSlots.get(game.network)!)) {
         candidates.push(game);
       }
-      if (candidates.length >= autoRefundBatchSize) break;
+      if (candidates.length >= candidateScanLimit) break;
     }
 
+    let submittedCount = 0;
     for (const game of candidates) {
+      if (submittedCount >= autoRefundBatchSize) break;
       try {
         app.log.info({ gameId: game.id, network: game.network }, "Auto refunding expired game");
         const result = await createAutoRefundJob(
@@ -647,8 +672,11 @@ async function autoRefundExpiredGames() {
           autoRefundFeePayerPrivateKey || undefined
         );
         await sendUpdatedGame(refundGame(game.id, { refundTxHash: result.txHash }));
+        autoRefundFailedUntil.delete(game.id);
+        submittedCount += 1;
         app.log.info({ gameId: game.id, network: game.network, refundTxHash: result.txHash }, "Auto refund transaction submitted");
       } catch (error) {
+        autoRefundFailedUntil.set(game.id, Date.now() + autoRefundFailureCooldownMs);
         app.log.error({ gameId: game.id, network: game.network, error: (error as Error).message }, "Auto refund failed");
       }
     }
