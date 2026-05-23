@@ -1231,6 +1231,12 @@ select {
   color: var(--accent);
 }
 
+.adminSignalLocationLink {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .adminSignalItem {
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   border-radius: 6px;

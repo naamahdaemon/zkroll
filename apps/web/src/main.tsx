@@ -1731,12 +1731,15 @@ function formatCompactDateTime(value: string | null | undefined, locale: Locale)
   return `${datePart}-${timePart}`.replace(/\s/g, "");
 }
 
-function formatSignalLocation(item: Pick<PlayerSignal, "country" | "latitude" | "longitude">, locale: Locale): string {
-  const coordinates =
-    item.latitude !== null && item.longitude !== null
-      ? `${item.latitude.toLocaleString(localeTag(locale), { maximumFractionDigits: 2 })}, ${item.longitude.toLocaleString(localeTag(locale), { maximumFractionDigits: 2 })}`
-      : "";
-  return [item.country, coordinates].filter(Boolean).join(" - ");
+function signalLocationLabel(item: Pick<PlayerSignal, "country" | "latitude" | "longitude">): string {
+  if (item.country) return item.country;
+  if (item.latitude !== null && item.longitude !== null) return "Maps";
+  return "";
+}
+
+function signalLocationUrl(item: Pick<PlayerSignal, "latitude" | "longitude">): string | null {
+  if (item.latitude === null || item.longitude === null) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${item.latitude},${item.longitude}`)}`;
 }
 
 function matchesWildcardSearch(value: string, query: string): boolean {
@@ -2907,15 +2910,37 @@ function App() {
                               </tr>
                             </thead>
                             <tbody>
-                              {item.signals.map((signal) => (
-                                <tr key={`${item.row.publicKey}:${signal.value}:${signal.lastSeenAt}`}>
-                                  <td>
-                                    <code title={signal.value}>{signal.value}</code>
-                                  </td>
-                                  <td title={formatDateTime(signal.lastSeenAt, locale)}>{formatCompactDateTime(signal.lastSeenAt, locale)}</td>
-                                  <td>{formatSignalLocation(signal, locale) || "-"}</td>
-                                </tr>
-                              ))}
+                              {item.signals.map((signal) => {
+                                const locationLabel = signalLocationLabel(signal);
+                                const locationUrl = signalLocationUrl(signal);
+                                return (
+                                  <tr key={`${item.row.publicKey}:${signal.value}:${signal.lastSeenAt}`}>
+                                    <td>
+                                      <code title={signal.value}>{signal.value}</code>
+                                    </td>
+                                    <td title={formatDateTime(signal.lastSeenAt, locale)}>{formatCompactDateTime(signal.lastSeenAt, locale)}</td>
+                                    <td>
+                                      {locationLabel ? (
+                                        locationUrl ? (
+                                          <a
+                                            className="adminSignalLocationLink"
+                                            href={locationUrl}
+                                            rel="noreferrer"
+                                            target="_blank"
+                                            title={`${signal.latitude}, ${signal.longitude}`}
+                                          >
+                                            {locationLabel}
+                                          </a>
+                                        ) : (
+                                          locationLabel
+                                        )
+                                      ) : (
+                                        "-"
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                           </table>
                         ) : (
