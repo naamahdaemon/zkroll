@@ -63,7 +63,9 @@ import {
 import { witnessForGameId } from "./merkle.js";
 import { notifyGameInvite, notifyGameMessage, notifyGameUpdated, notifyNewGameCreated } from "./notifications.js";
 import {
+  autoRefundPublicKey,
   clearServerProverCache,
+  createAutoRefundJob,
   createProverJob,
   getProverJob,
   serverCommitment,
@@ -86,7 +88,12 @@ const adminPublicKey = process.env.ZKROLL_ADMIN_PUBLIC_KEY ?? "B62qigDTGHWNjEhRA
 const signalLookupEnabled = process.env.ZKROLL_SIGNAL_LOOKUP_ENABLED === "true";
 const signalLookupTimeoutMs = Number(process.env.ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS ?? 1200);
 const signalLookupUrl = process.env.ZKROLL_SIGNAL_LOOKUP_URL ?? "https://ipwho.is/{signal}";
-const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server" || usesRemoteServerProver();
+const remoteServerProverEnabled = usesRemoteServerProver();
+const serverProverModeEnabled = process.env.ZKROLL_PROVER_MODE === "server" || process.env.VITE_PROVER_MODE === "server" || remoteServerProverEnabled;
+const autoRefundEnabled = process.env.ZKROLL_AUTO_REFUND_ENABLED === "true";
+const autoRefundFeePayerPrivateKey = process.env.ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY ?? "";
+const autoRefundIntervalMs = Math.max(30_000, Number(process.env.ZKROLL_AUTO_REFUND_INTERVAL_MS ?? 120_000));
+const autoRefundBatchSize = Math.max(1, Math.min(5, Number(process.env.ZKROLL_AUTO_REFUND_BATCH_SIZE ?? 1)));
 const maxRefundTimeoutSlots = 2400;
 const pendingActionGameLimit = 5;
 const currentSlotCache = new Map<NetworkId, { expiresAt: number; currentSlot: string }>();
@@ -517,6 +524,71 @@ async function syncTransactionFromZkappState(network: NetworkId, hash: string, g
 async function sendUpdatedGame(game: Game) {
   await notifyGameUpdated(game);
   return game;
+}
+
+const autoRefundStatuses = new Set(["created", "joined", "player_one_revealed", "player_two_revealed", "both_revealed"]);
+let autoRefundRunning = false;
+let autoRefundFeePayerPublicKey: string | null = null;
+
+function isAutoRefundCandidate(game: Game, currentSlot: string) {
+  if (!autoRefundStatuses.has(game.status)) return false;
+  if (!game.zkappAddress || !game.gameIdField || !game.refundDeadlineSlot || !game.creatorPseudoHash || !game.creatorCommitment) return false;
+  if (BigInt(currentSlot) < BigInt(game.refundDeadlineSlot)) return false;
+  if (game.creationTxStatus !== "INCLUDED") return false;
+  if (game.refundTxHash && game.refundTxStatus !== "FAILED") return false;
+  if (game.settlementTxHash && game.settlementTxStatus !== "FAILED") return false;
+  if (game.status === "created") return true;
+  return Boolean(game.joinerPublicKey && game.joinerPseudoHash && game.joinerCommitment && game.joinTxStatus === "INCLUDED");
+}
+
+async function autoRefundExpiredGames() {
+  if (!autoRefundEnabled || (!autoRefundFeePayerPrivateKey && !remoteServerProverEnabled) || autoRefundRunning) return;
+  autoRefundRunning = true;
+  try {
+    autoRefundFeePayerPublicKey ??= await autoRefundPublicKey(autoRefundFeePayerPrivateKey || undefined);
+    const currentSlots = new Map<NetworkId, string>();
+    const candidates: Game[] = [];
+    for (const game of listGames()) {
+      if (!autoRefundStatuses.has(game.status)) continue;
+      if (!currentSlots.has(game.network)) {
+        currentSlots.set(game.network, await currentSlotFor(game.network));
+      }
+      if (isAutoRefundCandidate(game, currentSlots.get(game.network)!)) {
+        candidates.push(game);
+      }
+      if (candidates.length >= autoRefundBatchSize) break;
+    }
+
+    for (const game of candidates) {
+      try {
+        app.log.info({ gameId: game.id, network: game.network }, "Auto refunding expired game");
+        const result = await createAutoRefundJob(
+          {
+            network: game.network,
+            senderPublicKey: autoRefundFeePayerPublicKey,
+            status: game.status,
+            gameIdField: game.gameIdField!,
+            zkappAddress: game.zkappAddress!,
+            creatorPseudoHash: game.creatorPseudoHash!,
+            joinerPseudoHash: game.joinerPseudoHash,
+            payoutMode: game.payoutMode,
+            creatorCommitment: game.creatorCommitment,
+            joinerCommitment: game.joinerCommitment,
+            refundDeadlineSlot: game.refundDeadlineSlot!
+          },
+          autoRefundFeePayerPrivateKey || undefined
+        );
+        await sendUpdatedGame(refundGame(game.id, { refundTxHash: result.txHash }));
+        app.log.info({ gameId: game.id, network: game.network, refundTxHash: result.txHash }, "Auto refund transaction submitted");
+      } catch (error) {
+        app.log.error({ gameId: game.id, network: game.network, error: (error as Error).message }, "Auto refund failed");
+      }
+    }
+  } catch (error) {
+    app.log.error({ error: (error as Error).message }, "Auto refund scan failed");
+  } finally {
+    autoRefundRunning = false;
+  }
 }
 
 async function resolveTransactionStatus(network: NetworkId, hash: string) {
@@ -1190,6 +1262,16 @@ app.patch("/games/:id/refund-pending/clear", async (request, reply) => {
     return reply.code(400).send({ error: (error as Error).message });
   }
 });
+
+if (autoRefundEnabled) {
+  if (!autoRefundFeePayerPrivateKey && !remoteServerProverEnabled) {
+    app.log.warn("Automatic refund is enabled but ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY is not configured.");
+  } else {
+    app.log.info({ intervalMs: autoRefundIntervalMs, batchSize: autoRefundBatchSize }, "Automatic refund worker enabled");
+    setTimeout(() => void autoRefundExpiredGames(), 10_000);
+    setInterval(() => void autoRefundExpiredGames(), autoRefundIntervalMs);
+  }
+}
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "127.0.0.1";

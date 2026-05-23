@@ -1,7 +1,9 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import {
+  autoRefundPublicKey,
   clearServerProverCache,
+  createAutoRefundJob,
   createProverJob,
   getProverJob,
   serverCommitment,
@@ -15,6 +17,7 @@ const app = Fastify({
   logger: true
 });
 const restartOnCacheClear = process.env.ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR !== "false";
+const autoRefundFeePayerPrivateKey = process.env.ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY ?? "";
 
 await app.register(cors, {
   origin: false
@@ -66,6 +69,25 @@ app.post("/internal/prover/commitment", async (request, reply) => {
 });
 
 app.post("/internal/prover/keygen", async () => serverGameKey());
+
+app.get("/internal/prover/auto-refund/public-key", async (request, reply) => {
+  try {
+    if (!autoRefundFeePayerPrivateKey) throw new Error("Automatic refund fee payer key is not configured in the prover process.");
+    return { publicKey: autoRefundPublicKey(autoRefundFeePayerPrivateKey) };
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
+
+app.post("/internal/prover/auto-refund", async (request, reply) => {
+  try {
+    if (!autoRefundFeePayerPrivateKey) throw new Error("Automatic refund fee payer key is not configured in the prover process.");
+    const body = asBody(request.body);
+    return await createAutoRefundJob((body.input ?? {}) as never, autoRefundFeePayerPrivateKey);
+  } catch (error) {
+    return reply.code(400).send({ error: (error as Error).message });
+  }
+});
 
 app.post("/internal/prover/jobs", async (request, reply) => {
   try {

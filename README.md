@@ -15,10 +15,13 @@ The first implementation uses a commit-reveal flow:
 9. A join transaction is indexed as `join_pending` until it is marked included, which prevents competing local joins.
 10. The app rejects reused transaction hashes, treats corrupt settlements as invalid, and only counts trusted settled games in the leaderboard.
 11. A player with 5 games waiting for their action on the selected network cannot create another challenge on that network until they unblock earlier games.
-12. Admins can mark a locally corrupted game as `unrecoverable` when it cannot be finalized.
-13. The leaderboard can be viewed all time or by calendar month, week, or day, with previous/next navigation for dated ranges.
-14. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
-15. The UI supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish.
+12. Expired games can be refunded manually, or by an optional backend auto-refund worker that pays fees from a configured fee-payer wallet.
+13. Admins can mark a locally corrupted game as `unrecoverable` when it cannot be finalized.
+14. The leaderboard can be viewed all time or by calendar month, week, or day, with previous/next navigation for dated ranges.
+15. The admin leaderboard view includes recent connection diagnostics. IP addresses are encrypted at rest and only returned to the configured admin wallet.
+16. Referral invite links can prefill a referral code and prompt the invited user to accept before applying it.
+17. The web app is installable as a PWA and can subscribe to Firebase push notifications for active games.
+18. The UI supports English, French, Chinese, Turkish, Russian, German, Japanese, and Spanish.
 
 ## Screenshots
 
@@ -56,6 +59,10 @@ See `INSTALL.md` for deployment, `.env.local`, wallet, network, refund timeout, 
 See `TECH.md` for the current technical architecture. This version uses one zkApp account per game, so it does not require a global contract address. Use a fresh SQLite database when switching from the old global-root prototype.
 
 Proof generation defaults to the existing browser/client flow. An experimental isolated server prover mode can be enabled with `VITE_PROVER_MODE=server`; see `INSTALL.md`, `INSTALL_DOCKER.md`, and `TECH.md` before using it because it changes the privacy model by sending proving inputs to the API/prover service. Docker examples are provided in `.env.production.example` and `docker-compose.prod.example.yml`.
+
+Automatic refunds are optional and disabled by default. They require `ZKROLL_AUTO_REFUND_ENABLED=true` and a funded fee-payer private key in the API process, or in the isolated prover process when `ZKROLL_PROVER_URL` is used. The worker only refunds games whose on-chain refund deadline is reached; it does not add any admin cancel authority to the contract.
+
+Admin-only connection diagnostics track IP addresses on player upsert, referral application, game creation, and game join. Values are encrypted in SQLite and exposed only through the admin leaderboard panel. Optional IP geolocation is disabled by default because it performs external lookups.
 
 The current implementation has been tested on Mina Devnet and Zeko Testnet. Zeko uses the public `https://testnet.zeko.io/graphql` endpoint, but it does not expose every Mina GraphQL field used by Devnet/Mainnet, so the API has dedicated Zeko transaction-status handling. Zeko refund deadlines use a Mina L1 slot source, defaulting to Devnet, configurable with `ZKROLL_ZEKO_SLOT_SOURCE_NETWORK`.
 

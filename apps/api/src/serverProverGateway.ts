@@ -11,15 +11,17 @@ type RemoteJob = {
 
 const proverUrl = process.env.ZKROLL_PROVER_URL?.replace(/\/+$/, "") || null;
 const proverRequestTimeoutMs = Number(process.env.ZKROLL_PROVER_REQUEST_TIMEOUT_MS ?? 30_000);
+const autoRefundRequestTimeoutMs = Number(process.env.ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS ?? 900_000);
 
 function localProver() {
   return import("./serverProver.js");
 }
 
-async function remoteRequest<T>(path: string, init?: RequestInit, options: { notFound?: T } = {}): Promise<T> {
+async function remoteRequest<T>(path: string, init?: RequestInit, options: { notFound?: T; timeoutMs?: number } = {}): Promise<T> {
   if (!proverUrl) throw new Error("Remote prover URL is not configured.");
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), proverRequestTimeoutMs);
+  const timeoutMs = options.timeoutMs ?? proverRequestTimeoutMs;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${proverUrl}${path}`, {
       ...init,
@@ -37,7 +39,7 @@ async function remoteRequest<T>(path: string, init?: RequestInit, options: { not
     return payload as T;
   } catch (error) {
     if ((error as Error).name === "AbortError") {
-      throw new Error(`Remote prover request timed out after ${proverRequestTimeoutMs}ms.`);
+      throw new Error(`Remote prover request timed out after ${timeoutMs}ms.`);
     }
     throw error;
   } finally {
@@ -100,4 +102,21 @@ export async function clearServerProverCache() {
     body: "{}"
   });
   return (await localProver()).clearServerProverCache();
+}
+
+export async function autoRefundPublicKey(feePayerPrivateKey?: string) {
+  if (proverUrl) return (await remoteRequest<{ publicKey: string }>("/internal/prover/auto-refund/public-key")).publicKey;
+  if (!feePayerPrivateKey) throw new Error("Missing automatic refund fee payer private key.");
+  return (await localProver()).autoRefundPublicKey(feePayerPrivateKey);
+}
+
+export async function createAutoRefundJob(input: unknown, feePayerPrivateKey?: string) {
+  if (proverUrl) {
+    return remoteRequest<{ txHash: string; memo: string }>("/internal/prover/auto-refund", {
+      method: "POST",
+      body: JSON.stringify({ input })
+    }, { timeoutMs: autoRefundRequestTimeoutMs });
+  }
+  if (!feePayerPrivateKey) throw new Error("Missing automatic refund fee payer private key.");
+  return (await localProver()).createAutoRefundJob(input as never, feePayerPrivateKey);
 }

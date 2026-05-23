@@ -26,6 +26,8 @@ SQLite is an indexer and UX cache. It stores:
 - wallet public key to pseudo mappings;
 - games and their local workflow status;
 - transaction hashes and cached transaction statuses;
+- referral codes and accepted referrer links;
+- encrypted recent-connection diagnostics for admin-only review;
 - reveal data needed by the UI flow.
 - non-secret join recovery material in API logs when a join is submitted.
 
@@ -46,6 +48,35 @@ The API also enforces workflow guardrails around this local mirror:
 - create-game requests are rejected when `refundTimeoutSlots` is greater than `2400`;
 - create-game requests are rejected when the creator already has 5 games waiting for their action on the requested network;
 - admin-only unrecoverable marking requires `ZKROLL_ADMIN_PUBLIC_KEY`.
+
+## Referrals
+
+Every player receives a referral code. The wallet page displays both the raw code and an HTTPS invite link containing `ref` and `referrer` query parameters. When a user opens an invite link, the web app asks whether to accept the invitation before applying it. If a wallet is already connected and has no referrer, accepting applies the referrer immediately; otherwise the app prompts wallet connection and applies the pending invite after the player profile is available. The prompt is skipped when the connected wallet already has a referral.
+
+Referral links are URL-encoded, so pseudos with spaces or special characters can be used safely in the display prompt.
+
+## Admin Diagnostics
+
+The configured admin wallet (`ZKROLL_ADMIN_PUBLIC_KEY` / `VITE_ADMIN_PUBLIC_KEY`) unlocks additional operational tools:
+
+- clearing a player's referral from the Settings page;
+- marking unrecoverable games from the game detail page;
+- clearing the isolated server-prover cache in server-prover deployments;
+- a leaderboard sub-tab for recent connections.
+
+Recent connection diagnostics are recorded on player upsert, referral application, game creation, and game join. The raw IP address is encrypted with AES-GCM before it is stored in SQLite, while a keyed hash is kept for deduplication. The API only returns decrypted values from `/admin/player-signals` when the request includes the configured admin wallet public key. The leaderboard admin tab shows one row per ranked player, a searchable user facet filter, an IP substring/wildcard filter, and a compact table of recent addresses sorted by last connection.
+
+The encryption key is derived from `ZKROLL_SIGNAL_SECRET`, falling back to `ZKROLL_ADMIN_PUBLIC_KEY`, then to a local development default. Set `ZKROLL_SIGNAL_SECRET` in production before collecting long-lived diagnostics. If the secret changes, previously stored encrypted IP values cannot be decrypted.
+
+Optional IP geolocation can enrich new records with country and approximate latitude/longitude:
+
+```env
+ZKROLL_SIGNAL_LOOKUP_ENABLED=false
+ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS=1200
+ZKROLL_SIGNAL_LOOKUP_URL=https://ipwho.is/{signal}
+```
+
+This lookup is disabled by default. When enabled, it is best-effort, skipped for local/private addresses, cached, and launched outside the immediate API response path so game actions do not wait on an external service.
 
 ## On-Chain State
 
@@ -78,6 +109,26 @@ Because manual hash recovery is operator-sensitive, the UI and API treat malform
 The `unrecoverable` status is a terminal local/admin status for games that cannot be finalized. It is not an on-chain status and should be used only after operator inspection.
 
 The leaderboard groups by wallet public key and only uses pseudo as display metadata. The displayed pseudo is hydrated from the latest `players` row when available, so historical pseudo changes do not split or rename scores incorrectly. Only final trusted `settled` games and included `refunded` games are counted; period filters use `settledAt` / `refundedAt`, not `updatedAt`. Refunded games count as played but do not credit a win. Unique opponents are counted by distinct opposing wallet public keys within the selected range. Rows are ranked by a transparent score: `wins * 10 + sqrt(games) * 3 + uniqueOpponents * 5`, plus `(wins / games) * 20` only when `games >= 5`, minus `min(openGamesOnSelectedNetwork, 10) * 4`; ties fall back to wins, unique opponents, fewer open games, games played, MINA won, then pseudo. The UI can filter leaderboard rows by all time or navigable calendar month, week, and day windows.
+
+## Automatic Refund Worker
+
+The contracts already allow anyone to submit a refund transaction after the recorded `refundDeadlineSlot`; no player signature is required for `refundCreatedGame` or `refundJoinedGame` after the deadline. zkroll can therefore run an optional backend worker that refunds expired games without modifying the contracts.
+
+Configuration:
+
+```env
+ZKROLL_AUTO_REFUND_ENABLED=false
+ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
+ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
+ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
+```
+
+The worker scans active games, checks the current slot, skips games with pending settlement/refund transactions, and only submits candidates whose create transaction is included. Joined-game refunds also require a trusted included join plus complete `joinerPseudoHash` and `joinerCommitment` data.
+
+When `ZKROLL_PROVER_URL` is not set, the API process proves, signs, and sends the auto-refund transaction, so the fee-payer private key must be configured on the API. When an isolated prover is used, the API calls internal prover endpoints and the fee-payer private key must be configured only on the prover process. This keeps the key out of the public API process.
+
+Auto-refund does not give the admin a new on-chain cancel power. It only automates the same post-deadline refund path that the contract already exposes.
 
 ## Zeko Testnet
 

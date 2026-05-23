@@ -103,6 +103,8 @@ type RefundInput = {
   refundDeadlineSlot: string;
 };
 
+type AutoRefundInput = RefundInput;
+
 type CancelInput = {
   network: NetworkId;
   senderPublicKey: string;
@@ -116,6 +118,8 @@ type CancelInput = {
 
 const jobs = new Map<string, ProverJob>();
 const queue: ProverJob[] = [];
+const autoRefundKeys = new Map<string, string>();
+const autoRefundWaiters = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 let running = 0;
 const compilePromises = new Map<NetworkId, Promise<{ verificationKey: VerificationKey }>>();
 const verificationKeys = new Map<NetworkId, VerificationKey>();
@@ -194,6 +198,19 @@ function redactInput(type: string, input: unknown) {
       "refundDeadlineSlot"
     ],
     refund: [
+      "network",
+      "senderPublicKey",
+      "status",
+      "gameIdField",
+      "zkappAddress",
+      "creatorPseudoHash",
+      "joinerPseudoHash",
+      "payoutMode",
+      "creatorCommitment",
+      "joinerCommitment",
+      "refundDeadlineSlot"
+    ],
+    autoRefund: [
       "network",
       "senderPublicKey",
       "status",
@@ -448,6 +465,50 @@ async function proveRefund(job: ProverJob, input: RefundInput) {
   return txResult(tx.toJSON(), memo);
 }
 
+async function proveAutoRefund(job: ProverJob, input: AutoRefundInput) {
+  const feePayerKeyValue = autoRefundKeys.get(job.id);
+  if (!feePayerKeyValue) throw new Error("Missing auto refund fee payer key.");
+  await setup(job, input.network);
+  const feePayerKey = PrivateKey.fromBase58(feePayerKeyValue);
+  const sender = feePayerKey.toPublicKey();
+  if (sender.toBase58() !== input.senderPublicKey) {
+    throw new Error("Auto refund fee payer key does not match senderPublicKey.");
+  }
+  const contract = new NativeZkDiceGame(PublicKey.fromBase58(input.zkappAddress));
+  const payoutMode = payoutModeField(input.payoutMode);
+
+  const memo = compactGameMemo("auto-refund", input.gameIdField);
+  const tx = await buildTransaction(job, input.network, memo, sender, async () => {
+    if (input.status === "created") {
+      await contract.refundCreatedGame(
+        Field(input.creatorPseudoHash),
+        Field(input.creatorCommitment),
+        payoutMode,
+        UInt32.from(input.refundDeadlineSlot)
+      );
+      return;
+    }
+    if (!input.joinerPseudoHash || !input.joinerCommitment) throw new Error("Incomplete joined game refund input.");
+    await contract.refundJoinedGame(
+      Field(input.creatorPseudoHash),
+      Field(input.joinerPseudoHash),
+      Field(input.creatorCommitment),
+      Field(input.joinerCommitment),
+      payoutMode,
+      UInt32.from(input.refundDeadlineSlot)
+    );
+  });
+
+  await proveTransaction(job, input.network, tx);
+  tx.sign([feePayerKey]);
+  const pending = await tx.send();
+  setProgress(job, "progressProofGenerated", 82);
+  return {
+    txHash: pending.hash,
+    memo
+  };
+}
+
 async function proveCancel(job: ProverJob, input: CancelInput) {
   await setup(job, input.network);
   const sender = PublicKey.fromBase58(input.senderPublicKey);
@@ -478,6 +539,7 @@ async function runJob(job: ProverJob) {
     else if (job.type === "join") job.result = await proveJoin(job, job.input as JoinInput);
     else if (job.type === "settle") job.result = await proveSettle(job, job.input as SettleInput);
     else if (job.type === "refund") job.result = await proveRefund(job, job.input as RefundInput);
+    else if (job.type === "autoRefund") job.result = await proveAutoRefund(job, job.input as AutoRefundInput);
     else if (job.type === "cancel") job.result = await proveCancel(job, job.input as CancelInput);
     else throw new Error(`Unsupported prover job type: ${job.type}`);
     job.status = "done";
@@ -497,6 +559,13 @@ async function runJob(job: ProverJob) {
       stack: (error as Error).stack
     });
   } finally {
+    const waiter = autoRefundWaiters.get(job.id);
+    if (waiter) {
+      if (job.status === "done") waiter.resolve(job.result);
+      else waiter.reject(new Error(job.error ?? "Auto refund failed"));
+      autoRefundWaiters.delete(job.id);
+    }
+    autoRefundKeys.delete(job.id);
     running -= 1;
     runNext();
   }
@@ -511,6 +580,11 @@ function runNext() {
 }
 
 export function createProverJob(type: string, input: unknown) {
+  const job = enqueueProverJob(type, input);
+  return serializeJob(job);
+}
+
+function enqueueProverJob(type: string, input: unknown, options: { start?: boolean } = {}) {
   const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   const createdAt = now();
   const job: ProverJob = {
@@ -533,8 +607,24 @@ export function createProverJob(type: string, input: unknown) {
     running,
     input: redactInput(job.type, job.input)
   });
-  runNext();
-  return serializeJob(job);
+  if (options.start !== false) runNext();
+  return job;
+}
+
+export function autoRefundPublicKey(feePayerPrivateKey: string) {
+  return PrivateKey.fromBase58(feePayerPrivateKey).toPublicKey().toBase58();
+}
+
+export function createAutoRefundJob(input: AutoRefundInput, feePayerPrivateKey: string) {
+  const job = enqueueProverJob("autoRefund", input, { start: false });
+  autoRefundKeys.set(job.id, feePayerPrivateKey);
+  return new Promise<{ txHash: string; memo: string }>((resolve, reject) => {
+    autoRefundWaiters.set(job.id, {
+      resolve: (value) => resolve(value as { txHash: string; memo: string }),
+      reject
+    });
+    runNext();
+  });
 }
 
 export function getProverJob(id: string) {

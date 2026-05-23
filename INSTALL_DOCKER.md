@@ -107,6 +107,15 @@ ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_MODE=client
 ZKROLL_PROVER_DEBUG=false
 ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true
+ZKROLL_AUTO_REFUND_ENABLED=false
+ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
+ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
+ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
+ZKROLL_SIGNAL_SECRET=
+ZKROLL_SIGNAL_LOOKUP_ENABLED=false
+ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS=1200
+ZKROLL_SIGNAL_LOOKUP_URL=https://ipwho.is/{signal}
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -147,6 +156,10 @@ Important:
 - Set `ZKROLL_PROVER_DEBUG=true` temporarily to emit structured server-prover diagnostics. The logs include job lifecycle, selected network, backend, compile-cache keys, verification key hash, and non-secret proving inputs. They omit game secrets and zkApp private keys.
 - Keep `ZKROLL_PROVER_WORKERS=1`. Native o1js transaction construction is not reentrant inside one Node process; concurrent jobs can leave the process stuck with `Cannot start new transaction within another transaction`.
 - Keep `ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true` in isolated Docker deployments. After an admin cache clear succeeds, the prover process exits and Docker restarts the `prover` container automatically via `restart: unless-stopped`.
+- `ZKROLL_AUTO_REFUND_ENABLED=true` starts an optional worker that automatically submits refund transactions for expired games. It only uses the existing post-deadline contract refund methods; it does not allow admin cancellation before the deadline.
+- When `ZKROLL_PROVER_URL=http://prover:4001` is used, set `ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY` on the `prover` service, not on the public API service. The example compose file does this. The key must belong to a funded account that pays auto-refund transaction fees.
+- `ZKROLL_SIGNAL_SECRET` encrypts admin-only recent-connection diagnostics in SQLite. Set it before production use. `ZKROLL_SIGNAL_LOOKUP_ENABLED` is disabled by default; enabling it performs best-effort external IP geolocation outside the game-action response path.
+- The provided nginx config forwards `X-Real-IP` and `X-Forwarded-For`; the API uses those headers for recent-connection diagnostics before falling back to the socket IP.
 
 Server prover cache diagnostics:
 
@@ -722,6 +735,15 @@ ZKROLL_PROVER_DEBUG=false
 ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true
 ZKROLL_PROVER_WORKERS=1
 ZKROLL_PROVER_FEE_NANOMINA=100000000
+ZKROLL_AUTO_REFUND_ENABLED=false
+ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
+ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
+ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
+ZKROLL_SIGNAL_SECRET=
+ZKROLL_SIGNAL_LOOKUP_ENABLED=false
+ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS=1200
+ZKROLL_SIGNAL_LOOKUP_URL=https://ipwho.is/{signal}
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -761,6 +783,10 @@ Important :
 - Active temporairement `ZKROLL_PROVER_DEBUG=true` pour emettre des diagnostics structures du prover serveur. Les logs incluent cycle de vie du job, reseau selectionne, backend, cles du cache compile, hash de verification key et inputs non secrets. Ils omettent les secrets de jeu et les cles privees zkApp.
 - Garde `ZKROLL_PROVER_WORKERS=1`. La construction de transaction o1js native n'est pas reentrante dans un meme process Node ; des jobs concurrents peuvent bloquer le process avec `Cannot start new transaction within another transaction`.
 - Garde `ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true` dans les deploiements Docker isoles. Apres une purge admin reussie, le process prover s'arrete et Docker relance automatiquement le container `prover` via `restart: unless-stopped`.
+- `ZKROLL_AUTO_REFUND_ENABLED=true` lance un worker optionnel qui soumet automatiquement les transactions de refund pour les parties expirees. Il utilise uniquement les methodes de refund post-deadline deja presentes dans le contrat ; il ne permet pas d'annulation admin avant deadline.
+- Quand `ZKROLL_PROVER_URL=http://prover:4001` est utilise, configure `ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY` sur le service `prover`, pas sur le service API public. Le compose d'exemple fait cela. La cle doit correspondre a un compte finance qui paie les frais des auto-refunds.
+- `ZKROLL_SIGNAL_SECRET` chiffre les diagnostics admin de connexions recentes en SQLite. Configure-le avant la production. `ZKROLL_SIGNAL_LOOKUP_ENABLED` est desactive par defaut ; l'activer effectue une geolocalisation IP externe best-effort hors du chemin de reponse des actions de jeu.
+- La configuration nginx fournie transmet `X-Real-IP` et `X-Forwarded-For` ; l'API utilise ces headers pour les diagnostics de connexions recentes avant de revenir a l'IP socket.
 
 Diagnostic cache prover serveur :
 
@@ -1138,6 +1164,10 @@ services:
       ZKROLL_PROVER_MODE: ${ZKROLL_PROVER_MODE}
       ZKROLL_PROVER_URL: ${ZKROLL_PROVER_URL}
       ZKROLL_PROVER_REQUEST_TIMEOUT_MS: ${ZKROLL_PROVER_REQUEST_TIMEOUT_MS}
+      ZKROLL_AUTO_REFUND_ENABLED: ${ZKROLL_AUTO_REFUND_ENABLED}
+      ZKROLL_AUTO_REFUND_INTERVAL_MS: ${ZKROLL_AUTO_REFUND_INTERVAL_MS}
+      ZKROLL_AUTO_REFUND_BATCH_SIZE: ${ZKROLL_AUTO_REFUND_BATCH_SIZE}
+      ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS: ${ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS}
     depends_on:
       - prover
 
@@ -1155,6 +1185,7 @@ services:
       ZKROLL_PROVER_FEE_NANOMINA: ${ZKROLL_PROVER_FEE_NANOMINA}
       ZKROLL_PROVER_DEBUG: ${ZKROLL_PROVER_DEBUG}
       ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR: ${ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR}
+      ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY: ${ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY}
       VITE_FEE_NANOMINA: ${VITE_FEE_NANOMINA}
     expose:
       - "4001"
@@ -1166,6 +1197,8 @@ Dans `.env.production` :
 ZKROLL_PROVER_MODE=server
 ZKROLL_PROVER_URL=http://prover:4001
 ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
+ZKROLL_AUTO_REFUND_ENABLED=false
+ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
 VITE_PROVER_MODE=server
 ```
 

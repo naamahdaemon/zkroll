@@ -148,6 +148,15 @@ ZKROLL_PROVER_WORKERS=1
 ZKROLL_PROVER_FEE_NANOMINA=100000000
 ZKROLL_PROVER_DEBUG=false
 ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true
+ZKROLL_AUTO_REFUND_ENABLED=false
+ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
+ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
+ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
+ZKROLL_SIGNAL_SECRET=
+ZKROLL_SIGNAL_LOOKUP_ENABLED=false
+ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS=1200
+ZKROLL_SIGNAL_LOOKUP_URL=https://ipwho.is/{signal}
 ZKROLL_ADMIN_PUBLIC_KEY=
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -173,6 +182,15 @@ $env:ZKROLL_PROVER_WORKERS="1"
 $env:ZKROLL_PROVER_FEE_NANOMINA="100000000"
 $env:ZKROLL_PROVER_DEBUG="false"
 $env:ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR="true"
+$env:ZKROLL_AUTO_REFUND_ENABLED="false"
+$env:ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=""
+$env:ZKROLL_AUTO_REFUND_INTERVAL_MS="120000"
+$env:ZKROLL_AUTO_REFUND_BATCH_SIZE="1"
+$env:ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS="900000"
+$env:ZKROLL_SIGNAL_SECRET=""
+$env:ZKROLL_SIGNAL_LOOKUP_ENABLED="false"
+$env:ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS="1200"
+$env:ZKROLL_SIGNAL_LOOKUP_URL="https://ipwho.is/{signal}"
 $env:ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
@@ -194,6 +212,15 @@ export ZKROLL_PROVER_WORKERS="1"
 export ZKROLL_PROVER_FEE_NANOMINA="100000000"
 export ZKROLL_PROVER_DEBUG="false"
 export ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR="true"
+export ZKROLL_AUTO_REFUND_ENABLED="false"
+export ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=""
+export ZKROLL_AUTO_REFUND_INTERVAL_MS="120000"
+export ZKROLL_AUTO_REFUND_BATCH_SIZE="1"
+export ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS="900000"
+export ZKROLL_SIGNAL_SECRET=""
+export ZKROLL_SIGNAL_LOOKUP_ENABLED="false"
+export ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS="1200"
+export ZKROLL_SIGNAL_LOOKUP_URL="https://ipwho.is/{signal}"
 export ZKROLL_ADMIN_PUBLIC_KEY=""
 npm run dev:api
 ```
@@ -241,6 +268,14 @@ ZKROLL_PROVER_MODE=server ZKROLL_PROVER_URL=http://127.0.0.1:4001 npm run dev:ap
 `ZKROLL_PROVER_RESTART_ON_CACHE_CLEAR=true` makes the isolated prover process exit after a successful admin cache clear. With Docker `restart: unless-stopped`, Docker starts the `prover` container again automatically. This is intentionally only done by the isolated prover process; the API does not restart itself.
 
 `ZKROLL_ADMIN_PUBLIC_KEY` controls access to server-prover admin maintenance actions, including clearing the o1js native cache. In isolated mode the API authenticates the admin wallet and forwards the clear-cache request to the prover service. Set it to the same wallet public key as `VITE_ADMIN_PUBLIC_KEY`. If omitted, the API defaults to the project owner's current admin key.
+
+`ZKROLL_AUTO_REFUND_ENABLED=true` starts an optional worker that scans active games and submits on-chain refund transactions once `currentSlot >= refundDeadlineSlot`. It does not modify the contract or allow pre-deadline admin cancellation. It only automates the public post-deadline refund methods already available on the game zkApp.
+
+`ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY` must be a funded fee-payer key. If `ZKROLL_PROVER_URL` is unset, set the key in the API process. If `ZKROLL_PROVER_URL` points to an isolated prover, set the key only in the prover process; the API asks the prover to sign/send the refund through internal endpoints. `ZKROLL_AUTO_REFUND_INTERVAL_MS` controls scan frequency, `ZKROLL_AUTO_REFUND_BATCH_SIZE` limits how many games are refunded per scan, and `ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS` bounds the long API-to-prover request for automatic refunds.
+
+`ZKROLL_SIGNAL_SECRET` is used to encrypt admin-only recent-connection diagnostics in SQLite. Set it before collecting production data; changing it later prevents decrypting older entries. The API records IP diagnostics on player upsert, referral application, game creation, and game join. Values are only returned to the configured admin wallet through the leaderboard admin tab.
+
+`ZKROLL_SIGNAL_LOOKUP_ENABLED=true` optionally enriches new IP diagnostics with country and approximate latitude/longitude through `ZKROLL_SIGNAL_LOOKUP_URL`. It is disabled by default because it calls an external service. When enabled, lookups are best-effort, cached, skipped for private/local IPs, and run outside the immediate API response path.
 
 ## 7. Configure The Web App
 
@@ -313,6 +348,8 @@ The web app is installable as a PWA. Firebase push notifications require all `VI
 
 `VITE_ADMIN_PUBLIC_KEY` shows server-prover admin tools in Settings when `VITE_PROVER_MODE=server` and the connected wallet matches this key. The current admin tool clears the API's o1js native cache and resets in-memory compiled prover state. It refuses to run while a server prover job is active.
 
+The same admin key also unlocks local admin tools such as clearing a player's referral, marking unrecoverable games, and the leaderboard's recent-connections tab. Recent connections include a user facet search, IP wildcard filtering, compact last-connection timestamps, and optional geolocation columns when the backend has enriched the record.
+
 `VITE_SERVER_PROVER_POLL_MS` controls how often the browser polls the API while waiting for a server prover job.
 
 `VITE_TX_POLL_INTERVAL_MS` controls how often the UI checks transaction status for visible or active games. `VITE_SLOT_POLL_INTERVAL_MS` controls how often it refreshes the current network slot used to unlock refund buttons. For faster Devnet testing you can lower them, for example `15000` and `30000`.
@@ -375,6 +412,8 @@ If a challenge gets stuck:
 - the wallet that clicks `Refund` pays the transaction fee;
 - the contract rejects refund transactions before the deadline slot.
 
+When `ZKROLL_AUTO_REFUND_ENABLED=true`, the backend can submit these same post-deadline refunds automatically with a configured fee-payer wallet. It does not bypass the deadline, and it does not add any admin cancel authority to the contract.
+
 The UI blocks new challenge creation when the connected wallet already has 5 games waiting for its action on the selected network, for example pending signature recovery, join confirmation/release, a missing reveal, a pending settlement/refund, or an available cancel/refund/settlement action. The API enforces the same per-network limit, so bypassing the web form cannot create more blocked games on that network.
 
 ## 10. How Sync Status Works
@@ -412,6 +451,10 @@ If the join transaction fails, use `Release join` to return the game to `created
 `unrecoverable` games are admin-only local cleanup records for games that cannot be finalized, for example because the original transaction hash or join material is impossible to reconstruct. The action is visible in the game detail only to `VITE_ADMIN_PUBLIC_KEY`; the API also checks `ZKROLL_ADMIN_PUBLIC_KEY`.
 
 The leaderboard is aggregated by wallet public key, not by pseudo. It displays the latest pseudo known in the `players` table and only counts final games: trusted `settled` games and included `refunded` games. Period filters use `settledAt` / `refundedAt`, not `updatedAt`, so manual status syncs do not move old games into daily, weekly, or monthly rankings. Refunds count as games played but do not credit a win. Each row also shows a transparent score: `wins * 10 + sqrt(games) * 3 + uniqueOpponents * 5`, plus a `(wins / games) * 20` win-rate bonus only after 5 games, minus `min(openGamesOnSelectedNetwork, 10) * 4`. This rewards wins first, adds slow activity progression, makes repeated play against a single opponent less exploitable, and gently penalizes leaving games unfinished on the selected network. The UI supports all-time plus calendar monthly, weekly, and daily views with previous/next range navigation and 4 rows per page.
+
+The admin leaderboard tab adds `Recent connections`. It reuses the selected leaderboard period, lets the admin search users and add them as removable filter facets, supports partial/wildcard IP filtering, and displays recent addresses in a compact table sorted by last connection. IP values are encrypted at rest and are only exposed to the configured admin wallet.
+
+The Wallet page includes a referral block with the player's referral code and invite link. Opening an invite link prompts the visitor to accept or decline before applying the referrer; if no wallet is connected, accepting starts the wallet connection flow and applies the invite after the player profile is available.
 
 ## 11. ZK Compilation UX
 
@@ -607,6 +650,19 @@ ZKROLL_CURRENT_SLOT_CACHE_MS=60000
 ZKROLL_ZKAPP_STATE_CACHE_MS=60000
 ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
+ZKROLL_PROVER_MODE=client
+ZKROLL_PROVER_URL=
+ZKROLL_PROVER_REQUEST_TIMEOUT_MS=30000
+ZKROLL_AUTO_REFUND_ENABLED=false
+ZKROLL_AUTO_REFUND_FEE_PAYER_PRIVATE_KEY=
+ZKROLL_AUTO_REFUND_INTERVAL_MS=120000
+ZKROLL_AUTO_REFUND_BATCH_SIZE=1
+ZKROLL_AUTO_REFUND_REQUEST_TIMEOUT_MS=900000
+ZKROLL_SIGNAL_SECRET=
+ZKROLL_SIGNAL_LOOKUP_ENABLED=false
+ZKROLL_SIGNAL_LOOKUP_TIMEOUT_MS=1200
+ZKROLL_SIGNAL_LOOKUP_URL=https://ipwho.is/{signal}
+ZKROLL_ADMIN_PUBLIC_KEY=
 ```
 
 Web:
@@ -620,6 +676,8 @@ VITE_REFUND_TIMEOUT_SLOTS=120
 VITE_MIN_JOIN_DEADLINE_MARGIN_SLOTS=20
 VITE_ZEKO_MIN_JOIN_DEADLINE_MARGIN_SLOTS=30
 VITE_O1JS_BROWSER_CACHE_ENABLED=true
+VITE_PROVER_MODE=client
+VITE_ADMIN_PUBLIC_KEY=
 VITE_TX_POLL_INTERVAL_MS=60000
 VITE_SLOT_POLL_INTERVAL_MS=60000
 VITE_WALLETCONNECT_PROJECT_ID=
@@ -656,6 +714,9 @@ Environment=ZKROLL_CURRENT_SLOT_CACHE_MS=15000
 Environment=ZKROLL_ZKAPP_STATE_CACHE_MS=15000
 Environment=ZKROLL_TX_STATUS_SCAN_BLOCKS=50
 Environment=ZKROLL_CHAIN_REQUEST_TIMEOUT_MS=20000
+Environment=ZKROLL_AUTO_REFUND_ENABLED=false
+Environment=ZKROLL_SIGNAL_SECRET=
+Environment=ZKROLL_ADMIN_PUBLIC_KEY=
 
 [Install]
 WantedBy=multi-user.target
