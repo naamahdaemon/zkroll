@@ -81,6 +81,7 @@ const app = Fastify({
 
 const chainRequestTimeoutMs = Number(process.env.ZKROLL_CHAIN_REQUEST_TIMEOUT_MS ?? 20_000);
 const currentSlotCacheMs = Number(process.env.ZKROLL_CURRENT_SLOT_CACHE_MS ?? 15_000);
+const currentSlotRetryCount = Math.max(0, Number(process.env.ZKROLL_CURRENT_SLOT_RETRIES ?? 3));
 const zkappStateCacheMs = Number(process.env.ZKROLL_ZKAPP_STATE_CACHE_MS ?? 15_000);
 const txScanBlockCount = Number(process.env.ZKROLL_TX_STATUS_SCAN_BLOCKS ?? 50);
 const zekoSlotSourceNetwork = process.env.ZKROLL_ZEKO_SLOT_SOURCE_NETWORK === "mainnet" ? "mainnet" : "devnet";
@@ -280,6 +281,10 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 async function currentSlotFor(network: NetworkId, options: { refresh?: boolean } = {}) {
   const sourceNetwork = network === "zeko" ? zekoSlotSourceNetwork : network;
   if (options.refresh) {
@@ -314,15 +319,38 @@ async function minaCurrentSlotFor(sourceNetwork: NetworkId, requestedNetwork: Ne
     requestedNetwork,
     sourceNetwork,
     endpoint,
-    timeoutMs: chainRequestTimeoutMs
+    timeoutMs: chainRequestTimeoutMs,
+    maxRetries: currentSlotRetryCount
   };
   app.log.info(context, "current-slot external fetch start");
-  try {
-    const latest = await withTimeout(fetchLastBlock(endpoint), chainRequestTimeoutMs, `${sourceNetwork} latest block fetch`);
-    const currentSlot = latest.globalSlotSinceGenesis.toString();
-    app.log.info({ ...context, elapsedMs: Date.now() - startedAt, currentSlot }, "current-slot external fetch done");
-    return currentSlot;
-  } catch (error) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= currentSlotRetryCount + 1; attempt += 1) {
+    const attemptStartedAt = Date.now();
+    try {
+      const latest = await withTimeout(fetchLastBlock(endpoint), chainRequestTimeoutMs, `${sourceNetwork} latest block fetch`);
+      const currentSlot = latest.globalSlotSinceGenesis.toString();
+      app.log.info({ ...context, attempt, elapsedMs: Date.now() - startedAt, currentSlot }, "current-slot external fetch done");
+      return currentSlot;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const timedOut = message.includes("timed out after");
+      if (!timedOut || attempt > currentSlotRetryCount) break;
+      app.log.warn(
+        {
+          ...context,
+          attempt,
+          elapsedMs: Date.now() - attemptStartedAt,
+          timedOut,
+          error: message
+        },
+        "current-slot external fetch retrying after timeout"
+      );
+      await wait(Math.min(1000, attempt * 250));
+    }
+  }
+  {
+    const error = lastError;
     const message = error instanceof Error ? error.message : String(error);
     app.log.warn(
       {

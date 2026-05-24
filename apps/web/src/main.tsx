@@ -2455,7 +2455,9 @@ function App() {
   }
 
   async function refreshMessagesFor(game: Game | null) {
-    if (!game || !publicKey || (publicKey !== game.creatorPublicKey && publicKey !== game.joinerPublicKey)) return;
+    if (!game || !publicKey) return;
+    const canViewMessages = publicKey === adminPublicKey || publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey;
+    if (!canViewMessages) return;
     const result = await listGameMessages(game.id, publicKey);
     setGameMessages((current) => ({ ...current, [game.id]: result.items }));
     await markGameMessagesRead(game.id, publicKey);
@@ -5700,7 +5702,10 @@ function App() {
             {selectedGame && (gameMessages[selectedGame.id] ?? []).length > 0 ? (
               (gameMessages[selectedGame.id] ?? []).map((item) => (
                 <div className={item.senderPublicKey === publicKey ? "playerMessage mine" : "playerMessage"} key={item.id}>
-                  <strong>{playerLabelForMessage(selectedGame, item)}</strong>
+                  <strong>
+                    {playerLabelForMessage(selectedGame, item)}
+                    {item.senderPublicKey === adminPublicKey && <span className="adminMessageBadge">ADMIN</span>}
+                  </strong>
                   <p>{item.body}</p>
                   <span>{formatDateTime(item.createdAt, locale)}</span>
                 </div>

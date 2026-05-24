@@ -859,6 +859,23 @@ select {
   font-size: 11px;
 }
 
+.playerMessage strong {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.adminMessageBadge {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 72%, var(--border));
+  border-radius: 999px;
+  color: var(--primary);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
 .messageReplyActions {
   display: flex;
   flex-wrap: wrap;
