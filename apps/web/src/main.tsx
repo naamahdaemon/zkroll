@@ -515,7 +515,7 @@ const copy: Record<string, Record<string, string>> = {
     pasteJoinRefundDeadlineSlot: "Paste the refund deadline slot used by the join transaction. Leave empty to use the suggested value.",
     invalidJoinRecovery: "Join recovery requires the joiner wallet, pseudo, local secret, and on-chain game metadata.",
     joinHashSaved: "Join hash saved. On-chain sync will be checked.",
-    joinerOnlyHash: "Only the opponent can enter this join hash.",
+    joinerOnlyHash: "Only the opponent or admin can enter this join hash.",
     resignCreationConfirm: "Before re-signing, check Auro or the explorer. If the transaction already exists, paste its hash instead. Re-sign now?",
     creationMaterialMissing: "Local creation material is missing. Paste the transaction hash if it exists, or create a new challenge.",
     creationResigned: "Creation transaction signed again and indexed.",
@@ -845,7 +845,7 @@ const copy: Record<string, Record<string, string>> = {
     pasteJoinRefundDeadlineSlot: "Colle le slot de deadline refund utilise par la transaction de join. Laisse vide pour utiliser la valeur suggeree.",
     invalidJoinRecovery: "La recuperation du join requiert le wallet du joiner, le pseudo, le secret local et les metadonnees on-chain.",
     joinHashSaved: "Hash de join renseigne. La synchronisation on-chain va etre verifiee.",
-    joinerOnlyHash: "Seul l'adversaire peut renseigner ce hash de join.",
+    joinerOnlyHash: "Seul l'adversaire ou l'admin peut renseigner ce hash de join.",
     resignCreationConfirm: "Avant de resigner, verifie Auro ou l'explorateur. Si la transaction existe deja, colle plutot son hash. Resigner maintenant ?",
     creationMaterialMissing: "Les donnees locales de creation sont manquantes. Colle le hash si la transaction existe, ou cree un nouveau defi.",
     creationResigned: "Transaction de creation signee a nouveau et indexee.",
@@ -2633,6 +2633,7 @@ function App() {
   function transactionActions(game: Game, kind: TransactionKind, hash: string | null | undefined, status?: TxStatus) {
     const effectiveStatus = status ?? statusFor(hash);
     const isIncluded = effectiveStatus === "INCLUDED";
+    const isAdmin = publicKey === adminPublicKey;
     const canChangeCreation =
       kind === "creation" &&
       game.creatorPublicKey === publicKey &&
@@ -2640,7 +2641,7 @@ function App() {
       creationStatusFor(game) !== "INCLUDED";
     const canChangeJoin =
       kind === "join" &&
-      ((game.status === "join_pending" && !isReservedInvite(game) && game.joinerPublicKey === publicKey && statusFor(game.joinTxHash) !== "INCLUDED") ||
+      ((game.status === "join_pending" && !isReservedInvite(game) && (game.joinerPublicKey === publicKey || isAdmin) && statusFor(game.joinTxHash) !== "INCLUDED") ||
         canRecoverReleasedJoin(game));
     const canChangeSettlement = kind === "settlement" && (hasPendingSettlement(game) || canSettle(game));
     const canChangeRefund = kind === "refund" && (hasPendingRefund(game) || canCancelOrRefund(game) || canRefund(game));
@@ -4548,10 +4549,11 @@ function App() {
         return;
       }
 
-      if (game.joinerPublicKey !== publicKey) {
+      if (game.joinerPublicKey !== publicKey && publicKey !== adminPublicKey) {
         throw new Error(t("joinerOnlyHash"));
       }
-      const reconciled = await reconcileJoinTx(game.id, joinTxHash);
+      if (!publicKey) throw new Error(t("walletRequired"));
+      const reconciled = await reconcileJoinTx(game.id, joinTxHash, publicKey);
       setSelectedGameId(reconciled.id);
       setMessage(t("joinHashSaved"));
     });
@@ -4797,7 +4799,7 @@ function App() {
           });
           const joinTxHash = requiredTransactionHash(txHash);
           assertGameTransactionHashAvailable(joined, "join", joinTxHash);
-          joined = await reconcileJoinTx(joined.id, joinTxHash);
+          joined = await reconcileJoinTx(joined.id, joinTxHash, publicKey);
         } catch (error) {
           if (!walletSignatureRequested) {
             const released = await failPendingJoin(joined.id, (error as Error).message);
@@ -4807,7 +4809,7 @@ function App() {
         }
       }
 
-      const indexedGame = onchainEnabled ? joined : await confirmJoinGame(joined.id);
+      const indexedGame = onchainEnabled ? joined : await confirmJoinGame(joined.id, publicKey);
       setSelectedGameId(indexedGame.id);
       setMessage(onchainEnabled ? t("joinPendingMessage") : t("joinedMock"));
     });
@@ -4816,7 +4818,8 @@ function App() {
   async function handleConfirmJoin(game: Game) {
     await runAction(async () => {
       if (!canConfirmJoin(game)) throw new Error(t("waitingJoin"));
-      const confirmed = await confirmJoinGame(game.id);
+      if (!publicKey) throw new Error(t("walletRequired"));
+      const confirmed = await confirmJoinGame(game.id, publicKey);
       setSelectedGameId(confirmed.id);
       setMessage(t("joinConfirmed"));
     });
@@ -4916,7 +4919,8 @@ function App() {
         creatorDie,
         joinerDie,
         winnerPublicKey,
-        settlementTxHash: txHash
+        settlementTxHash: txHash,
+        publicKey
       });
       updateGameInState(settled);
       setTxStatuses((current) => ({ ...current, [txHash]: settled.settlementTxStatus ?? "PENDING" }));
@@ -4939,7 +4943,8 @@ function App() {
         creatorDie,
         joinerDie,
         winnerPublicKey,
-        settlementTxHash: normalizedSettlementTxHash
+        settlementTxHash: normalizedSettlementTxHash,
+        publicKey
       });
       setSelectedGameId(settled.id);
       setTxStatuses((current) => ({ ...current, [normalizedSettlementTxHash]: settled.settlementTxStatus ?? "PENDING" }));
@@ -4960,7 +4965,7 @@ function App() {
 
       const refundTxHash = requiredTransactionHash(txHashInput);
       assertGameTransactionHashAvailable(game, "refund", refundTxHash);
-      const refunded = await refundGame(game.id, { refundTxHash });
+      const refunded = await refundGame(game.id, { refundTxHash, publicKey });
       setSelectedGameId(refunded.id);
       setTxStatuses((current) => ({ ...current, [refundTxHash]: refunded.refundTxStatus ?? "PENDING" }));
       setMessage(t("refundHashSaved"));
@@ -5042,7 +5047,7 @@ function App() {
       }
 
       assertGameTransactionHashAvailable(game, "refund", txHash);
-      await refundGame(game.id, { refundTxHash: txHash });
+      await refundGame(game.id, { refundTxHash: txHash, publicKey });
       setMessage(onchainEnabled ? t("refundSent") : t("refundMock"));
     });
   }
@@ -5086,7 +5091,7 @@ function App() {
       }
 
       assertGameTransactionHashAvailable(game, "refund", txHash);
-      const refunded = await refundGame(game.id, { refundTxHash: txHash });
+      const refunded = await refundGame(game.id, { refundTxHash: txHash, publicKey });
       setSelectedGameId(refunded.id);
       setMessage(t("cancelSent"));
       await refreshGames();

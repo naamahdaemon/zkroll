@@ -198,17 +198,17 @@ export function joinGame(
   });
 }
 
-export function reconcileJoinTx(id: string, joinTxHash: string) {
+export function reconcileJoinTx(id: string, joinTxHash: string, publicKey: string) {
   return request<Game>(`/games/${id}/join-tx`, {
     method: "PATCH",
-    body: JSON.stringify({ joinTxHash })
+    body: JSON.stringify({ joinTxHash, publicKey })
   });
 }
 
-export function confirmJoinGame(id: string) {
+export function confirmJoinGame(id: string, publicKey: string) {
   return request<Game>(`/games/${id}/join-confirmed`, {
     method: "PATCH",
-    body: JSON.stringify({})
+    body: JSON.stringify({ publicKey })
   });
 }
 
@@ -233,6 +233,7 @@ export function settleGame(
     joinerDie: number;
     winnerPublicKey: string | null;
     settlementTxHash: string;
+    publicKey: string;
   }
 ) {
   return request<Game>(`/games/${id}/settle`, {
@@ -255,7 +256,7 @@ export function clearPendingSettlementTx(id: string, reason?: string) {
   });
 }
 
-export function refundGame(id: string, input: { refundTxHash: string }) {
+export function refundGame(id: string, input: { refundTxHash: string; publicKey: string }) {
   return request<Game>(`/games/${id}/refund`, {
     method: "POST",
     body: JSON.stringify(input)

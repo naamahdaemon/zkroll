@@ -1244,6 +1244,12 @@ app.patch("/games/:id/join-tx", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
+    const publicKey = requiredString(body, "publicKey");
+    const existingGame = getGame(id);
+    if (!existingGame) throw new Error("Game not found");
+    if (publicKey !== adminPublicKey && existingGame.joinerPublicKey !== publicKey) {
+      return reply.code(403).send({ error: "Only the joiner or admin can update this join transaction" });
+    }
     const game = await sendUpdatedGame(reconcileJoinTx(id, requiredString(body, "joinTxHash")));
     await notifyGameUpdated(game);
     return game;
@@ -1255,11 +1261,14 @@ app.patch("/games/:id/join-tx", async (request, reply) => {
 app.patch("/games/:id/join-confirmed", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
+    const body = asBody(request.body);
+    const publicKey = requiredString(body, "publicKey");
     const game = getGame(id);
     if (!game?.joinTxHash) throw new Error("Pending join not found");
     if (getStoredTransactionStatus(game.network, game.joinTxHash) !== "INCLUDED") {
       throw new Error("Join transaction must be marked as included before confirmation");
     }
+    rememberRequestSignal(request, publicKey);
     return sendUpdatedGame(confirmJoinGame(id));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
@@ -1284,7 +1293,9 @@ app.post("/games/:id/reveal", async (request, reply) => {
     if (game?.status === "join_pending" && game.joinTxHash) {
       await resolveTransactionStatus(game.network, game.joinTxHash);
     }
-    return sendUpdatedGame(revealSecret(id, requiredString(body, "publicKey"), requiredString(body, "secret")));
+    const publicKey = requiredString(body, "publicKey");
+    rememberRequestSignal(request, publicKey);
+    return sendUpdatedGame(revealSecret(id, publicKey, requiredString(body, "secret")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -1295,6 +1306,7 @@ app.post("/games/:id/settle", async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
     const winnerPublicKey = body.winnerPublicKey === null ? null : requiredString(body, "winnerPublicKey");
+    rememberRequestSignal(request, requiredString(body, "publicKey"));
 
     return sendUpdatedGame(settleGame(id, {
       creatorDie: requiredDie(body, "creatorDie"),
@@ -1331,6 +1343,7 @@ app.post("/games/:id/refund", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
+    rememberRequestSignal(request, requiredString(body, "publicKey"));
     return sendUpdatedGame(refundGame(id, {
       refundTxHash: requiredString(body, "refundTxHash")
     }));
