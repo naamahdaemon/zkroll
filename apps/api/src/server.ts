@@ -31,6 +31,7 @@ import {
   markCreationFailed,
   markGameUnrecoverable,
   markTransactionFailed,
+  messageCounts,
   prepareRefundTx,
   prepareSettlementTx,
   recordPlayerSignal,
@@ -945,7 +946,8 @@ app.get("/notifications/:publicKey", async (request) => {
 app.get("/messages/unread/:publicKey", async (request, reply) => {
   try {
     const { publicKey } = request.params as { publicKey: string };
-    return { counts: unreadMessageCounts(publicKey) };
+    const allowAdmin = publicKey === adminPublicKey;
+    return { counts: unreadMessageCounts(publicKey, allowAdmin), messageCounts: messageCounts(publicKey, allowAdmin) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }

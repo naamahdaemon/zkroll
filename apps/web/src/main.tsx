@@ -2031,6 +2031,7 @@ function App() {
   const [message, setMessage] = useState(initialMessage);
   const [messageHistory, setMessageHistory] = useState<string[]>(() => [initialMessage]);
   const [gameMessages, setGameMessages] = useState<Record<string, GameMessage[]>>({});
+  const [gameMessageCounts, setGameMessageCounts] = useState<Record<string, number>>({});
   const [unreadMessageCounts, setUnreadMessageCounts] = useState<Record<string, number>>({});
   const [playerMessagePrefs, setPlayerMessagePrefs] = useState<Record<string, boolean>>({});
   const [playerDetailsByPublicKey, setPlayerDetailsByPublicKey] = useState<Record<string, Player>>({});
@@ -2213,9 +2214,9 @@ function App() {
     const gameIdNeedle = gameIdSearch.trim().toLowerCase();
     return visibleGames
       .filter((game) => {
-        const participant = isPlayerGame(game);
-        const unreadCount = participant ? (unreadMessageCounts[game.id] ?? 0) : 0;
-        const messageCount = participant ? (gameMessages[game.id]?.length ?? 0) : 0;
+        const canViewMessages = canViewGameMessages(game);
+        const unreadCount = canViewMessages ? (unreadMessageCounts[game.id] ?? 0) : 0;
+        const messageCount = canViewMessages ? (gameMessages[game.id]?.length ?? gameMessageCounts[game.id] ?? 0) : 0;
         const statusMatches =
           statusFilter === "active"
             ? !terminalGameStatuses.has(game.status)
@@ -2236,7 +2237,7 @@ function App() {
         return statusMatches && messageMatches && searchMatches && gameIdMatches;
       })
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
-  }, [gameIdSearch, gameMessages, messageFilter, playerSearch, publicKey, statusFilter, unreadMessageCounts, visibleGames]);
+  }, [gameIdSearch, gameMessageCounts, gameMessages, messageFilter, playerSearch, publicKey, statusFilter, unreadMessageCounts, visibleGames]);
 
   const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage));
   const paginatedGames = useMemo(
@@ -2399,10 +2400,10 @@ function App() {
   const totalUnreadMessages = useMemo(
     () =>
       games.reduce(
-        (sum, game) => sum + (game.network === network && isPlayerGame(game) ? (unreadMessageCounts[game.id] ?? 0) : 0),
+        (sum, game) => sum + (game.network === network && canViewGameMessages(game) ? (unreadMessageCounts[game.id] ?? 0) : 0),
         0
       ),
-    [games, network, publicKey, unreadMessageCounts]
+    [games, gameMessageCounts, network, publicKey, unreadMessageCounts]
   );
 
   async function refreshGames() {
@@ -2448,16 +2449,17 @@ function App() {
   async function refreshUnreadMessages() {
     if (!publicKey) {
       setUnreadMessageCounts({});
+      setGameMessageCounts({});
       return;
     }
     const result = await getUnreadMessageCounts(publicKey);
     setUnreadMessageCounts(result.counts);
+    setGameMessageCounts(result.messageCounts ?? {});
   }
 
   async function refreshMessagesFor(game: Game | null) {
     if (!game || !publicKey) return;
-    const canViewMessages = publicKey === adminPublicKey || publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey;
-    if (!canViewMessages) return;
+    if (!canViewGameMessages(game)) return;
     const result = await listGameMessages(game.id, publicKey);
     setGameMessages((current) => ({ ...current, [game.id]: result.items }));
     await markGameMessagesRead(game.id, publicKey);
@@ -2466,7 +2468,7 @@ function App() {
 
   async function refreshVisiblePlayerMessages() {
     if (!publicKey) return;
-    const playerGames = visibleGames.filter((game) => publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey);
+    const playerGames = visibleGames.filter((game) => canViewGameMessages(game));
     if (playerGames.length === 0) return;
     const results = await Promise.allSettled(playerGames.map((game) => listGameMessages(game.id, publicKey)));
     setGameMessages((current) => {
@@ -3920,6 +3922,7 @@ function App() {
 
   function canMessagePlayer(game: Game, receiverPublicKey: string | null | undefined) {
     const receiverIsParticipant = receiverPublicKey === game.creatorPublicKey || receiverPublicKey === game.joinerPublicKey;
+    const receiverIsAdminThread = receiverPublicKey === adminPublicKey && isPlayerGame(game) && hasAdminThreadForPlayer(game);
     if (publicKey === adminPublicKey) {
       return Boolean(receiverPublicKey && receiverPublicKey !== publicKey && receiverIsParticipant);
     }
@@ -3928,12 +3931,36 @@ function App() {
         receiverPublicKey &&
         receiverPublicKey !== publicKey &&
         (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey) &&
-        receiverIsParticipant
+        (receiverIsParticipant || receiverIsAdminThread)
     );
   }
 
   function isPlayerGame(game: Game) {
     return Boolean(publicKey && (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey));
+  }
+
+  function adminHasGameMessages(game: Game) {
+    return Boolean(
+      publicKey === adminPublicKey &&
+        ((gameMessageCounts[game.id] ?? 0) > 0 ||
+          (gameMessages[game.id] ?? []).some((item) => item.senderPublicKey === adminPublicKey || item.receiverPublicKey === adminPublicKey))
+    );
+  }
+
+  function hasAdminThreadForPlayer(game: Game) {
+    return Boolean(
+      publicKey &&
+        publicKey !== adminPublicKey &&
+        (gameMessages[game.id] ?? []).some(
+          (item) =>
+            (item.senderPublicKey === adminPublicKey && item.receiverPublicKey === publicKey) ||
+            (item.senderPublicKey === publicKey && item.receiverPublicKey === adminPublicKey)
+        )
+    );
+  }
+
+  function canViewGameMessages(game: Game) {
+    return isPlayerGame(game) || adminHasGameMessages(game) || Boolean(publicKey === adminPublicKey && unreadMessageCounts[game.id]);
   }
 
   function playerLabelForMessage(game: Game, message: GameMessage) {
@@ -3963,15 +3990,15 @@ function App() {
   }
 
   function unreadBadgeFor(game: Game) {
-    if (!isPlayerGame(game)) return null;
+    if (!canViewGameMessages(game)) return null;
     const count = unreadMessageCounts[game.id] ?? 0;
     if (count <= 0) return null;
     return <span className="unreadBadge">{count > 99 ? "99+" : count}</span>;
   }
 
   function messageIndicatorFor(game: Game) {
-    if (!isPlayerGame(game)) return null;
-    const messageCount = gameMessages[game.id]?.length ?? 0;
+    if (!canViewGameMessages(game)) return null;
+    const messageCount = gameMessages[game.id]?.length ?? gameMessageCounts[game.id] ?? 0;
     const unreadCount = unreadMessageCounts[game.id] ?? 0;
     if (messageCount <= 0 && unreadCount <= 0) return null;
     const content = (
@@ -4016,7 +4043,9 @@ function App() {
     await runAction(async () => {
       await sendGameMessage(messageDialog.game.id, {
         senderPublicKey: publicKey,
-        ...(publicKey === adminPublicKey ? { receiverPublicKey: messageDialog.receiverPublicKey } : {}),
+        ...(publicKey === adminPublicKey || messageDialog.receiverPublicKey === adminPublicKey
+          ? { receiverPublicKey: messageDialog.receiverPublicKey }
+          : {}),
         body: messageDraft.slice(0, 500)
       });
       setMessageDialog(null);
@@ -5753,21 +5782,36 @@ function App() {
             </div>
           )}
           {selectedGame && publicKey && publicKey !== adminPublicKey && (publicKey === selectedGame.creatorPublicKey || publicKey === selectedGame.joinerPublicKey) && (
-            <button
-              className="secondaryButton"
-              onClick={() => {
-                const receiverPublicKey = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPublicKey : selectedGame.creatorPublicKey;
-                const receiverPseudo = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPseudo : selectedGame.creatorPseudo;
-                if (receiverPublicKey && receiverPseudo) {
-                  setMessageDraft("");
-                  setMessageDialog({ game: selectedGame, receiverPublicKey, receiverPseudo });
-                }
-              }}
-              type="button"
-            >
-              <MessageSquareText size={16} />
-              {t("reply")}
-            </button>
+            <div className="messageReplyActions">
+              <button
+                className="secondaryButton"
+                onClick={() => {
+                  const receiverPublicKey = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPublicKey : selectedGame.creatorPublicKey;
+                  const receiverPseudo = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPseudo : selectedGame.creatorPseudo;
+                  if (receiverPublicKey && receiverPseudo) {
+                    setMessageDraft("");
+                    setMessageDialog({ game: selectedGame, receiverPublicKey, receiverPseudo });
+                  }
+                }}
+                type="button"
+              >
+                <MessageSquareText size={16} />
+                {t("reply")}
+              </button>
+              {hasAdminThreadForPlayer(selectedGame) && (
+                <button
+                  className="secondaryButton"
+                  onClick={() => {
+                    setMessageDraft("");
+                    setMessageDialog({ game: selectedGame, receiverPublicKey: adminPublicKey, receiverPseudo: "Admin" });
+                  }}
+                  type="button"
+                >
+                  <MessageSquareText size={16} />
+                  {t("reply")} Admin
+                </button>
+              )}
+            </div>
           )}
           <div className="sectionHead compactHead">
             <h2>{t("systemMessages")}</h2>

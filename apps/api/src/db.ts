@@ -780,7 +780,7 @@ export function listGameMessages(gameId: string, publicKey: string, allowAdmin =
   return rows.map(messageFromRow);
 }
 
-export function unreadMessageCounts(publicKey: string): Record<string, number> {
+export function unreadMessageCounts(publicKey: string, allowAdmin = false): Record<string, number> {
   const rows = db
     .prepare(
       `
@@ -789,11 +789,33 @@ export function unreadMessageCounts(publicKey: string): Record<string, number> {
       join games on games.id = messages.game_id
       where messages.receiver_public_key = ?
         and messages.read_at is null
-        and (games.creator_public_key = ? or games.joiner_public_key = ?)
+        and (
+          games.creator_public_key = ?
+          or games.joiner_public_key = ?
+          or ? = 1
+        )
       group by messages.game_id
     `
     )
-    .all(publicKey, publicKey, publicKey) as { gameId: string; count: number }[];
+    .all(publicKey, publicKey, publicKey, allowAdmin ? 1 : 0) as { gameId: string; count: number }[];
+  return Object.fromEntries(rows.map((row) => [row.gameId, row.count]));
+}
+
+export function messageCounts(publicKey: string, allowAdmin = false): Record<string, number> {
+  const rows = db
+    .prepare(
+      `
+      select messages.game_id as gameId, count(*) as count
+      from game_messages messages
+      join games on games.id = messages.game_id
+      where (
+        (? = 1 and (messages.sender_public_key = ? or messages.receiver_public_key = ?))
+        or (? = 0 and (games.creator_public_key = ? or games.joiner_public_key = ?))
+      )
+      group by messages.game_id
+    `
+    )
+    .all(allowAdmin ? 1 : 0, publicKey, publicKey, allowAdmin ? 1 : 0, publicKey, publicKey) as { gameId: string; count: number }[];
   return Object.fromEntries(rows.map((row) => [row.gameId, row.count]));
 }
 
@@ -822,8 +844,31 @@ export function createGameMessage(input: {
   if (!senderIsAdmin) assertGameParticipant(game, input.senderPublicKey);
   let receiverPublicKey: string | null | undefined = input.receiverPublicKey;
   if (receiverPublicKey) {
-    if (!senderIsAdmin) throw new Error("Only admin can choose a message recipient");
-    if (receiverPublicKey !== game.creatorPublicKey && receiverPublicKey !== game.joinerPublicKey) {
+    const receiverIsParticipant = receiverPublicKey === game.creatorPublicKey || receiverPublicKey === game.joinerPublicKey;
+    const receiverIsAdmin = input.adminPublicKey && receiverPublicKey === input.adminPublicKey;
+    const senderIsParticipant = input.senderPublicKey === game.creatorPublicKey || input.senderPublicKey === game.joinerPublicKey;
+    const adminThreadExists = receiverIsAdmin
+      ? Boolean(
+          db
+            .prepare(
+              `
+              select 1
+              from game_messages
+              where game_id = ?
+                and (
+                  (sender_public_key = ? and receiver_public_key = ?)
+                  or (sender_public_key = ? and receiver_public_key = ?)
+                )
+              limit 1
+            `
+            )
+            .get(input.gameId, input.adminPublicKey, input.senderPublicKey, input.senderPublicKey, input.adminPublicKey)
+        )
+      : false;
+    if (!senderIsAdmin && !(receiverIsAdmin && senderIsParticipant && adminThreadExists)) {
+      throw new Error("Only admin can choose a message recipient");
+    }
+    if (!receiverIsParticipant && !receiverIsAdmin) {
       throw new Error("Recipient is not part of this game");
     }
   } else {

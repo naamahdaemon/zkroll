@@ -296,7 +296,7 @@ export function markGameMessagesRead(id: string, publicKey: string) {
 }
 
 export function getUnreadMessageCounts(publicKey: string) {
-  return request<{ counts: Record<string, number> }>(`/messages/unread/${encodeURIComponent(publicKey)}`);
+  return request<{ counts: Record<string, number>; messageCounts?: Record<string, number> }>(`/messages/unread/${encodeURIComponent(publicKey)}`);
 }
 
 export function clearServerProverCache(publicKey: string) {
