@@ -770,10 +770,10 @@ function assertGameParticipant(game: Game, publicKey: string) {
   }
 }
 
-export function listGameMessages(gameId: string, publicKey: string): GameMessage[] {
+export function listGameMessages(gameId: string, publicKey: string, allowAdmin = false): GameMessage[] {
   const game = getGame(gameId);
   if (!game) throw new Error("Game not found");
-  assertGameParticipant(game, publicKey);
+  if (!allowAdmin) assertGameParticipant(game, publicKey);
   const rows = db
     .prepare("select * from game_messages where game_id = ? order by created_at asc")
     .all(gameId) as GameMessageRow[];
@@ -797,10 +797,10 @@ export function unreadMessageCounts(publicKey: string): Record<string, number> {
   return Object.fromEntries(rows.map((row) => [row.gameId, row.count]));
 }
 
-export function markGameMessagesRead(gameId: string, publicKey: string): void {
+export function markGameMessagesRead(gameId: string, publicKey: string, allowAdmin = false): void {
   const game = getGame(gameId);
   if (!game) throw new Error("Game not found");
-  assertGameParticipant(game, publicKey);
+  if (!allowAdmin) assertGameParticipant(game, publicKey);
   db.prepare("update game_messages set read_at = coalesce(read_at, ?) where game_id = ? and receiver_public_key = ?").run(
     new Date().toISOString(),
     gameId,
@@ -812,15 +812,29 @@ export function createGameMessage(input: {
   id: string;
   gameId: string;
   senderPublicKey: string;
+  receiverPublicKey?: string;
+  adminPublicKey?: string;
   body: string;
 }): { game: Game; message: GameMessage } {
   const game = getGame(input.gameId);
   if (!game) throw new Error("Game not found");
-  assertGameParticipant(game, input.senderPublicKey);
-  const receiverPublicKey = input.senderPublicKey === game.creatorPublicKey ? game.joinerPublicKey : game.creatorPublicKey;
+  const senderIsAdmin = Boolean(input.adminPublicKey && input.senderPublicKey === input.adminPublicKey);
+  if (!senderIsAdmin) assertGameParticipant(game, input.senderPublicKey);
+  let receiverPublicKey: string | null | undefined = input.receiverPublicKey;
+  if (receiverPublicKey) {
+    if (!senderIsAdmin) throw new Error("Only admin can choose a message recipient");
+    if (receiverPublicKey !== game.creatorPublicKey && receiverPublicKey !== game.joinerPublicKey) {
+      throw new Error("Recipient is not part of this game");
+    }
+  } else {
+    if (senderIsAdmin && input.senderPublicKey !== game.creatorPublicKey && input.senderPublicKey !== game.joinerPublicKey) {
+      throw new Error("Recipient is required");
+    }
+    receiverPublicKey = input.senderPublicKey === game.creatorPublicKey ? game.joinerPublicKey : game.creatorPublicKey;
+  }
   if (!receiverPublicKey) throw new Error("Opponent is not known yet");
   const receiver = getPlayerByPublicKey(receiverPublicKey);
-  if (receiver && !receiver.acceptMessages) throw new Error("Player does not accept messages");
+  if (!senderIsAdmin && receiver && !receiver.acceptMessages) throw new Error("Player does not accept messages");
   const body = input.body.trim();
   if (!body) throw new Error("Message is empty");
   if (body.length > 500) throw new Error("Message is too long");

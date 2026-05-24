@@ -859,6 +859,12 @@ select {
   font-size: 11px;
 }
 
+.messageReplyActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .leaderboardPanel {
   min-height: 0;
 }

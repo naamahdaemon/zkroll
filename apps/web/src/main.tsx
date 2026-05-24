@@ -3917,12 +3917,16 @@ function App() {
   }
 
   function canMessagePlayer(game: Game, receiverPublicKey: string | null | undefined) {
+    const receiverIsParticipant = receiverPublicKey === game.creatorPublicKey || receiverPublicKey === game.joinerPublicKey;
+    if (publicKey === adminPublicKey) {
+      return Boolean(receiverPublicKey && receiverPublicKey !== publicKey && receiverIsParticipant);
+    }
     return Boolean(
       publicKey &&
         receiverPublicKey &&
         receiverPublicKey !== publicKey &&
         (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey) &&
-        (receiverPublicKey === game.creatorPublicKey || receiverPublicKey === game.joinerPublicKey)
+        receiverIsParticipant
     );
   }
 
@@ -3930,9 +3934,17 @@ function App() {
     return Boolean(publicKey && (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey));
   }
 
+  function playerLabelForMessage(game: Game, message: GameMessage) {
+    if (message.senderPublicKey === publicKey) return pseudo || t("player");
+    if (message.senderPublicKey === adminPublicKey) return "Admin";
+    if (message.senderPublicKey === game.creatorPublicKey) return game.creatorPseudo;
+    if (message.senderPublicKey === game.joinerPublicKey) return game.joinerPseudo ?? t("opponent");
+    return t("player");
+  }
+
   function messageButtonFor(game: Game, receiverPublicKey: string | null | undefined, receiverPseudo: string | null | undefined) {
     if (!canMessagePlayer(game, receiverPublicKey) || !receiverPublicKey || !receiverPseudo) return null;
-    if (playerMessagePrefs[receiverPublicKey] === false) return null;
+    if (publicKey !== adminPublicKey && playerMessagePrefs[receiverPublicKey] === false) return null;
     return (
       <button
         aria-label={`${t("messagePlayer")} ${receiverPseudo}`}
@@ -4002,6 +4014,7 @@ function App() {
     await runAction(async () => {
       await sendGameMessage(messageDialog.game.id, {
         senderPublicKey: publicKey,
+        ...(publicKey === adminPublicKey ? { receiverPublicKey: messageDialog.receiverPublicKey } : {}),
         body: messageDraft.slice(0, 500)
       });
       setMessageDialog(null);
@@ -5687,7 +5700,7 @@ function App() {
             {selectedGame && (gameMessages[selectedGame.id] ?? []).length > 0 ? (
               (gameMessages[selectedGame.id] ?? []).map((item) => (
                 <div className={item.senderPublicKey === publicKey ? "playerMessage mine" : "playerMessage"} key={item.id}>
-                  <strong>{item.senderPublicKey === publicKey ? pseudo || t("player") : item.senderPublicKey === selectedGame.creatorPublicKey ? selectedGame.creatorPseudo : selectedGame.joinerPseudo}</strong>
+                  <strong>{playerLabelForMessage(selectedGame, item)}</strong>
                   <p>{item.body}</p>
                   <span>{formatDateTime(item.createdAt, locale)}</span>
                 </div>
@@ -5696,7 +5709,45 @@ function App() {
               <p className="muted">{t("noPlayerMessages")}</p>
             )}
           </div>
-          {selectedGame && publicKey && (publicKey === selectedGame.creatorPublicKey || publicKey === selectedGame.joinerPublicKey) && (
+          {selectedGame && publicKey && publicKey === adminPublicKey && (
+            <div className="messageReplyActions">
+              {selectedGame.creatorPublicKey && selectedGame.creatorPseudo && (
+                <button
+                  className="secondaryButton"
+                  onClick={() => {
+                    setMessageDraft("");
+                    setMessageDialog({
+                      game: selectedGame,
+                      receiverPublicKey: selectedGame.creatorPublicKey,
+                      receiverPseudo: selectedGame.creatorPseudo
+                    });
+                  }}
+                  type="button"
+                >
+                  <MessageSquareText size={16} />
+                  {t("reply")} {selectedGame.creatorPseudo}
+                </button>
+              )}
+              {selectedGame.joinerPublicKey && selectedGame.joinerPseudo && (
+                <button
+                  className="secondaryButton"
+                  onClick={() => {
+                    setMessageDraft("");
+                    setMessageDialog({
+                      game: selectedGame,
+                      receiverPublicKey: selectedGame.joinerPublicKey ?? "",
+                      receiverPseudo: selectedGame.joinerPseudo ?? ""
+                    });
+                  }}
+                  type="button"
+                >
+                  <MessageSquareText size={16} />
+                  {t("reply")} {selectedGame.joinerPseudo}
+                </button>
+              )}
+            </div>
+          )}
+          {selectedGame && publicKey && publicKey !== adminPublicKey && (publicKey === selectedGame.creatorPublicKey || publicKey === selectedGame.joinerPublicKey) && (
             <button
               className="secondaryButton"
               onClick={() => {

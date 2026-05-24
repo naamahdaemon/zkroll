@@ -1111,7 +1111,8 @@ app.get("/games/:id/messages", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const query = request.query as { publicKey?: string };
-    return { items: listGameMessages(id, requiredString(query, "publicKey")) };
+    const publicKey = requiredString(query, "publicKey");
+    return { items: listGameMessages(id, publicKey, publicKey === adminPublicKey) };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
   }
@@ -1121,7 +1122,8 @@ app.patch("/games/:id/messages/read", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
-    markGameMessagesRead(id, requiredString(body, "publicKey"));
+    const publicKey = requiredString(body, "publicKey");
+    markGameMessagesRead(id, publicKey, publicKey === adminPublicKey);
     return { ok: true };
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });
@@ -1136,6 +1138,8 @@ app.post("/games/:id/messages", async (request, reply) => {
       id: nanoid(12),
       gameId: id,
       senderPublicKey: requiredString(body, "senderPublicKey"),
+      receiverPublicKey: optionalString(body, "receiverPublicKey"),
+      adminPublicKey,
       body: requiredString(body, "body")
     });
     await notifyGameMessage(result.game, result.message);

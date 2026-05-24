@@ -281,7 +281,7 @@ export function listGameMessages(id: string, publicKey: string) {
   return request<{ items: GameMessage[] }>(`/games/${id}/messages?publicKey=${encodeURIComponent(publicKey)}`);
 }
 
-export function sendGameMessage(id: string, input: { senderPublicKey: string; body: string }) {
+export function sendGameMessage(id: string, input: { senderPublicKey: string; receiverPublicKey?: string; body: string }) {
   return request<GameMessage>(`/games/${id}/messages`, {
     method: "POST",
     body: JSON.stringify(input)
