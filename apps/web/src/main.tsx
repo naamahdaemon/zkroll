@@ -188,7 +188,7 @@ type Locale = "en" | "fr" | "zh" | "tr" | "ru" | "de" | "ja" | "es";
 type Theme = "light" | "dark";
 type ViewMode = "cards" | "app";
 type AppScreen = "player" | "new" | "games" | "detail" | "messages" | "leaderboard" | "settings";
-type StatusFilter = "active" | "mine_active" | "all" | GameStatus;
+type StatusFilter = "active" | "mine_active" | "mine_all" | "all" | "join" | "reveal" | "failed" | GameStatus;
 type MessageFilter = "all" | "unread" | "messages";
 type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
@@ -244,18 +244,12 @@ const payoutModes: PayoutMode[] = ["classic", "opponent_takes_all"];
 const gameStatuses: GameStatus[] = [
   "pending_signature",
   "created",
-  "join_pending",
-  "joined",
-  "player_one_revealed",
-  "player_two_revealed",
-  "both_revealed",
-  "settled",
-  "refunded",
-  "failed",
-  "cancelled",
-  "unrecoverable"
+  "settled"
 ];
 const terminalGameStatuses = new Set<GameStatus>(["settled", "refunded", "failed", "cancelled", "unrecoverable"]);
+const joinGameStatuses = new Set<GameStatus>(["join_pending", "joined"]);
+const revealGameStatuses = new Set<GameStatus>(["player_one_revealed", "player_two_revealed", "both_revealed"]);
+const failedGameStatuses = new Set<GameStatus>(["failed", "cancelled", "refunded", "unrecoverable"]);
 
 type QRCodeBrowserModule = {
   toDataURL: (text: string, options?: { margin?: number; width?: number }) => Promise<string>;
@@ -335,7 +329,11 @@ const copy: Record<string, Record<string, string>> = {
     games: "Games",
     activeStatuses: "Active games",
     myActiveStatuses: "My active games",
+    myGamesStatuses: "My games",
     allStatuses: "All statuses",
+    joinStatuses: "Join",
+    revealStatuses: "Reveal",
+    failedStatuses: "Failed / refunded",
     messageFilter: "Messages",
     allMessageStatuses: "All",
     withUnreadMessages: "With unread messages",
@@ -665,7 +663,11 @@ const copy: Record<string, Record<string, string>> = {
     games: "Parties",
     activeStatuses: "Parties actives",
     myActiveStatuses: "Mes parties actives",
+    myGamesStatuses: "Mes parties",
     allStatuses: "Tous les etats",
+    joinStatuses: "Join",
+    revealStatuses: "Reveal",
+    failedStatuses: "Echec / remboursees",
     messageFilter: "Messages",
     allMessageStatuses: "Tous",
     withUnreadMessages: "Avec messages non lus",
@@ -2261,6 +2263,14 @@ function App() {
               ? !terminalGameStatuses.has(game.status) &&
                 Boolean(publicKey) &&
                 (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey)
+            : statusFilter === "mine_all"
+              ? Boolean(publicKey) && (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey)
+            : statusFilter === "join"
+              ? joinGameStatuses.has(game.status)
+            : statusFilter === "reveal"
+              ? revealGameStatuses.has(game.status)
+            : statusFilter === "failed"
+              ? failedGameStatuses.has(game.status)
             : statusFilter === "all" || game.status === statusFilter;
         const messageMatches =
           messageFilter === "all" ||
@@ -5931,7 +5941,11 @@ function App() {
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
                 <option value="active">{t("activeStatuses")}</option>
                 <option value="mine_active">{t("myActiveStatuses")}</option>
+                <option value="mine_all">{t("myGamesStatuses")}</option>
                 <option value="all">{t("allStatuses")}</option>
+                <option value="join">{t("joinStatuses")}</option>
+                <option value="reveal">{t("revealStatuses")}</option>
+                <option value="failed">{t("failedStatuses")}</option>
                 {gameStatuses.map((item) => (
                   <option key={item} value={item}>
                     {item}
