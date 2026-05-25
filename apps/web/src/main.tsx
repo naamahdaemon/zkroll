@@ -4082,11 +4082,19 @@ function App() {
     return isPlayerGame(game) || adminHasGameMessages(game) || Boolean(publicKey === adminPublicKey && unreadMessageCounts[game.id]);
   }
 
+  function isAdminModerationMessage(game: Game, message: GameMessage) {
+    return (
+      message.senderPublicKey === adminPublicKey &&
+      adminPublicKey !== game.creatorPublicKey &&
+      adminPublicKey !== game.joinerPublicKey
+    );
+  }
+
   function playerLabelForMessage(game: Game, message: GameMessage) {
-    if (message.senderPublicKey === publicKey) return pseudo || t("player");
-    if (message.senderPublicKey === adminPublicKey) return "Admin";
+    if (isAdminModerationMessage(game, message)) return "Admin";
     if (message.senderPublicKey === game.creatorPublicKey) return game.creatorPseudo;
     if (message.senderPublicKey === game.joinerPublicKey) return game.joinerPseudo ?? t("opponent");
+    if (message.senderPublicKey === publicKey) return pseudo || t("player");
     return t("player");
   }
 
@@ -5876,7 +5884,7 @@ function App() {
                 <div className={item.senderPublicKey === publicKey ? "playerMessage mine" : "playerMessage"} key={item.id}>
                   <strong>
                     {playerLabelForMessage(selectedGame, item)}
-                    {item.senderPublicKey === adminPublicKey && <span className="adminMessageBadge">ADMIN</span>}
+                    {isAdminModerationMessage(selectedGame, item) && <span className="adminMessageBadge">ADMIN</span>}
                   </strong>
                   <p>{item.body}</p>
                   <span>{formatDateTime(item.createdAt, locale)}</span>
