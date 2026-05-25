@@ -154,6 +154,7 @@ const pendingActionGameLimit = 5;
 const minaTransactionHashPattern = /^5J[1-9A-HJ-NP-Za-km-z]{40,}$/;
 const autoConnectStorageKey = "zkroll:auto-connect-wallet";
 const pendingReferralInviteStorageKey = "zkroll:pending-referral-invite";
+const uiStateStorageKey = "zkroll:ui-state";
 const pseudoAdjectives = [
   "Brave",
   "Lucky",
@@ -193,10 +194,35 @@ type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
 type LeaderboardPeriod = "all" | "month" | "week" | "day";
 type LeaderboardAdminView = "scores" | "signals";
+type SavedUiState = {
+  appScreen?: AppScreen;
+  selectedGameId?: string | null;
+  statusFilter?: StatusFilter;
+  messageFilter?: MessageFilter;
+  playerSearch?: string;
+  gameIdSearch?: string;
+  gamesPage?: number;
+  leaderboardPage?: number;
+  leaderboardPeriod?: LeaderboardPeriod;
+  leaderboardWindowOffset?: number;
+  leaderboardAdminView?: LeaderboardAdminView;
+  adminConnectionSelectedPublicKeys?: string[];
+  adminConnectionUserSearch?: string;
+  adminConnectionIpSearch?: string;
+};
 type ReferralInvite = {
   code: string;
   referrerName: string | null;
 };
+
+function savedUiState(): SavedUiState {
+  try {
+    const saved = localStorage.getItem(uiStateStorageKey);
+    return saved ? (JSON.parse(saved) as SavedUiState) : {};
+  } catch {
+    return {};
+  }
+}
 type LeaderboardRow = {
   publicKey: string;
   pseudo: string;
@@ -1955,10 +1981,17 @@ function removePendingCreationMaterial(game: Game) {
 function App() {
   const initialGameTarget = useMemo(() => initialDeepLinkedGameTarget(), []);
   const initialReferralInvite = useMemo(() => referralInviteFromUrl(), []);
+  const initialUiState = useMemo(() => savedUiState(), []);
   const [locale, setLocale] = useState<Locale>(() => savedLocale());
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("zkroll:theme") === "dark" ? "dark" : "light"));
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem("zkroll:view-mode") === "app" ? "app" : "cards"));
-  const [appScreen, setAppScreen] = useState<AppScreen>(() => (initialReferralInvite && localStorage.getItem("zkroll:view-mode") === "app" ? "player" : "games"));
+  const [appScreen, setAppScreen] = useState<AppScreen>(() =>
+    initialReferralInvite && localStorage.getItem("zkroll:view-mode") === "app"
+      ? "player"
+      : initialGameTarget && localStorage.getItem("zkroll:view-mode") === "app"
+        ? "detail"
+        : initialUiState.appScreen ?? "games"
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [networkMenuOpen, setNetworkMenuOpen] = useState(false);
   const [pseudo, setPseudo] = useState("");
@@ -1977,20 +2010,22 @@ function App() {
   const [previousOpponents, setPreviousOpponents] = useState<Player[]>([]);
   const [inviteePublicKey, setInviteePublicKey] = useState("");
   const [games, setGames] = useState<Game[]>([]);
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(() => initialGameTarget?.id ?? null);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(() => initialGameTarget?.id ?? initialUiState.selectedGameId ?? null);
   const [deepLinkedGameTarget, setDeepLinkedGameTarget] = useState<{ id: string; network: NetworkId } | null>(() => initialGameTarget);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("mine_active");
-  const [messageFilter, setMessageFilter] = useState<MessageFilter>("all");
-  const [playerSearch, setPlayerSearch] = useState("");
-  const [gameIdSearch, setGameIdSearch] = useState("");
-  const [gamesPage, setGamesPage] = useState(1);
-  const [leaderboardPage, setLeaderboardPage] = useState(1);
-  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>("all");
-  const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(0);
-  const [leaderboardAdminView, setLeaderboardAdminView] = useState<LeaderboardAdminView>("scores");
-  const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>([]);
-  const [adminConnectionUserSearch, setAdminConnectionUserSearch] = useState("");
-  const [adminConnectionIpSearch, setAdminConnectionIpSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => initialUiState.statusFilter ?? "mine_active");
+  const [messageFilter, setMessageFilter] = useState<MessageFilter>(() => initialUiState.messageFilter ?? "all");
+  const [playerSearch, setPlayerSearch] = useState(() => initialUiState.playerSearch ?? "");
+  const [gameIdSearch, setGameIdSearch] = useState(() => initialUiState.gameIdSearch ?? "");
+  const [gamesPage, setGamesPage] = useState(() => initialUiState.gamesPage ?? 1);
+  const [leaderboardPage, setLeaderboardPage] = useState(() => initialUiState.leaderboardPage ?? 1);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>(() => initialUiState.leaderboardPeriod ?? "all");
+  const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(() => initialUiState.leaderboardWindowOffset ?? 0);
+  const [leaderboardAdminView, setLeaderboardAdminView] = useState<LeaderboardAdminView>(() => initialUiState.leaderboardAdminView ?? "scores");
+  const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>(
+    () => initialUiState.adminConnectionSelectedPublicKeys ?? []
+  );
+  const [adminConnectionUserSearch, setAdminConnectionUserSearch] = useState(() => initialUiState.adminConnectionUserSearch ?? "");
+  const [adminConnectionIpSearch, setAdminConnectionIpSearch] = useState(() => initialUiState.adminConnectionIpSearch ?? "");
   const [secretVault, setSecretVault] = useState<Record<string, string>>({});
   const [rollingGameId, setRollingGameId] = useState<string | null>(null);
   const [previewDice, setPreviewDice] = useState<Record<string, { creatorDie: number; joinerDie: number }>>({});
@@ -2039,6 +2074,8 @@ function App() {
   const [adminSignalsByPublicKey, setAdminSignalsByPublicKey] = useState<Record<string, PlayerSignal[]>>({});
   const [messageDialog, setMessageDialog] = useState<{ game: Game; receiverPublicKey: string; receiverPseudo: string } | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
+  const initialGameFilterRender = useRef(true);
+  const initialLeaderboardFilterRender = useRef(true);
 
   const visibleGames = useMemo(
     () => games.filter((game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)),
@@ -2459,7 +2496,7 @@ function App() {
 
   async function refreshMessagesFor(game: Game | null) {
     if (!game || !publicKey) return;
-    if (!canViewGameMessages(game)) return;
+    if (publicKey !== adminPublicKey && !isPlayerGame(game)) return;
     const result = await listGameMessages(game.id, publicKey);
     setGameMessages((current) => ({ ...current, [game.id]: result.items }));
     await markGameMessagesRead(game.id, publicKey);
@@ -3451,20 +3488,65 @@ function App() {
   }, [network]);
 
   useEffect(() => {
+    if (initialGameFilterRender.current) {
+      initialGameFilterRender.current = false;
+      return;
+    }
     setGamesPage(1);
   }, [gameIdSearch, messageFilter, network, playerSearch, statusFilter]);
 
   useEffect(() => {
-    setGamesPage((current) => Math.min(current, totalGamePages));
-  }, [totalGamePages]);
+    if (games.length > 0) setGamesPage((current) => Math.min(current, totalGamePages));
+  }, [games.length, totalGamePages]);
 
   useEffect(() => {
+    if (initialLeaderboardFilterRender.current) {
+      initialLeaderboardFilterRender.current = false;
+      return;
+    }
     setLeaderboardPage(1);
   }, [leaderboardPeriod, leaderboardWindowOffset, network]);
 
   useEffect(() => {
-    setLeaderboardPage((current) => Math.min(current, activeLeaderboardPages));
-  }, [activeLeaderboardPages]);
+    if (games.length > 0) setLeaderboardPage((current) => Math.min(current, activeLeaderboardPages));
+  }, [activeLeaderboardPages, games.length]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      uiStateStorageKey,
+      JSON.stringify({
+        appScreen,
+        selectedGameId,
+        statusFilter,
+        messageFilter,
+        playerSearch,
+        gameIdSearch,
+        gamesPage,
+        leaderboardPage,
+        leaderboardPeriod,
+        leaderboardWindowOffset,
+        leaderboardAdminView,
+        adminConnectionSelectedPublicKeys,
+        adminConnectionUserSearch,
+        adminConnectionIpSearch
+      } satisfies SavedUiState)
+    );
+  }, [
+    adminConnectionIpSearch,
+    adminConnectionSelectedPublicKeys,
+    adminConnectionUserSearch,
+    appScreen,
+    gameIdSearch,
+    gamesPage,
+    leaderboardAdminView,
+    leaderboardPage,
+    leaderboardPeriod,
+    leaderboardWindowOffset,
+    messageFilter,
+    playerSearch,
+    selectedGameId,
+    statusFilter
+  ]);
 
   useEffect(() => {
     if (publicKey !== adminPublicKey || adminConnectionPlayerRows.length === 0) {
@@ -3922,10 +4004,10 @@ function App() {
 
   function canMessagePlayer(game: Game, receiverPublicKey: string | null | undefined) {
     const receiverIsParticipant = receiverPublicKey === game.creatorPublicKey || receiverPublicKey === game.joinerPublicKey;
-    const receiverIsAdminThread = receiverPublicKey === adminPublicKey && isPlayerGame(game) && hasAdminThreadForPlayer(game);
     if (publicKey === adminPublicKey) {
       return Boolean(receiverPublicKey && receiverPublicKey !== publicKey && receiverIsParticipant);
     }
+    const receiverIsAdminThread = receiverPublicKey === adminPublicKey && isPlayerGame(game) && hasAdminThreadForPlayer(game);
     return Boolean(
       publicKey &&
         receiverPublicKey &&
@@ -3933,6 +4015,43 @@ function App() {
         (publicKey === game.creatorPublicKey || publicKey === game.joinerPublicKey) &&
         (receiverIsParticipant || receiverIsAdminThread)
     );
+  }
+
+  function opponentForPlayer(game: Game) {
+    if (!publicKey || !isPlayerGame(game)) return null;
+    return publicKey === game.creatorPublicKey
+      ? game.joinerPublicKey && game.joinerPseudo
+        ? { publicKey: game.joinerPublicKey, pseudo: game.joinerPseudo }
+        : null
+      : { publicKey: game.creatorPublicKey, pseudo: game.creatorPseudo };
+  }
+
+  function replyTargetFor(game: Game) {
+    if (!publicKey) return null;
+    if (isPlayerGame(game)) {
+      if (publicKey !== adminPublicKey) {
+        const latestIncomingMessage = [...(gameMessages[game.id] ?? [])]
+          .reverse()
+          .find((item) => item.senderPublicKey !== publicKey);
+        if (
+          latestIncomingMessage?.senderPublicKey === adminPublicKey &&
+          latestIncomingMessage?.receiverPublicKey === publicKey &&
+          adminPublicKey !== game.creatorPublicKey &&
+          adminPublicKey !== game.joinerPublicKey
+        ) {
+          return { publicKey: adminPublicKey, pseudo: "Admin" };
+        }
+      }
+      return opponentForPlayer(game);
+    }
+    if (publicKey !== adminPublicKey) return null;
+    const latestParticipantMessage = [...(gameMessages[game.id] ?? [])]
+      .reverse()
+      .find((item) => item.senderPublicKey === game.creatorPublicKey || item.senderPublicKey === game.joinerPublicKey);
+    if (latestParticipantMessage?.senderPublicKey === game.joinerPublicKey && game.joinerPseudo) {
+      return { publicKey: game.joinerPublicKey, pseudo: game.joinerPseudo };
+    }
+    return { publicKey: game.creatorPublicKey, pseudo: game.creatorPseudo };
   }
 
   function isPlayerGame(game: Game) {
@@ -3972,6 +4091,7 @@ function App() {
   }
 
   function messageButtonFor(game: Game, receiverPublicKey: string | null | undefined, receiverPseudo: string | null | undefined) {
+    if (publicKey === adminPublicKey && !isPlayerGame(game)) return null;
     if (!canMessagePlayer(game, receiverPublicKey) || !receiverPublicKey || !receiverPseudo) return null;
     if (publicKey !== adminPublicKey && playerMessagePrefs[receiverPublicKey] === false) return null;
     return (
@@ -3985,6 +4105,25 @@ function App() {
         type="button"
       >
         <MessageSquareText size={14} />
+      </button>
+    );
+  }
+
+  function replyButtonFor(game: Game) {
+    const target = replyTargetFor(game);
+    if (!target || !canMessagePlayer(game, target.publicKey)) return null;
+    if (publicKey !== adminPublicKey && target.publicKey !== adminPublicKey && playerMessagePrefs[target.publicKey] === false) return null;
+    return (
+      <button
+        className="secondaryButton"
+        onClick={() => {
+          setMessageDraft("");
+          setMessageDialog({ game, receiverPublicKey: target.publicKey, receiverPseudo: target.pseudo });
+        }}
+        type="button"
+      >
+        <MessageSquareText size={16} />
+        {t("reply")}
       </button>
     );
   }
@@ -4043,7 +4182,11 @@ function App() {
     await runAction(async () => {
       await sendGameMessage(messageDialog.game.id, {
         senderPublicKey: publicKey,
-        ...(publicKey === adminPublicKey || messageDialog.receiverPublicKey === adminPublicKey
+        ...((publicKey === adminPublicKey && !isPlayerGame(messageDialog.game)) ||
+        (publicKey !== adminPublicKey &&
+          messageDialog.receiverPublicKey === adminPublicKey &&
+          adminPublicKey !== messageDialog.game.creatorPublicKey &&
+          adminPublicKey !== messageDialog.game.joinerPublicKey)
           ? { receiverPublicKey: messageDialog.receiverPublicKey }
           : {}),
         body: messageDraft.slice(0, 500)
@@ -5743,74 +5886,9 @@ function App() {
               <p className="muted">{t("noPlayerMessages")}</p>
             )}
           </div>
-          {selectedGame && publicKey && publicKey === adminPublicKey && (
+          {selectedGame && replyButtonFor(selectedGame) && (
             <div className="messageReplyActions">
-              {selectedGame.creatorPublicKey && selectedGame.creatorPseudo && (
-                <button
-                  className="secondaryButton"
-                  onClick={() => {
-                    setMessageDraft("");
-                    setMessageDialog({
-                      game: selectedGame,
-                      receiverPublicKey: selectedGame.creatorPublicKey,
-                      receiverPseudo: selectedGame.creatorPseudo
-                    });
-                  }}
-                  type="button"
-                >
-                  <MessageSquareText size={16} />
-                  {t("reply")} {selectedGame.creatorPseudo}
-                </button>
-              )}
-              {selectedGame.joinerPublicKey && selectedGame.joinerPseudo && (
-                <button
-                  className="secondaryButton"
-                  onClick={() => {
-                    setMessageDraft("");
-                    setMessageDialog({
-                      game: selectedGame,
-                      receiverPublicKey: selectedGame.joinerPublicKey ?? "",
-                      receiverPseudo: selectedGame.joinerPseudo ?? ""
-                    });
-                  }}
-                  type="button"
-                >
-                  <MessageSquareText size={16} />
-                  {t("reply")} {selectedGame.joinerPseudo}
-                </button>
-              )}
-            </div>
-          )}
-          {selectedGame && publicKey && publicKey !== adminPublicKey && (publicKey === selectedGame.creatorPublicKey || publicKey === selectedGame.joinerPublicKey) && (
-            <div className="messageReplyActions">
-              <button
-                className="secondaryButton"
-                onClick={() => {
-                  const receiverPublicKey = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPublicKey : selectedGame.creatorPublicKey;
-                  const receiverPseudo = publicKey === selectedGame.creatorPublicKey ? selectedGame.joinerPseudo : selectedGame.creatorPseudo;
-                  if (receiverPublicKey && receiverPseudo) {
-                    setMessageDraft("");
-                    setMessageDialog({ game: selectedGame, receiverPublicKey, receiverPseudo });
-                  }
-                }}
-                type="button"
-              >
-                <MessageSquareText size={16} />
-                {t("reply")}
-              </button>
-              {hasAdminThreadForPlayer(selectedGame) && (
-                <button
-                  className="secondaryButton"
-                  onClick={() => {
-                    setMessageDraft("");
-                    setMessageDialog({ game: selectedGame, receiverPublicKey: adminPublicKey, receiverPseudo: "Admin" });
-                  }}
-                  type="button"
-                >
-                  <MessageSquareText size={16} />
-                  {t("reply")} Admin
-                </button>
-              )}
+              {replyButtonFor(selectedGame)}
             </div>
           )}
           <div className="sectionHead compactHead">
