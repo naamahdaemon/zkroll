@@ -162,6 +162,11 @@ function firstAccount() {
   return minaAccounts(session).map(parseAccount).find((item): item is { chainId: string; publicKey: string } => item !== null);
 }
 
+function sessionSupportsMethod(method: string) {
+  const approvedMethods = session?.namespaces?.mina?.methods;
+  return Array.isArray(approvedMethods) && approvedMethods.includes(method);
+}
+
 async function restoreSession() {
   if (session) return session;
   const nextClient = await client();
@@ -207,7 +212,9 @@ async function connectSession(targetChainId = preferredChainId) {
   const restored = await restoreSession();
   if (restored) {
     promptHandler?.(null);
-    if (!targetChainId || accountForChain(targetChainId)) return restored;
+    const hasTargetAccount = !targetChainId || accountForChain(targetChainId);
+    const hasRequiredMethods = methods.every((method) => sessionSupportsMethod(method));
+    if (hasTargetAccount && hasRequiredMethods) return restored;
     await disconnectCurrentSession();
     promptHandler?.({ kind: "connect", isPreparing: true });
   }
@@ -256,6 +263,9 @@ function normalizeResult(result: unknown) {
   if (typeof result === "string") return { hash: extractTransactionHash(result) ?? undefined };
   if (!result || typeof result !== "object") return result;
   const record = result as Record<string, unknown>;
+  if (typeof record.code === "number" && typeof record.message === "string") {
+    throw new Error(record.message);
+  }
   if (typeof record.hash === "string") return { hash: extractTransactionHash(record.hash) ?? undefined };
   if (typeof record.transactionHash === "string") return { hash: extractTransactionHash(record.transactionHash) ?? undefined };
   if (typeof record.txHash === "string") return { hash: extractTransactionHash(record.txHash) ?? undefined };
@@ -305,6 +315,7 @@ export function walletConnectProvider(): MinaProvider {
       if (!from) throw new Error(`No WalletConnect account available for ${chainId}.`);
       const feePayer = feePayerParams(args.feePayer);
 
+      promptHandler?.({ kind: "request", openUrl: requestOpenUrl() });
       const requestPromise = nextClient.request({
         topic: session.topic,
         chainId,
@@ -322,9 +333,12 @@ export function walletConnectProvider(): MinaProvider {
         await sleep(walletOpenDelayMs);
       }
       openAuroForRequest();
-      const result = await requestPromise;
-      promptHandler?.(null);
-      return normalizeResult(result) as { hash?: string };
+      try {
+        const result = await requestPromise;
+        return normalizeResult(result) as { hash?: string };
+      } finally {
+        promptHandler?.(null);
+      }
     },
 
     async sendPayment(args: { to: string; amount: number; fee?: number; memo?: string; walletOpenDelayMs?: number }) {
@@ -335,6 +349,7 @@ export function walletConnectProvider(): MinaProvider {
       const from = accountForChain(chainId);
       if (!from) throw new Error(`No WalletConnect account available for ${chainId}.`);
 
+      promptHandler?.({ kind: "request", openUrl: requestOpenUrl() });
       const requestPromise = nextClient.request({
         topic: session.topic,
         chainId,
@@ -354,9 +369,12 @@ export function walletConnectProvider(): MinaProvider {
         await sleep(walletOpenDelayMs);
       }
       openAuroForRequest();
-      const result = await requestPromise;
-      promptHandler?.(null);
-      return normalizeResult(result) as { hash?: string };
+      try {
+        const result = await requestPromise;
+        return normalizeResult(result) as { hash?: string };
+      } finally {
+        promptHandler?.(null);
+      }
     }
   };
 }

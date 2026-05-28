@@ -9,6 +9,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 const PROVER_MODE = import.meta.env.VITE_PROVER_MODE === "server" ? "server" : "client";
 const SERVER_PROVER_POLL_MS = Number(import.meta.env.VITE_SERVER_PROVER_POLL_MS ?? 1500);
 const SERVER_PROVER_WALLET_DELAY_MS = Number(import.meta.env.VITE_SERVER_PROVER_WALLET_DELAY_MS ?? 2500);
+const PAYMENT_WALLET_DELAY_MS = Number(import.meta.env.VITE_PAYMENT_WALLET_DELAY_MS ?? SERVER_PROVER_WALLET_DELAY_MS);
 const CLIENT_O1JS_VERSION = "2.15.0";
 const SERVER_O1JS_VERSION = "2.15.0";
 
@@ -350,7 +351,7 @@ export async function sendMinaPaymentOnchain(input: {
       memo
     },
     input.onProgress,
-    undefined
+    PAYMENT_WALLET_DELAY_MS
   );
 }
 
