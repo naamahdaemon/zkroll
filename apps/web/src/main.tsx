@@ -5316,6 +5316,7 @@ function App() {
       const txHash = await sendMinaPaymentOnchain({
         provider: walletProvider(),
         network,
+        senderPublicKey,
         recipientPublicKey: leaderboardDetail.wallet,
         amount,
         fee,

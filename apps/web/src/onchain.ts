@@ -264,6 +264,12 @@ async function setup(network: NetworkId, onProgress?: ProgressCallback) {
   return toolkit;
 }
 
+async function setupPlainTransaction(network: NetworkId) {
+  const toolkit = await load();
+  toolkit.Mina.setActiveInstance(toolkit.createMinaNetwork(network));
+  return toolkit;
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -280,11 +286,12 @@ async function buildMinaTransaction(
   network: NetworkId,
   sender: unknown,
   memo: string,
-  callback: () => Promise<void>
+  callback: () => Promise<void>,
+  feeNanoMina = FEE_NANOMINA
 ) {
   try {
     await ensureFeePayerAccountReady(toolkit, sender, network);
-    return await toolkit.Mina.transaction({ sender: sender as never, fee: FEE_NANOMINA, memo }, callback);
+    return await toolkit.Mina.transaction({ sender: sender as never, fee: feeNanoMina, memo }, callback);
   } catch (error) {
     const message = errorMessage(error);
     if (message.includes("Cannot start new transaction within another transaction")) {
@@ -296,15 +303,25 @@ async function buildMinaTransaction(
   }
 }
 
+function minaToNanoMina(value: number, label: string) {
+  const nanoMina = Math.round(value * 1_000_000_000);
+  if (!Number.isSafeInteger(nanoMina) || nanoMina <= 0) {
+    throw new Error(`Montant ${label} invalide.`);
+  }
+  return nanoMina.toString();
+}
+
+function minaToNanoMinaNumber(value: number, label: string) {
+  const nanoMina = Number(minaToNanoMina(value, label));
+  if (!Number.isSafeInteger(nanoMina)) {
+    throw new Error(`Montant ${label} trop eleve.`);
+  }
+  return nanoMina;
+}
+
 function assertProvider(provider: MinaProvider | undefined): MinaProvider {
   if (!provider) throw new Error("Wallet Mina introuvable.");
   if (!provider.sendTransaction) throw new Error("Le wallet ne supporte pas sendTransaction.");
-  return provider;
-}
-
-function assertPaymentProvider(provider: MinaProvider | undefined): MinaProvider {
-  if (!provider) throw new Error("Wallet Mina introuvable.");
-  if (!provider.sendPayment) throw new Error("Le wallet ne supporte pas sendPayment.");
   return provider;
 }
 
@@ -333,26 +350,28 @@ export function requiredTransactionHash(value: string): string {
 export async function sendMinaPaymentOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  senderPublicKey: string;
   recipientPublicKey: string;
   amount: number;
   fee: number;
   memo: string;
   onProgress?: ProgressCallback;
 }) {
-  const provider = assertPaymentProvider(input.provider);
+  const provider = assertProvider(input.provider);
   await ensureWalletNetwork(provider, input.network, input.onProgress);
   const memo = input.memo.slice(0, 32);
-  return sendPaymentWithWallet(
-    provider,
-    {
-      to: input.recipientPublicKey,
-      amount: input.amount,
-      fee: input.fee,
-      memo
-    },
-    input.onProgress,
-    PAYMENT_WALLET_DELAY_MS
-  );
+  const toolkit = await setupPlainTransaction(input.network);
+  const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
+  const recipient = toolkit.PublicKey.fromBase58(input.recipientPublicKey);
+  const amountNanoMina = minaToNanoMina(input.amount, "montant");
+  const feeNanoMina = minaToNanoMinaNumber(input.fee, "fee");
+  const tx = await buildMinaTransaction(toolkit, input.network, sender, memo, async () => {
+    toolkit.AccountUpdate.createSigned(sender).send({
+      to: recipient,
+      amount: toolkit.UInt64.from(amountNanoMina)
+    });
+  }, feeNanoMina);
+  return sendWithWallet(provider, tx.toJSON(), input.onProgress, PAYMENT_WALLET_DELAY_MS, memo, feeNanoMina);
 }
 
 function compactGameMemo(action: string, gameId?: string) {
