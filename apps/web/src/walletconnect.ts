@@ -11,7 +11,7 @@ const chainIds: Record<NetworkId, string> = {
   zeko: "zeko:testnet"
 };
 
-const methods = ["mina_sendTransaction", "wallet_info"];
+const methods = ["mina_sendTransaction", "mina_sendPayment", "wallet_info"];
 const chains = Object.values(chainIds);
 
 export type WalletConnectPrompt = {
@@ -314,6 +314,38 @@ export function walletConnectProvider(): MinaProvider {
             from,
             transaction: args.transaction,
             ...(feePayer ? { feePayer } : {})
+          }
+        }
+      });
+      const walletOpenDelayMs = Math.max(0, Number(args.walletOpenDelayMs ?? 0));
+      if (walletOpenDelayMs > 0) {
+        await sleep(walletOpenDelayMs);
+      }
+      openAuroForRequest();
+      const result = await requestPromise;
+      promptHandler?.(null);
+      return normalizeResult(result) as { hash?: string };
+    },
+
+    async sendPayment(args: { to: string; amount: number; fee?: number; memo?: string; walletOpenDelayMs?: number }) {
+      await connectSession();
+      const nextClient = await client();
+      const chainId = currentChainId ?? firstAccount()?.chainId;
+      if (!chainId) throw new Error("WalletConnect network is not selected.");
+      const from = accountForChain(chainId);
+      if (!from) throw new Error(`No WalletConnect account available for ${chainId}.`);
+
+      const requestPromise = nextClient.request({
+        topic: session.topic,
+        chainId,
+        request: {
+          method: "mina_sendPayment",
+          params: {
+            from,
+            to: args.to,
+            amount: args.amount,
+            ...(args.fee ? { fee: args.fee } : {}),
+            ...(args.memo ? { memo: args.memo } : {})
           }
         }
       });

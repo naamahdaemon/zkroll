@@ -6,6 +6,9 @@ export type MinaProvider = {
   sendTransaction?: (args: { transaction: string; feePayer?: { fee?: number; memo?: string }; walletOpenDelayMs?: number }) => Promise<{
     hash?: string;
   }>;
+  sendPayment?: (args: { to: string; amount: number; fee?: number; memo?: string; walletOpenDelayMs?: number }) => Promise<{
+    hash?: string;
+  }>;
 };
 
 declare global {

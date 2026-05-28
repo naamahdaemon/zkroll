@@ -301,6 +301,12 @@ function assertProvider(provider: MinaProvider | undefined): MinaProvider {
   return provider;
 }
 
+function assertPaymentProvider(provider: MinaProvider | undefined): MinaProvider {
+  if (!provider) throw new Error("Wallet Mina introuvable.");
+  if (!provider.sendPayment) throw new Error("Le wallet ne supporte pas sendPayment.");
+  return provider;
+}
+
 function normalizeWalletHash(result: unknown): string | null {
   if (typeof result === "string") return extractTransactionHash(result);
   if (!result || typeof result !== "object") return null;
@@ -321,6 +327,31 @@ export function requiredTransactionHash(value: string): string {
     throw new Error("Aucun hash de transaction Mina 5J... trouve dans le texte fourni.");
   }
   return hash;
+}
+
+export async function sendMinaPaymentOnchain(input: {
+  provider: MinaProvider | undefined;
+  network: NetworkId;
+  recipientPublicKey: string;
+  amount: number;
+  fee: number;
+  memo: string;
+  onProgress?: ProgressCallback;
+}) {
+  const provider = assertPaymentProvider(input.provider);
+  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  const memo = input.memo.slice(0, 32);
+  return sendPaymentWithWallet(
+    provider,
+    {
+      to: input.recipientPublicKey,
+      amount: input.amount,
+      fee: input.fee,
+      memo
+    },
+    input.onProgress,
+    undefined
+  );
 }
 
 function compactGameMemo(action: string, gameId?: string) {
@@ -360,7 +391,8 @@ async function sendWithWallet(
   transactionJson: string,
   onProgress?: ProgressCallback,
   walletOpenDelayMs?: number,
-  memo?: string
+  memo?: string,
+  feeNanoMina = FEE_NANOMINA
 ) {
   report(onProgress, "progressWalletSignature", 86);
   let localManualResolver: ((resolution: ManualWalletResolution) => void) | null = null;
@@ -370,7 +402,7 @@ async function sendWithWallet(
   });
   const sendPromise = provider.sendTransaction!({
     transaction: transactionJson,
-    feePayer: memo ? { fee: FEE_NANOMINA, memo } : undefined,
+    feePayer: memo || feeNanoMina ? { fee: feeNanoMina, ...(memo ? { memo } : {}) } : undefined,
     walletOpenDelayMs
   });
   void sendPromise.catch(() => undefined);
@@ -404,6 +436,88 @@ async function sendWithWallet(
     );
     if (!manualHash?.trim()) {
       throw new Error("Transaction envoyee possible, mais hash non renseigne. Colle le hash pour indexer la partie.");
+    }
+    report(onProgress, "progressTransactionProvided", 100);
+    return requiredTransactionHash(manualHash);
+  }
+
+  const finalResult = await Promise.resolve(result).finally(() => {
+    if (manualWalletResolution === localManualResolver) {
+      manualWalletResolution = null;
+    }
+  });
+
+  if (typeof finalResult === "object" && finalResult && "kind" in finalResult) {
+    if (finalResult.kind === "failed") {
+      throw new Error(finalResult.reason);
+    }
+    report(onProgress, "progressTransactionProvided", 100);
+    return requiredTransactionHash(finalResult.hash);
+  }
+
+  const hash = normalizeWalletHash(finalResult);
+  if (!hash) {
+    const manualHash = window.prompt(
+      "Le wallet a repondu sans hash exploitable. Colle le hash de transaction affiche dans Auro ou l'explorateur."
+    );
+    if (!manualHash?.trim()) {
+      throw new Error("Le wallet n'a pas renvoye de hash exploitable.");
+    }
+    report(onProgress, "progressTransactionProvided", 100);
+    return requiredTransactionHash(manualHash);
+  }
+
+  report(onProgress, "progressTransactionSent", 100);
+  return hash;
+}
+
+async function sendPaymentWithWallet(
+  provider: MinaProvider,
+  args: { to: string; amount: number; fee?: number; memo?: string },
+  onProgress?: ProgressCallback,
+  walletOpenDelayMs?: number
+) {
+  report(onProgress, "progressWalletSignature", 86);
+  let localManualResolver: ((resolution: ManualWalletResolution) => void) | null = null;
+  const manualResolutionPromise = new Promise<ManualWalletResolution>((resolve) => {
+    localManualResolver = resolve;
+    manualWalletResolution = resolve;
+  });
+  const sendPromise = provider.sendPayment!({
+    ...args,
+    walletOpenDelayMs
+  });
+  void sendPromise.catch(() => undefined);
+
+  let result = await Promise.race([
+    sendPromise,
+    manualResolutionPromise,
+    walletTimeout(WALLET_RESPONSE_TIMEOUT_MS)
+  ]);
+
+  if (result === "timeout") {
+    report(onProgress, "progressWalletNoAutoReturn", 92);
+    await waitForWalletReturn(Math.min(WALLET_RETURN_GRACE_MS, Math.max(5_000, WALLET_RESPONSE_TIMEOUT_MS)));
+    result = await Promise.race([
+      sendPromise,
+      manualResolutionPromise,
+      walletTimeout(WALLET_RETURN_GRACE_MS)
+    ]);
+  }
+
+  await Promise.resolve().finally(() => {
+    if (manualWalletResolution === localManualResolver) {
+      manualWalletResolution = null;
+    }
+  });
+
+  if (result === "timeout") {
+    report(onProgress, "progressWalletNoAutoReturn", 92);
+    const manualHash = window.prompt(
+      "Auro n'a pas renvoye le hash a l'application. Si la transaction est visible dans le wallet ou l'explorateur, colle son hash ici."
+    );
+    if (!manualHash?.trim()) {
+      throw new Error("Transaction envoyee possible, mais hash non renseigne.");
     }
     report(onProgress, "progressTransactionProvided", 100);
     return requiredTransactionHash(manualHash);

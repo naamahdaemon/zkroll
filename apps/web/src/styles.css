@@ -329,6 +329,35 @@ h2 {
   margin-top: 24px;
 }
 
+.cardsShell .leftColumn {
+  display: contents;
+}
+
+.cardsShell .playerPanel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.cardsShell .messagesPanel {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.cardsShell .gamesPanel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.cardsShell .detailPanel {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.cardsShell .leaderboardPanel {
+  grid-column: 2 / -1;
+  grid-row: 2;
+}
+
 .leftColumn {
   display: grid;
   gap: 18px;
@@ -681,6 +710,39 @@ select {
   display: none;
 }
 
+.leaderboardBackButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  display: inline-flex;
+  font-weight: 900;
+  gap: 7px;
+  justify-self: start;
+  line-height: 1.35;
+  margin: 2px 0 4px;
+  min-height: 0;
+  overflow: visible;
+  padding: 8px 4px 10px;
+}
+
+.leaderboardBackButton svg {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+  flex: 0 0 auto;
+  height: 24px;
+  overflow: visible;
+  padding: 3px;
+  width: 24px;
+}
+
+.leaderboardBackButton:not(:disabled):hover {
+  box-shadow: none;
+  color: color-mix(in srgb, var(--primary) 78%, var(--text));
+  transform: translateX(-2px);
+}
+
 .creditsBox {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -799,6 +861,40 @@ select {
 
 .messagesPanel {
   min-height: 0;
+}
+
+.messagePanelTitle {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.messagePanelTitle h2 {
+  margin: 0;
+}
+
+.messageGameLink {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 5px;
+  justify-self: start;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.messageGameLink span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .compactHead {
@@ -930,6 +1026,62 @@ select {
   white-space: nowrap;
 }
 
+.leaderboardCustomFilters {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.42fr);
+}
+
+.leaderboardCustomFilters fieldset,
+.leaderboardSortFilter {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.leaderboardCustomFilters fieldset {
+  align-items: end;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
+.leaderboardCustomFilters legend,
+.leaderboardCustomFilters label span,
+.leaderboardSortFilter span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.leaderboardCustomFilters legend {
+  padding: 0 4px;
+}
+
+.leaderboardCustomFilters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.leaderboardCustomFilters input,
+.leaderboardCustomFilters select {
+  min-width: 0;
+  width: 100%;
+}
+
+.leaderboardCustomFilters fieldset > button {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0;
+  width: 34px;
+}
+
 .leaderboardModeTabs {
   align-items: center;
   display: grid;
@@ -981,11 +1133,15 @@ select {
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 8px;
+  color: inherit;
   display: grid;
+  font: inherit;
   gap: 10px;
   grid-template-columns: auto minmax(0, 1fr);
   min-height: 0;
   padding: 10px 10px 12px;
+  text-align: left;
+  width: 100%;
 }
 
 .leaderboardRow.current {
@@ -1025,7 +1181,7 @@ select {
   margin-top: 10px;
 }
 
-.cardsShell .leaderboardRank {
+.cardsShell .leaderboardRow .leaderboardRank {
   left: 10px;
   padding-top: 0;
   position: absolute;
@@ -1044,6 +1200,296 @@ select {
 
 .cardsShell .leaderboardPlayerStats span {
   margin-top: 3px;
+}
+
+.leaderboardUserDetail {
+  align-content: start;
+  display: grid;
+  flex: 1;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 4px;
+  padding-right: 4px;
+}
+
+.leaderboardDetailHeader,
+.leaderboardDetailSection {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.leaderboardDetailHeader h3 {
+  margin: 4px 0;
+}
+
+.leaderboardDetailHeader code {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.leaderboardPaymentBox {
+  border: 1px solid color-mix(in srgb, var(--primary) 36%, var(--border));
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.leaderboardPaymentBox h4 {
+  margin: 0;
+}
+
+.leaderboardPaymentFields {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(92px, 0.65fr) minmax(92px, 0.65fr) minmax(150px, 1fr) auto;
+}
+
+.leaderboardPaymentFields label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.leaderboardPaymentFields label span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.leaderboardPaymentFields input {
+  min-width: 0;
+  width: 100%;
+}
+
+.leaderboardPaymentButton {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.leaderboardDetailSection h4 {
+  margin: 0;
+}
+
+.leaderboardDetailSectionHead {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.leaderboardDetailSectionHead strong {
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.leaderboardDetailSummary {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin: 0;
+}
+
+.leaderboardDetailSummary div {
+  background: var(--surface-soft);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 7px;
+  padding: 8px;
+}
+
+.leaderboardDetailSummary dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.leaderboardDetailSummary dd {
+  margin: 4px 0 0;
+}
+
+.leaderboardDetailTableWrap {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.leaderboardDetailTable {
+  border-collapse: collapse;
+  min-width: 100%;
+  table-layout: auto;
+  width: max-content;
+}
+
+.leaderboardDetailTable.games {
+  min-width: 100%;
+}
+
+.leaderboardDetailTable th,
+.leaderboardDetailTable td {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 11px;
+  height: auto;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  padding: 3px 6px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.leaderboardDetailTable tr {
+  height: auto;
+}
+
+.leaderboardDetailTable.games th,
+.leaderboardDetailTable.games td {
+  padding-block: 2px;
+}
+
+.leaderboardDetailTable th:first-child,
+.leaderboardDetailTable td:first-child {
+  width: auto;
+}
+
+.leaderboardDetailTable.games th:nth-child(4),
+.leaderboardDetailTable.games td:nth-child(4) {
+  max-width: 260px;
+  white-space: normal;
+  width: auto;
+}
+
+.leaderboardDetailTable th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.leaderboardDetailTable code {
+  color: var(--accent);
+}
+
+.leaderboardDetailTotalRow td {
+  border-bottom: 0;
+  color: var(--primary);
+  font-weight: 900;
+}
+
+.leaderboardDetailPagination {
+  padding-top: 2px;
+}
+
+.legacyLeaderboardGamesTable {
+  display: none;
+}
+
+.leaderboardGamesRows {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 0;
+  max-width: 100%;
+  overflow: auto;
+  padding: 10px;
+}
+
+.leaderboardGamesHeader,
+.leaderboardGamesRow {
+  align-items: center;
+  display: grid;
+  gap: 0 14px;
+  grid-template-columns: 82px 96px 64px minmax(190px, 1fr) 82px;
+  min-width: 560px;
+}
+
+.leaderboardGamesHeader {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  padding-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.leaderboardGamesRow {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 4px 0;
+}
+
+.leaderboardGamesRow code {
+  color: var(--accent);
+}
+
+.leaderboardGamesRow.total {
+  color: var(--primary);
+  font-weight: 900;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.cardsShell .leaderboardDetailTable.games {
+  align-content: start;
+  align-items: start;
+  border-collapse: separate;
+  display: grid;
+  gap: 0;
+  height: auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.cardsShell .leaderboardDetailTable.games thead,
+.cardsShell .leaderboardDetailTable.games tbody {
+  align-content: start;
+  display: grid;
+  gap: 0;
+  height: auto;
+  min-height: 0;
+}
+
+.cardsShell .leaderboardDetailTable.games thead {
+  margin-bottom: 4px;
+}
+
+.cardsShell .leaderboardDetailTable.games tr {
+  align-items: start;
+  display: grid;
+  gap: 0 14px;
+  grid-template-columns: max-content max-content max-content minmax(max-content, 1fr) max-content;
+  min-height: 0;
+}
+
+.cardsShell .leaderboardDetailTable.games th,
+.cardsShell .leaderboardDetailTable.games td {
+  display: block;
+  height: auto;
+  min-height: 0;
+  padding: 2px 0;
+  width: auto;
+}
+
+.cardsShell .leaderboardDetailTable.games th:nth-child(4),
+.cardsShell .leaderboardDetailTable.games td:nth-child(4) {
+  max-width: none;
+}
+
+.cardsShell .leaderboardDetailTable.games .leaderboardDetailTotalRow {
+  grid-template-columns: minmax(0, 1fr) max-content;
 }
 
 .adminConnectionFilters {
@@ -2276,6 +2722,126 @@ dd {
   max-height: none;
 }
 
+.appShell .leaderboardDetailTable.games {
+  min-width: 0;
+}
+
+.appShell .leaderboardDetailTable.games thead {
+  display: none;
+}
+
+.appShell .leaderboardDetailTable.games,
+.appShell .leaderboardDetailTable.games tbody,
+.appShell .leaderboardDetailTable.games tr,
+.appShell .leaderboardDetailTable.games td {
+  display: block;
+  width: 100%;
+}
+
+.appShell .leaderboardDetailTable.games tbody {
+  display: grid;
+  gap: 8px;
+}
+
+.appShell .leaderboardDetailTable.games tr {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 8px;
+  padding: 7px;
+}
+
+.appShell .leaderboardDetailTable.games td {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(92px, 0.42fr) minmax(0, 1fr);
+  padding: 4px 0;
+}
+
+.appShell .leaderboardDetailTable.games td::before {
+  color: var(--muted);
+  content: attr(data-label);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.appShell .leaderboardDetailTable.games td:last-child {
+  border-bottom: 0;
+}
+
+.appShell .leaderboardDetailTable.games .leaderboardDetailTotalRow {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.appShell .leaderboardDetailTable.games .leaderboardDetailTotalRow td {
+  display: block;
+}
+
+.appShell .leaderboardDetailTable.games .leaderboardDetailTotalRow td::before {
+  content: none;
+}
+
+.appShell .leaderboardGamesRows {
+  padding: 8px;
+}
+
+.appShell .leaderboardGamesHeader {
+  display: none;
+}
+
+.appShell .leaderboardGamesRows,
+.appShell .leaderboardGamesRow {
+  min-width: 0;
+}
+
+.appShell .leaderboardGamesRow {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 8px;
+  display: grid;
+  gap: 0;
+  grid-template-columns: 1fr;
+  margin-top: 8px;
+  padding: 7px;
+}
+
+.appShell .leaderboardGamesRow:first-of-type {
+  margin-top: 0;
+}
+
+.appShell .leaderboardGamesRow span {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(92px, 0.42fr) minmax(0, 1fr);
+  padding: 4px 0;
+}
+
+.appShell .leaderboardGamesRow span::before {
+  color: var(--muted);
+  content: attr(data-label);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.appShell .leaderboardGamesRow span:last-child {
+  border-bottom: 0;
+}
+
+.appShell .leaderboardGamesRow.total {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.appShell .leaderboardGamesRow.total span {
+  border-bottom: 0;
+  display: block;
+}
+
+.appShell .leaderboardGamesRow.total span::before {
+  content: none;
+}
+
 .appShell .appBackButton {
   display: inline-flex;
 }
@@ -2323,6 +2889,15 @@ dd {
 @media (max-width: 1120px) {
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  .cardsShell .playerPanel,
+  .cardsShell .messagesPanel,
+  .cardsShell .gamesPanel,
+  .cardsShell .detailPanel,
+  .cardsShell .leaderboardPanel {
+    grid-column: 1;
+    grid-row: auto;
   }
 }
 
@@ -2483,6 +3058,22 @@ dd {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .leaderboardCustomFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .leaderboardCustomFilters fieldset {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .leaderboardCustomFilters fieldset > button {
+    width: 100%;
+  }
+
+  .leaderboardPaymentFields {
+    grid-template-columns: 1fr;
   }
 
   .adminSignalList {

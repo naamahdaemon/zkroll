@@ -108,6 +108,7 @@ import {
   refundGameOnchain,
   requiredTransactionHash,
   resolvePendingWalletSignatureWithHash,
+  sendMinaPaymentOnchain,
   settleGameOnchain,
   type OnchainProgress,
   type ProvingCompatibility,
@@ -149,6 +150,9 @@ const txPollIntervalMs = Number(import.meta.env.VITE_TX_POLL_INTERVAL_MS ?? 60_0
 const slotPollIntervalMs = Number(import.meta.env.VITE_SLOT_POLL_INTERVAL_MS ?? 60_000);
 const gamesPerPage = 5;
 const leaderboardPerPage = 4;
+const leaderboardDetailGamesPerPageCards = 10;
+const leaderboardDetailGamesPerPageApp = 5;
+const leaderboardDetailReferralsPerPage = 8;
 const maxRefundTimeoutSlots = 2400;
 const pendingActionGameLimit = 5;
 const minaTransactionHashPattern = /^5J[1-9A-HJ-NP-Za-km-z]{40,}$/;
@@ -194,6 +198,16 @@ type WalletConnectQrMode = "auro" | "wc";
 type TransactionKind = "creation" | "join" | "settlement" | "refund";
 type LeaderboardPeriod = "all" | "month" | "week" | "day";
 type LeaderboardAdminView = "scores" | "signals";
+type LeaderboardSortField =
+  | "score"
+  | "activeReferralCount"
+  | "referralBonus"
+  | "gamesPlayed"
+  | "gamesWon"
+  | "uniqueOpponents"
+  | "amountWonNanoMina";
+type LeaderboardSortDirection = "asc" | "desc";
+type LeaderboardSortOption = `${LeaderboardSortField}:${LeaderboardSortDirection}`;
 type SavedUiState = {
   appScreen?: AppScreen;
   selectedGameId?: string | null;
@@ -206,6 +220,10 @@ type SavedUiState = {
   leaderboardPeriod?: LeaderboardPeriod;
   leaderboardWindowOffset?: number;
   leaderboardAdminView?: LeaderboardAdminView;
+  leaderboardCustomStart?: string;
+  leaderboardCustomEnd?: string;
+  leaderboardSort?: LeaderboardSortOption;
+  selectedLeaderboardUserKey?: string | null;
   adminConnectionSelectedPublicKeys?: string[];
   adminConnectionUserSearch?: string;
   adminConnectionIpSearch?: string;
@@ -323,6 +341,18 @@ const copy: Record<string, Record<string, string>> = {
     leaderboardMonthly: "Monthly",
     leaderboardWeekly: "Weekly",
     leaderboardDaily: "Daily",
+    customDateRange: "Custom date range",
+    beginDate: "Begin",
+    endDate: "End",
+    clearDateRange: "Clear dates",
+    sortBy: "Sort",
+    sendMina: "Send MINA",
+    sendMinaToPlayer: "Send MINA to this player",
+    fee: "Fee",
+    memo: "Memo",
+    sendMinaSuccess: "Payment sent.",
+    invalidMinaAmount: "Enter a valid MINA amount.",
+    invalidFeeAmount: "Enter a valid fee.",
     refundTimeout: "Refund timeout (slots)",
     gameStatus: "Status",
     create: "Create",
@@ -442,6 +472,24 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Leaderboard",
     leaderboardTab: "Ranks",
     leaderboardScore: "Score",
+    leaderboardUserDetails: "User details",
+    backToLeaderboard: "Back to leaderboard",
+    summary: "Summary",
+    totalScore: "Total score",
+    referrals: "Referrals",
+    referredPlayer: "Referred player",
+    scoreBrought: "Score brought",
+    referralDate: "Referral date",
+    referralScoreTotal: "Referral score total",
+    noReferrals: "No active referral in this period.",
+    gamesSection: "Games",
+    gameId: "Game id",
+    amount: "Amount",
+    status: "Status",
+    winner: "Winner",
+    minaWon: "MINA won",
+    total: "Total",
+    noGamesInPeriod: "No game in this period.",
     adminConnections: "Recent connections",
     adminRecentAddresses: "Recent addresses",
     adminConnectionFilters: "Connection filters",
@@ -657,6 +705,18 @@ const copy: Record<string, Record<string, string>> = {
     leaderboardMonthly: "Mensuel",
     leaderboardWeekly: "Hebdo",
     leaderboardDaily: "Jour",
+    customDateRange: "Periode personnalisee",
+    beginDate: "Debut",
+    endDate: "Fin",
+    clearDateRange: "Effacer dates",
+    sortBy: "Tri",
+    sendMina: "Envoyer MINA",
+    sendMinaToPlayer: "Envoyer des MINA a ce joueur",
+    fee: "Frais",
+    memo: "Memo",
+    sendMinaSuccess: "Paiement envoye.",
+    invalidMinaAmount: "Renseigne un montant MINA valide.",
+    invalidFeeAmount: "Renseigne des frais valides.",
     refundTimeout: "Timeout refund (slots)",
     gameStatus: "Statut",
     create: "Creer",
@@ -776,6 +836,24 @@ const copy: Record<string, Record<string, string>> = {
     leaderboard: "Classement",
     leaderboardTab: "Classement",
     leaderboardScore: "Score",
+    leaderboardUserDetails: "Detail utilisateur",
+    backToLeaderboard: "Retour au classement",
+    summary: "Resume",
+    totalScore: "Score total",
+    referrals: "Parrainage",
+    referredPlayer: "Filleul",
+    scoreBrought: "Score apporte",
+    referralDate: "Date parrainage",
+    referralScoreTotal: "Score parrainage total",
+    noReferrals: "Aucun filleul actif sur cette periode.",
+    gamesSection: "Parties",
+    gameId: "Game id",
+    amount: "Montant",
+    status: "Statut",
+    winner: "Gagnant",
+    minaWon: "MINA gagnes",
+    total: "Total",
+    noGamesInPeriod: "Aucune partie sur cette periode.",
     adminConnections: "Connexions recentes",
     adminRecentAddresses: "Adresses recentes",
     adminConnectionFilters: "Filtres connexions",
@@ -1692,6 +1770,28 @@ function formatMina(value: string): string {
   });
 }
 
+function minaInputToNanoMina(value: string): string | null {
+  const trimmed = value.trim().replace(",", ".");
+  if (!/^\d+(\.\d{0,9})?$/.test(trimmed)) return null;
+  const [whole, decimal = ""] = trimmed.split(".");
+  const nano = `${whole}${decimal.padEnd(9, "0")}`.replace(/^0+(?=\d)/, "");
+  if (!nano || BigInt(nano) <= 0n) return null;
+  return nano;
+}
+
+function feeInputToNanoMina(value: string): number | null {
+  const nano = minaInputToNanoMina(value);
+  if (!nano) return null;
+  const fee = Number(nano);
+  return Number.isSafeInteger(fee) && fee > 0 ? fee : null;
+}
+
+function minaInputToNumber(value: string): number | null {
+  if (!minaInputToNanoMina(value)) return null;
+  const amount = Number(value.trim().replace(",", "."));
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
 function payoutNanoMinaForWinner(game: Game): bigint {
   if (game.status !== "settled" || !game.winnerPublicKey) return 0n;
   const stake = BigInt(game.stakeNanoMina);
@@ -1816,6 +1916,75 @@ function leaderboardWindowFor(period: LeaderboardPeriod, offset: number, locale:
     end: end.getTime(),
     label: formatDateOnly(start, locale)
   };
+}
+
+function dateInputTime(value: string, endExclusive: boolean): number | null {
+  if (!value) return null;
+  const parts = value.split("-").map((item) => Number(item));
+  if (parts.length !== 3) return null;
+  const [year, month, day] = parts as [number, number, number];
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const date = new Date(year, month - 1, day + (endExclusive ? 1 : 0));
+  const time = date.getTime();
+  return Number.isFinite(time) ? time : null;
+}
+
+function customLeaderboardWindowFor(startValue: string, endValue: string, locale: Locale) {
+  const start = dateInputTime(startValue, false);
+  const end = dateInputTime(endValue, true);
+  if (start === null && end === null) return null;
+  const labelParts = [
+    start === null ? "" : formatDateOnly(new Date(start), locale),
+    end === null ? "" : formatDateOnly(new Date(end - 1), locale)
+  ];
+  return {
+    start,
+    end,
+    label: labelParts.filter(Boolean).join(" - ")
+  };
+}
+
+const leaderboardSortOptions: Array<{ value: LeaderboardSortOption; label: string }> = [
+  { value: "score:desc", label: "Score desc" },
+  { value: "score:asc", label: "Score asc" },
+  { value: "activeReferralCount:desc", label: "# Referral desc" },
+  { value: "activeReferralCount:asc", label: "# Referral asc" },
+  { value: "referralBonus:desc", label: "Referral bonus desc" },
+  { value: "referralBonus:asc", label: "Referral bonus asc" },
+  { value: "gamesPlayed:desc", label: "# Games desc" },
+  { value: "gamesPlayed:asc", label: "# Games asc" },
+  { value: "gamesWon:desc", label: "# Wins desc" },
+  { value: "gamesWon:asc", label: "# Wins asc" },
+  { value: "uniqueOpponents:desc", label: "# Opponents desc" },
+  { value: "uniqueOpponents:asc", label: "# Opponents asc" },
+  { value: "amountWonNanoMina:desc", label: "MINA won desc" },
+  { value: "amountWonNanoMina:asc", label: "MINA won asc" }
+];
+
+function compareLeaderboardRows(left: LeaderboardRow, right: LeaderboardRow, sortOption: LeaderboardSortOption, locale: Locale) {
+  const [field, direction] = sortOption.split(":") as [LeaderboardSortField, LeaderboardSortDirection];
+  const factor = direction === "asc" ? 1 : -1;
+  let valueDiff = 0;
+  if (field === "amountWonNanoMina") {
+    const diff = BigInt(left.amountWonNanoMina) - BigInt(right.amountWonNanoMina);
+    valueDiff = diff === 0n ? 0 : diff > 0n ? 1 : -1;
+  } else {
+    valueDiff = left[field] - right[field];
+  }
+  if (valueDiff !== 0) return valueDiff * factor;
+  const scoreDiff = right.score - left.score;
+  if (scoreDiff !== 0) return scoreDiff;
+  const wonDiff = right.gamesWon - left.gamesWon;
+  if (wonDiff !== 0) return wonDiff;
+  const opponentDiff = right.uniqueOpponents - left.uniqueOpponents;
+  if (opponentDiff !== 0) return opponentDiff;
+  const unfinishedDiff = left.unfinishedGames - right.unfinishedGames;
+  if (unfinishedDiff !== 0) return unfinishedDiff;
+  const playedDiff = right.gamesPlayed - left.gamesPlayed;
+  if (playedDiff !== 0) return playedDiff;
+  const amountDiff = BigInt(right.amountWonNanoMina) - BigInt(left.amountWonNanoMina);
+  if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
+  return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
 }
 
 function localeTag(locale: Locale) {
@@ -2023,6 +2192,17 @@ function App() {
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>(() => initialUiState.leaderboardPeriod ?? "all");
   const [leaderboardWindowOffset, setLeaderboardWindowOffset] = useState(() => initialUiState.leaderboardWindowOffset ?? 0);
   const [leaderboardAdminView, setLeaderboardAdminView] = useState<LeaderboardAdminView>(() => initialUiState.leaderboardAdminView ?? "scores");
+  const [leaderboardCustomStart, setLeaderboardCustomStart] = useState(() => initialUiState.leaderboardCustomStart ?? "");
+  const [leaderboardCustomEnd, setLeaderboardCustomEnd] = useState(() => initialUiState.leaderboardCustomEnd ?? "");
+  const [leaderboardSort, setLeaderboardSort] = useState<LeaderboardSortOption>(() => initialUiState.leaderboardSort ?? "score:desc");
+  const [selectedLeaderboardUserKey, setSelectedLeaderboardUserKey] = useState<string | null>(
+    () => initialUiState.selectedLeaderboardUserKey ?? null
+  );
+  const [leaderboardDetailGamesPage, setLeaderboardDetailGamesPage] = useState(1);
+  const [leaderboardDetailReferralsPage, setLeaderboardDetailReferralsPage] = useState(1);
+  const [leaderboardPaymentAmount, setLeaderboardPaymentAmount] = useState("");
+  const [leaderboardPaymentFee, setLeaderboardPaymentFee] = useState("0.1");
+  const [leaderboardPaymentMemo, setLeaderboardPaymentMemo] = useState("zkroll reward");
   const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>(
     () => initialUiState.adminConnectionSelectedPublicKeys ?? []
   );
@@ -2110,9 +2290,13 @@ function App() {
       })()
     : "";
 
+  const customLeaderboardWindow = useMemo(
+    () => customLeaderboardWindowFor(leaderboardCustomStart, leaderboardCustomEnd, locale),
+    [leaderboardCustomEnd, leaderboardCustomStart, locale]
+  );
   const leaderboardWindow = useMemo(
-    () => leaderboardWindowFor(leaderboardPeriod, leaderboardWindowOffset, locale),
-    [leaderboardPeriod, leaderboardWindowOffset, locale]
+    () => customLeaderboardWindow ?? leaderboardWindowFor(leaderboardPeriod, leaderboardWindowOffset, locale),
+    [customLeaderboardWindow, leaderboardPeriod, leaderboardWindowOffset, locale]
   );
 
   const leaderboardRows = useMemo(() => {
@@ -2221,25 +2405,12 @@ function App() {
           } satisfies LeaderboardRow;
         }
       )
-      .sort((left, right) => {
-        const scoreDiff = right.score - left.score;
-        if (scoreDiff !== 0) return scoreDiff;
-        const wonDiff = right.gamesWon - left.gamesWon;
-        if (wonDiff !== 0) return wonDiff;
-        const opponentDiff = right.uniqueOpponents - left.uniqueOpponents;
-        if (opponentDiff !== 0) return opponentDiff;
-        const unfinishedDiff = left.unfinishedGames - right.unfinishedGames;
-        if (unfinishedDiff !== 0) return unfinishedDiff;
-        const playedDiff = right.gamesPlayed - left.gamesPlayed;
-        if (playedDiff !== 0) return playedDiff;
-        const amountDiff = BigInt(right.amountWonNanoMina) - BigInt(left.amountWonNanoMina);
-        if (amountDiff !== 0n) return amountDiff > 0n ? 1 : -1;
-        return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
-      });
+      .sort((left, right) => compareLeaderboardRows(left, right, leaderboardSort, locale));
   }, [
     games,
     leaderboardWindow.end,
     leaderboardWindow.start,
+    leaderboardSort,
     locale,
     network,
     playerDetailsByPublicKey,
@@ -2414,6 +2585,119 @@ function App() {
       .filter((row) => !needle || row.pseudo.toLowerCase().includes(needle))
       .slice(0, 8);
   }, [adminConnectionPlayerRows, adminConnectionSelectedPublicKeys, adminConnectionUserSearch]);
+  const selectedLeaderboardRow = useMemo(
+    () => leaderboardRows.find((row) => row.publicKey === selectedLeaderboardUserKey) ?? null,
+    [leaderboardRows, selectedLeaderboardUserKey]
+  );
+  const selectedLeaderboardRank = useMemo(
+    () => leaderboardRows.findIndex((row) => row.publicKey === selectedLeaderboardUserKey) + 1,
+    [leaderboardRows, selectedLeaderboardUserKey]
+  );
+  const leaderboardDetail = useMemo(() => {
+    if (!selectedLeaderboardRow) return null;
+    const isInsideWindow = (value: string | null | undefined) => {
+      if (leaderboardWindow.start === null && leaderboardWindow.end === null) return true;
+      if (!value) return false;
+      const time = new Date(value).getTime();
+      return (
+        Number.isFinite(time) &&
+        (leaderboardWindow.start === null || time >= leaderboardWindow.start) &&
+        (leaderboardWindow.end === null || time < leaderboardWindow.end)
+      );
+    };
+    const finalizedGamesInWindow = visibleGames
+      .map((game) => ({ game, finalizedAt: leaderboardFinalizedAt(game) }))
+      .filter((item): item is { game: Game; finalizedAt: string } => Boolean(item.finalizedAt) && isInsideWindow(item.finalizedAt));
+    const activePlayerKeys = new Set<string>();
+    for (const { game } of finalizedGamesInWindow) {
+      activePlayerKeys.add(game.creatorPublicKey);
+      if (game.joinerPublicKey) activePlayerKeys.add(game.joinerPublicKey);
+    }
+    const activeReferralKeys = Array.from(activePlayerKeys)
+      .filter((playerKey) => playerDetailsByPublicKey[playerKey]?.referredByPublicKey === selectedLeaderboardRow.publicKey)
+      .sort((left, right) => {
+        const leftDate = playerDetailsByPublicKey[left]?.referredAt ?? "";
+        const rightDate = playerDetailsByPublicKey[right]?.referredAt ?? "";
+        return leftDate.localeCompare(rightDate) || left.localeCompare(right);
+      });
+    const referralItems = activeReferralKeys.map((playerKey, index) => ({
+      publicKey: playerKey,
+      pseudo: playerPseudosByPublicKey[playerKey] ?? playerDetailsByPublicKey[playerKey]?.pseudo ?? playerKey,
+      score: referralScore(false, index + 1) - referralScore(false, index),
+      referredAt: playerDetailsByPublicKey[playerKey]?.referredAt ?? null
+    }));
+    const gameItems = visibleGames
+      .filter((game) => game.creatorPublicKey === selectedLeaderboardRow.publicKey || game.joinerPublicKey === selectedLeaderboardRow.publicKey)
+      .filter((game) => isInsideWindow(leaderboardFinalizedAt(game) ?? game.createdAt))
+      .sort((left, right) => {
+        const leftDate = leaderboardFinalizedAt(left) ?? left.createdAt;
+        const rightDate = leaderboardFinalizedAt(right) ?? right.createdAt;
+        return new Date(rightDate).getTime() - new Date(leftDate).getTime();
+      })
+      .map((game) => {
+        const isCreator = game.creatorPublicKey === selectedLeaderboardRow.publicKey;
+        const opponentPseudo = isCreator ? game.joinerPseudo ?? t("waiting") : game.creatorPseudo;
+        const winnerPseudo =
+          game.winnerPublicKey === game.creatorPublicKey
+            ? game.creatorPseudo
+            : game.winnerPublicKey === game.joinerPublicKey
+              ? game.joinerPseudo ?? game.winnerPublicKey
+              : null;
+        const wonNanoMina =
+          game.winnerPublicKey === selectedLeaderboardRow.publicKey ? payoutNanoMinaForWinner(game).toString() : "0";
+        return {
+          id: game.id,
+          opponentPseudo,
+          amountNanoMina: game.stakeNanoMina,
+          status: winnerPseudo ? `${game.status} (${t("winner")}: ${winnerPseudo})` : game.status,
+          wonNanoMina
+        };
+      });
+    const totalWonNanoMina = gameItems.reduce((total, item) => total + BigInt(item.wonNanoMina), 0n).toString();
+    return {
+      row: selectedLeaderboardRow,
+      rank: selectedLeaderboardRank,
+      wallet: selectedLeaderboardRow.publicKey,
+      referralItems,
+      gameItems,
+      totalWonNanoMina
+    };
+  }, [
+    leaderboardWindow.end,
+    leaderboardWindow.start,
+    playerDetailsByPublicKey,
+    playerPseudosByPublicKey,
+    selectedLeaderboardRank,
+    selectedLeaderboardRow,
+    t,
+    visibleGames
+  ]);
+  const totalLeaderboardDetailReferralPages = Math.max(
+    1,
+    Math.ceil((leaderboardDetail?.referralItems.length ?? 0) / leaderboardDetailReferralsPerPage)
+  );
+  const paginatedLeaderboardDetailReferrals = useMemo(
+    () =>
+      (leaderboardDetail?.referralItems ?? []).slice(
+        (leaderboardDetailReferralsPage - 1) * leaderboardDetailReferralsPerPage,
+        leaderboardDetailReferralsPage * leaderboardDetailReferralsPerPage
+      ),
+    [leaderboardDetail, leaderboardDetailReferralsPage]
+  );
+  const leaderboardDetailGamesPageSize =
+    viewMode === "app" ? leaderboardDetailGamesPerPageApp : leaderboardDetailGamesPerPageCards;
+  const totalLeaderboardDetailGamePages = Math.max(
+    1,
+    Math.ceil((leaderboardDetail?.gameItems.length ?? 0) / leaderboardDetailGamesPageSize)
+  );
+  const paginatedLeaderboardDetailGames = useMemo(
+    () =>
+      (leaderboardDetail?.gameItems ?? []).slice(
+        (leaderboardDetailGamesPage - 1) * leaderboardDetailGamesPageSize,
+        leaderboardDetailGamesPage * leaderboardDetailGamesPageSize
+      ),
+    [leaderboardDetail, leaderboardDetailGamesPage, leaderboardDetailGamesPageSize]
+  );
 
   const selectedGame = useMemo(
     () => {
@@ -2806,6 +3090,8 @@ function App() {
     const selectPeriod = (period: LeaderboardPeriod) => {
       setLeaderboardPeriod(period);
       setLeaderboardWindowOffset(0);
+      setLeaderboardCustomStart("");
+      setLeaderboardCustomEnd("");
       setLeaderboardPage(1);
     };
     return (
@@ -2842,39 +3128,86 @@ function App() {
             </>
           )}
         </div>
-        <div className="segmentedControl">
-          {periods.map((period) => (
-            <button
-              className={leaderboardPeriod === period.value ? "active" : ""}
-              key={period.value}
-              onClick={() => selectPeriod(period.value)}
-              type="button"
-            >
-              {period.label}
-            </button>
-          ))}
-        </div>
-        {leaderboardPeriod !== "all" && (
-          <div className="leaderboardWindowControl">
-            <button
-              aria-label={t("previous")}
-              onClick={() => setLeaderboardWindowOffset((current) => current - 1)}
-              title={t("previous")}
-              type="button"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span>{leaderboardWindow.label}</span>
-            <button
-              aria-label={t("next")}
-              disabled={leaderboardWindowOffset >= 0}
-              onClick={() => setLeaderboardWindowOffset((current) => Math.min(0, current + 1))}
-              title={t("next")}
-              type="button"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
+        {!leaderboardDetail && (
+          <>
+            <div className="segmentedControl">
+              {periods.map((period) => (
+                <button
+                  className={leaderboardPeriod === period.value ? "active" : ""}
+                  key={period.value}
+                  onClick={() => selectPeriod(period.value)}
+                  type="button"
+                >
+                  {period.label}
+                </button>
+              ))}
+            </div>
+            {leaderboardPeriod !== "all" && !customLeaderboardWindow && (
+              <div className="leaderboardWindowControl">
+                <button
+                  aria-label={t("previous")}
+                  onClick={() => setLeaderboardWindowOffset((current) => current - 1)}
+                  title={t("previous")}
+                  type="button"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span>{leaderboardWindow.label}</span>
+                <button
+                  aria-label={t("next")}
+                  disabled={leaderboardWindowOffset >= 0}
+                  onClick={() => setLeaderboardWindowOffset((current) => Math.min(0, current + 1))}
+                  title={t("next")}
+                  type="button"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+            <div className="leaderboardCustomFilters">
+              <fieldset>
+                <legend>{t("customDateRange")}</legend>
+                <label>
+                  <span>{t("beginDate")}</span>
+                  <input
+                    onChange={(event) => setLeaderboardCustomStart(event.target.value)}
+                    type="date"
+                    value={leaderboardCustomStart}
+                  />
+                </label>
+                <label>
+                  <span>{t("endDate")}</span>
+                  <input onChange={(event) => setLeaderboardCustomEnd(event.target.value)} type="date" value={leaderboardCustomEnd} />
+                </label>
+                {(leaderboardCustomStart || leaderboardCustomEnd) && (
+                  <button
+                    aria-label={t("clearDateRange")}
+                    onClick={() => {
+                      setLeaderboardCustomStart("");
+                      setLeaderboardCustomEnd("");
+                    }}
+                    title={t("clearDateRange")}
+                    type="button"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </fieldset>
+              <label className="leaderboardSortFilter">
+                <span>{t("sortBy")}</span>
+                <select
+                  onChange={(event) => setLeaderboardSort(event.target.value as LeaderboardSortOption)}
+                  value={leaderboardSort}
+                >
+                  {leaderboardSortOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </>
         )}
         {publicKey === adminPublicKey && leaderboardAdminView === "signals" ? (
           adminConnectionPlayerRows.length > 0 ? (
@@ -3025,11 +3358,255 @@ function App() {
           ) : (
             <p className="empty">{t("emptyLeaderboard")}</p>
           )
+        ) : leaderboardDetail ? (
+          <div className="leaderboardUserDetail">
+            <button className="leaderboardBackButton" onClick={() => setSelectedLeaderboardUserKey(null)} type="button">
+              <ChevronLeft size={16} />
+              {t("backToLeaderboard")}
+            </button>
+            <div className="leaderboardDetailHeader">
+              <div>
+                <span className="leaderboardRank">#{leaderboardDetail.rank}</span>
+                <h3>{leaderboardDetail.row.pseudo}</h3>
+                <code>{leaderboardDetail.wallet}</code>
+              </div>
+            </div>
+            <section className="leaderboardPaymentBox">
+              <h4>{t("sendMinaToPlayer")}</h4>
+              <div className="leaderboardPaymentFields">
+                <label>
+                  <span>{t("amount")}</span>
+                  <input
+                    inputMode="decimal"
+                    min="0"
+                    onChange={(event) => setLeaderboardPaymentAmount(event.target.value)}
+                    placeholder="1"
+                    step="0.000000001"
+                    type="number"
+                    value={leaderboardPaymentAmount}
+                  />
+                </label>
+                <label>
+                  <span>{t("fee")}</span>
+                  <input
+                    inputMode="decimal"
+                    min="0"
+                    onChange={(event) => setLeaderboardPaymentFee(event.target.value)}
+                    step="0.000000001"
+                    type="number"
+                    value={leaderboardPaymentFee}
+                  />
+                </label>
+                <label>
+                  <span>{t("memo")}</span>
+                  <input
+                    maxLength={32}
+                    onChange={(event) => setLeaderboardPaymentMemo(event.target.value)}
+                    placeholder="zkroll reward"
+                    value={leaderboardPaymentMemo}
+                  />
+                </label>
+                <button
+                  className="primary leaderboardPaymentButton"
+                  disabled={busy || !leaderboardPaymentAmount.trim()}
+                  onClick={() => void handleSendLeaderboardPayment()}
+                  type="button"
+                >
+                  <Send size={16} />
+                  {t("sendMina")}
+                </button>
+              </div>
+            </section>
+            <section className="leaderboardDetailSection">
+              <h4>{t("summary")}</h4>
+              <dl className="leaderboardDetailSummary">
+                <div>
+                  <dt>{t("totalScore")}</dt>
+                  <dd>{formatLeaderboardScore(leaderboardDetail.row.score, locale)}</dd>
+                </div>
+                <div>
+                  <dt>{t("referralBonus")}</dt>
+                  <dd>{formatLeaderboardScore(leaderboardDetail.row.referralBonus, locale)}</dd>
+                </div>
+                <div>
+                  <dt>{t("activeReferrals")}</dt>
+                  <dd>{leaderboardDetail.row.activeReferralCount}</dd>
+                </div>
+                <div>
+                  <dt>{t("gamesPlayed")}</dt>
+                  <dd>{leaderboardDetail.row.gamesPlayed}</dd>
+                </div>
+                <div>
+                  <dt>{t("gamesWon")}</dt>
+                  <dd>{leaderboardDetail.row.gamesWon}</dd>
+                </div>
+                <div>
+                  <dt>{t("uniqueOpponents")}</dt>
+                  <dd>{leaderboardDetail.row.uniqueOpponents}</dd>
+                </div>
+                <div>
+                  <dt>{t("unfinishedGames")}</dt>
+                  <dd>{leaderboardDetail.row.unfinishedGames}</dd>
+                </div>
+                <div>
+                  <dt>{t("amountWon")}</dt>
+                  <dd>{formatMina(leaderboardDetail.row.amountWonNanoMina)} MINA</dd>
+                </div>
+              </dl>
+            </section>
+            <section className="leaderboardDetailSection">
+              <div className="leaderboardDetailSectionHead">
+                <h4>{t("referrals")}</h4>
+                <strong>
+                  {t("referralScoreTotal")}: {formatLeaderboardScore(leaderboardDetail.row.referralBonus, locale)}
+                </strong>
+              </div>
+              {leaderboardDetail.referralItems.length > 0 ? (
+                <>
+                  <div className="leaderboardDetailTableWrap">
+                    <table className="leaderboardDetailTable">
+                      <thead>
+                        <tr>
+                          <th>{t("referredPlayer")}</th>
+                          <th>{t("scoreBrought")}</th>
+                          <th>{t("referralDate")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedLeaderboardDetailReferrals.map((item) => (
+                          <tr key={item.publicKey}>
+                            <td>
+                              <strong>{item.pseudo}</strong>
+                            </td>
+                            <td>{formatLeaderboardScore(item.score, locale)}</td>
+                            <td>{formatDateTime(item.referredAt, locale)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {leaderboardDetail.referralItems.length > leaderboardDetailReferralsPerPage && (
+                    <div className="pagination leaderboardDetailPagination">
+                      <button
+                        disabled={leaderboardDetailReferralsPage === 1}
+                        onClick={() => setLeaderboardDetailReferralsPage((page) => Math.max(1, page - 1))}
+                      >
+                        {t("previous")}
+                      </button>
+                      <span>
+                        {t("page")} {leaderboardDetailReferralsPage} / {totalLeaderboardDetailReferralPages}
+                      </span>
+                      <button
+                        disabled={leaderboardDetailReferralsPage === totalLeaderboardDetailReferralPages}
+                        onClick={() => setLeaderboardDetailReferralsPage((page) => Math.min(totalLeaderboardDetailReferralPages, page + 1))}
+                      >
+                        {t("next")}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="empty">{t("noReferrals")}</p>
+              )}
+            </section>
+            <section className="leaderboardDetailSection">
+              <div className="leaderboardDetailSectionHead">
+                <h4>{t("gamesSection")}</h4>
+                <strong>
+                  {t("total")}: {formatMina(leaderboardDetail.totalWonNanoMina)} MINA
+                </strong>
+              </div>
+              {leaderboardDetail.gameItems.length > 0 ? (
+                <>
+                  <div className="leaderboardGamesRows" role="table" aria-label={t("gamesSection")}>
+                    <div className="leaderboardGamesHeader" role="row">
+                      <span role="columnheader">{t("gameId")}</span>
+                      <span role="columnheader">{t("opponent")}</span>
+                      <span role="columnheader">{t("amount")}</span>
+                      <span role="columnheader">{t("status")}</span>
+                      <span role="columnheader">{t("minaWon")}</span>
+                    </div>
+                    {paginatedLeaderboardDetailGames.map((item) => (
+                      <div className="leaderboardGamesRow" key={item.id} role="row">
+                        <span data-label={t("gameId")} role="cell">
+                          <code>{item.id}</code>
+                        </span>
+                        <span data-label={t("opponent")} role="cell">{item.opponentPseudo}</span>
+                        <span data-label={t("amount")} role="cell">{formatMina(item.amountNanoMina)} MINA</span>
+                        <span data-label={t("status")} role="cell">{item.status}</span>
+                        <span data-label={t("minaWon")} role="cell">{formatMina(item.wonNanoMina)} MINA</span>
+                      </div>
+                    ))}
+                    <div className="leaderboardGamesRow total" role="row">
+                      <span role="cell">{t("total")}</span>
+                      <span role="cell">{formatMina(leaderboardDetail.totalWonNanoMina)} MINA</span>
+                    </div>
+                  </div>
+                  <div className="leaderboardDetailTableWrap legacyLeaderboardGamesTable">
+                    <table className="leaderboardDetailTable games">
+                      <thead>
+                        <tr>
+                          <th>{t("gameId")}</th>
+                          <th>{t("opponent")}</th>
+                          <th>{t("amount")}</th>
+                          <th>{t("status")}</th>
+                          <th>{t("minaWon")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedLeaderboardDetailGames.map((item) => (
+                          <tr key={item.id}>
+                            <td data-label={t("gameId")}>
+                              <code>{item.id}</code>
+                            </td>
+                            <td data-label={t("opponent")}>{item.opponentPseudo}</td>
+                            <td data-label={t("amount")}>{formatMina(item.amountNanoMina)} MINA</td>
+                            <td data-label={t("status")}>{item.status}</td>
+                            <td data-label={t("minaWon")}>{formatMina(item.wonNanoMina)} MINA</td>
+                          </tr>
+                        ))}
+                        <tr className="leaderboardDetailTotalRow">
+                          <td colSpan={4}>{t("total")}</td>
+                          <td>{formatMina(leaderboardDetail.totalWonNanoMina)} MINA</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {leaderboardDetail.gameItems.length > leaderboardDetailGamesPageSize && (
+                    <div className="pagination leaderboardDetailPagination">
+                      <button
+                        disabled={leaderboardDetailGamesPage === 1}
+                        onClick={() => setLeaderboardDetailGamesPage((page) => Math.max(1, page - 1))}
+                      >
+                        {t("previous")}
+                      </button>
+                      <span>
+                        {t("page")} {leaderboardDetailGamesPage} / {totalLeaderboardDetailGamePages}
+                      </span>
+                      <button
+                        disabled={leaderboardDetailGamesPage === totalLeaderboardDetailGamePages}
+                        onClick={() => setLeaderboardDetailGamesPage((page) => Math.min(totalLeaderboardDetailGamePages, page + 1))}
+                      >
+                        {t("next")}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="empty">{t("noGamesInPeriod")}</p>
+              )}
+            </section>
+          </div>
         ) : leaderboardRows.length > 0 ? (
           <>
             <div className="leaderboardList">
               {paginatedLeaderboardRows.map((row, index) => (
-                <div className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"} key={row.publicKey}>
+                <button
+                  className={row.publicKey === publicKey ? "leaderboardRow current" : "leaderboardRow"}
+                  key={row.publicKey}
+                  onClick={() => setSelectedLeaderboardUserKey(row.publicKey)}
+                  type="button"
+                >
                   <span className="leaderboardRank">#{leaderboardStartIndex + index + 1}</span>
                   <div className="leaderboardPlayerStats">
                     <strong>{row.pseudo}</strong>
@@ -3058,7 +3635,7 @@ function App() {
                       {t("amountWon")}: {formatMina(row.amountWonNanoMina)} MINA
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
             {leaderboardRows.length > leaderboardPerPage && (
@@ -3515,11 +4092,24 @@ function App() {
       return;
     }
     setLeaderboardPage(1);
-  }, [leaderboardPeriod, leaderboardWindowOffset, network]);
+  }, [leaderboardCustomEnd, leaderboardCustomStart, leaderboardPeriod, leaderboardSort, leaderboardWindowOffset, network]);
 
   useEffect(() => {
     if (games.length > 0) setLeaderboardPage((current) => Math.min(current, activeLeaderboardPages));
   }, [activeLeaderboardPages, games.length]);
+
+  useEffect(() => {
+    setLeaderboardDetailGamesPage(1);
+    setLeaderboardDetailReferralsPage(1);
+  }, [leaderboardCustomEnd, leaderboardCustomStart, leaderboardPeriod, leaderboardWindowOffset, selectedLeaderboardUserKey]);
+
+  useEffect(() => {
+    setLeaderboardDetailGamesPage((current) => Math.min(current, totalLeaderboardDetailGamePages));
+  }, [totalLeaderboardDetailGamePages]);
+
+  useEffect(() => {
+    setLeaderboardDetailReferralsPage((current) => Math.min(current, totalLeaderboardDetailReferralPages));
+  }, [totalLeaderboardDetailReferralPages]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -3536,6 +4126,10 @@ function App() {
         leaderboardPeriod,
         leaderboardWindowOffset,
         leaderboardAdminView,
+        leaderboardCustomStart,
+        leaderboardCustomEnd,
+        leaderboardSort,
+        selectedLeaderboardUserKey,
         adminConnectionSelectedPublicKeys,
         adminConnectionUserSearch,
         adminConnectionIpSearch
@@ -3549,12 +4143,16 @@ function App() {
     gameIdSearch,
     gamesPage,
     leaderboardAdminView,
+    leaderboardCustomEnd,
+    leaderboardCustomStart,
     leaderboardPage,
     leaderboardPeriod,
+    leaderboardSort,
     leaderboardWindowOffset,
     messageFilter,
     playerSearch,
     selectedGameId,
+    selectedLeaderboardUserKey,
     statusFilter
   ]);
 
@@ -4690,6 +5288,43 @@ function App() {
       setWalletConnectNetwork(network);
     }
     return window.mina ?? (mobileBrowserCanUseWalletConnect() ? walletConnectProvider() : undefined);
+  }
+
+  async function handleSendLeaderboardPayment() {
+    if (!leaderboardDetail) return;
+    const amount = minaInputToNumber(leaderboardPaymentAmount);
+    if (!amount) {
+      setMessage(t("invalidMinaAmount"));
+      return;
+    }
+    const fee = minaInputToNumber(leaderboardPaymentFee);
+    if (!fee) {
+      setMessage(t("invalidFeeAmount"));
+      return;
+    }
+
+    await runAction(async () => {
+      let senderPublicKey = publicKey;
+      if (!senderPublicKey) {
+        await connectWallet();
+        const providerAfterConnect = walletProvider();
+        const accounts = await providerAfterConnect?.requestAccounts();
+        senderPublicKey = accounts?.[0] ?? "";
+        if (!senderPublicKey) throw new Error(t("walletRequired"));
+        setPublicKey(senderPublicKey);
+      }
+      const txHash = await sendMinaPaymentOnchain({
+        provider: walletProvider(),
+        network,
+        recipientPublicKey: leaderboardDetail.wallet,
+        amount,
+        fee,
+        memo: leaderboardPaymentMemo.trim(),
+        onProgress: updateOnchainProgress
+      });
+      setLeaderboardPaymentAmount("");
+      setMessage(`${t("sendMinaSuccess")} ${txHash}`);
+    });
   }
 
   async function handleReconcileCreation(game: Game) {
@@ -5885,7 +6520,17 @@ function App() {
 
         <section className="panel messagesPanel">
           <div className="sectionHead">
-            <h2>{t("playerMessages")}</h2>
+            <div className="messagePanelTitle">
+              <h2>{t("playerMessages")}</h2>
+              {selectedGame && (
+                <button className="messageGameLink" onClick={() => handleGameCardSelect(selectedGame.id)} type="button">
+                  <List size={13} />
+                  <span>
+                    {t("challenge")} {selectedGame.id}
+                  </span>
+                </button>
+              )}
+            </div>
             {selectedGame && unreadBadgeFor(selectedGame)}
           </div>
           <div className="playerMessageList">
