@@ -162,9 +162,10 @@ function firstAccount() {
   return minaAccounts(session).map(parseAccount).find((item): item is { chainId: string; publicKey: string } => item !== null);
 }
 
-function sessionSupportsMethod(method: string) {
+function sessionSupportsMethod(method?: string) {
+  if (!method) return true;
   const approvedMethods = session?.namespaces?.mina?.methods;
-  return Array.isArray(approvedMethods) && approvedMethods.includes(method);
+  return !Array.isArray(approvedMethods) || approvedMethods.includes(method);
 }
 
 async function restoreSession() {
@@ -206,14 +207,14 @@ function cancellableApproval<T>(approval: () => Promise<T>) {
   });
 }
 
-async function connectSession(targetChainId = preferredChainId) {
+async function connectSession(targetChainId = preferredChainId, requiredMethod?: string) {
   promptHandler?.({ kind: "connect", isPreparing: true });
   const nextClient = await client();
   const restored = await restoreSession();
   if (restored) {
     promptHandler?.(null);
     const hasTargetAccount = !targetChainId || accountForChain(targetChainId);
-    const hasRequiredMethods = methods.every((method) => sessionSupportsMethod(method));
+    const hasRequiredMethods = sessionSupportsMethod(requiredMethod);
     if (hasTargetAccount && hasRequiredMethods) return restored;
     await disconnectCurrentSession();
     promptHandler?.({ kind: "connect", isPreparing: true });
@@ -307,7 +308,7 @@ export function walletConnectProvider(): MinaProvider {
     },
 
     async sendTransaction(args: { transaction: string; feePayer?: { fee?: number; memo?: string }; walletOpenDelayMs?: number }) {
-      await connectSession();
+      await connectSession(undefined, "mina_sendTransaction");
       const nextClient = await client();
       const chainId = currentChainId ?? firstAccount()?.chainId;
       if (!chainId) throw new Error("WalletConnect network is not selected.");
@@ -342,7 +343,7 @@ export function walletConnectProvider(): MinaProvider {
     },
 
     async sendPayment(args: { to: string; amount: number; fee?: number; memo?: string; walletOpenDelayMs?: number }) {
-      await connectSession();
+      await connectSession(undefined, "mina_sendPayment");
       const nextClient = await client();
       const chainId = currentChainId ?? firstAccount()?.chainId;
       if (!chainId) throw new Error("WalletConnect network is not selected.");
@@ -356,7 +357,6 @@ export function walletConnectProvider(): MinaProvider {
         request: {
           method: "mina_sendPayment",
           params: {
-            from,
             to: args.to,
             amount: args.amount,
             ...(args.fee ? { fee: args.fee } : {}),
