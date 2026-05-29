@@ -1026,13 +1026,34 @@ select {
   white-space: nowrap;
 }
 
+.leaderboardPeriodRow {
+  align-items: stretch;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 42px;
+}
+
+.leaderboardCalendarButton {
+  align-items: center;
+  border-color: var(--border);
+  display: inline-flex;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0;
+}
+
+.leaderboardCalendarButton.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #06130f;
+}
+
 .leaderboardCustomFilters {
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.42fr);
+  grid-template-columns: 1fr;
 }
 
-.leaderboardCustomFilters fieldset,
 .leaderboardSortFilter {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1042,13 +1063,18 @@ select {
   padding: 8px;
 }
 
-.leaderboardCustomFilters fieldset {
-  align-items: end;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+.leaderboardNetworkFilter {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 7px;
 }
 
-.leaderboardCustomFilters legend,
-.leaderboardCustomFilters label span,
 .leaderboardSortFilter span {
   color: var(--muted);
   font-size: 10px;
@@ -1056,30 +1082,53 @@ select {
   text-transform: uppercase;
 }
 
-.leaderboardCustomFilters legend {
-  padding: 0 4px;
+.leaderboardNetworkFilter button {
+  align-items: center;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-soft) 88%, var(--primary) 12%), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, var(--primary) 30%);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 900;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
 }
 
-.leaderboardCustomFilters label {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
+.leaderboardNetworkFilter button.active {
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface-soft));
+  color: var(--text);
 }
 
-.leaderboardCustomFilters input,
+.leaderboardNetworkFilter .networkStatusDot {
+  background: var(--muted);
+  border-radius: 999px;
+  height: 7px;
+  width: 7px;
+}
+
+.leaderboardNetworkFilter button.mainnet .networkStatusDot {
+  background: #58c7b7;
+}
+
+.leaderboardNetworkFilter button.devnet .networkStatusDot {
+  background: #f4b84a;
+}
+
+.leaderboardNetworkFilter button.zeko .networkStatusDot {
+  background: #b871ff;
+}
+
+.leaderboardNetworkFilter button.active .networkStatusDot {
+  box-shadow: 0 0 12px currentColor;
+}
+
 .leaderboardCustomFilters select {
   min-width: 0;
   width: 100%;
-}
-
-.leaderboardCustomFilters fieldset > button {
-  align-items: center;
-  border-radius: 6px;
-  display: inline-flex;
-  justify-content: center;
-  min-height: 34px;
-  padding: 0;
-  width: 34px;
 }
 
 .leaderboardModeTabs {
@@ -1411,8 +1460,8 @@ select {
   align-items: center;
   display: grid;
   gap: 0 14px;
-  grid-template-columns: 82px 96px 64px minmax(190px, 1fr) 82px;
-  min-width: 560px;
+  grid-template-columns: 82px 70px 96px 64px minmax(190px, 1fr) 82px;
+  min-width: 640px;
 }
 
 .leaderboardGamesHeader {
@@ -2364,6 +2413,10 @@ dd {
   width: 100%;
 }
 
+.leaderboardDateModal {
+  max-width: 360px;
+}
+
 .workPanel {
   max-width: 520px;
 }
@@ -3062,14 +3115,6 @@ dd {
 
   .leaderboardCustomFilters {
     grid-template-columns: 1fr;
-  }
-
-  .leaderboardCustomFilters fieldset {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .leaderboardCustomFilters fieldset > button {
-    width: 100%;
   }
 
   .leaderboardPaymentFields {

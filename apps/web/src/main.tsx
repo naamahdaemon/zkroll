@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   AtSign,
   Bell,
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -223,6 +224,7 @@ type SavedUiState = {
   leaderboardCustomStart?: string;
   leaderboardCustomEnd?: string;
   leaderboardSort?: LeaderboardSortOption;
+  leaderboardNetworks?: NetworkId[];
   selectedLeaderboardUserKey?: string | null;
   adminConnectionSelectedPublicKeys?: string[];
   adminConnectionUserSearch?: string;
@@ -268,6 +270,7 @@ const terminalGameStatuses = new Set<GameStatus>(["settled", "refunded", "failed
 const joinGameStatuses = new Set<GameStatus>(["join_pending", "joined"]);
 const revealGameStatuses = new Set<GameStatus>(["player_one_revealed", "player_two_revealed", "both_revealed"]);
 const failedGameStatuses = new Set<GameStatus>(["failed", "cancelled", "refunded", "unrecoverable"]);
+const allNetworkIds = Object.keys(networks) as NetworkId[];
 
 type QRCodeBrowserModule = {
   toDataURL: (text: string, options?: { margin?: number; width?: number }) => Promise<string>;
@@ -2195,6 +2198,10 @@ function App() {
   const [leaderboardCustomStart, setLeaderboardCustomStart] = useState(() => initialUiState.leaderboardCustomStart ?? "");
   const [leaderboardCustomEnd, setLeaderboardCustomEnd] = useState(() => initialUiState.leaderboardCustomEnd ?? "");
   const [leaderboardSort, setLeaderboardSort] = useState<LeaderboardSortOption>(() => initialUiState.leaderboardSort ?? "score:desc");
+  const [leaderboardNetworks, setLeaderboardNetworks] = useState<NetworkId[]>(() => {
+    const savedNetworks = initialUiState.leaderboardNetworks?.filter((item): item is NetworkId => allNetworkIds.includes(item));
+    return savedNetworks?.length ? savedNetworks : allNetworkIds;
+  });
   const [selectedLeaderboardUserKey, setSelectedLeaderboardUserKey] = useState<string | null>(
     () => initialUiState.selectedLeaderboardUserKey ?? null
   );
@@ -2203,6 +2210,7 @@ function App() {
   const [leaderboardPaymentAmount, setLeaderboardPaymentAmount] = useState("");
   const [leaderboardPaymentFee, setLeaderboardPaymentFee] = useState("0.1");
   const [leaderboardPaymentMemo, setLeaderboardPaymentMemo] = useState("zkroll reward");
+  const [leaderboardDateDialogOpen, setLeaderboardDateDialogOpen] = useState(false);
   const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>(
     () => initialUiState.adminConnectionSelectedPublicKeys ?? []
   );
@@ -2258,6 +2266,7 @@ function App() {
   const [messageDraft, setMessageDraft] = useState("");
   const initialGameFilterRender = useRef(true);
   const initialLeaderboardFilterRender = useRef(true);
+  const leaderboardNetworkKey = leaderboardNetworks.join("|");
 
   const visibleGames = useMemo(
     () => games.filter((game) => game.network === network && (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)),
@@ -2266,12 +2275,16 @@ function App() {
 
   const visibleGamePlayerKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const game of visibleGames) {
+    for (const game of games) {
+      const isVisibleInCurrentNetwork = game.network === network;
+      const isVisibleInLeaderboard = leaderboardNetworks.includes(game.network);
+      if (!isVisibleInCurrentNetwork && !isVisibleInLeaderboard) continue;
+      if (game.status === "pending_signature" && game.creatorPublicKey !== publicKey) continue;
       keys.add(game.creatorPublicKey);
       if (game.joinerPublicKey) keys.add(game.joinerPublicKey);
     }
     return Array.from(keys).sort();
-  }, [visibleGames]);
+  }, [games, leaderboardNetworkKey, network, publicKey]);
   const visibleGamePlayerKey = visibleGamePlayerKeys.join("|");
   const currentReferrer = currentPlayer?.referredByPublicKey
     ? playerDetailsByPublicKey[currentPlayer.referredByPublicKey] ?? null
@@ -2298,11 +2311,21 @@ function App() {
     () => customLeaderboardWindow ?? leaderboardWindowFor(leaderboardPeriod, leaderboardWindowOffset, locale),
     [customLeaderboardWindow, leaderboardPeriod, leaderboardWindowOffset, locale]
   );
+  const leaderboardNetworkSet = useMemo(() => new Set(leaderboardNetworks), [leaderboardNetworks]);
+  const leaderboardGames = useMemo(
+    () =>
+      games.filter(
+        (game) =>
+          leaderboardNetworkSet.has(game.network) &&
+          (game.status !== "pending_signature" || game.creatorPublicKey === publicKey)
+      ),
+    [games, leaderboardNetworkSet, publicKey]
+  );
 
   const leaderboardRows = useMemo(() => {
     const unfinishedGamesByPublicKey = new Map<string, number>();
-    for (const game of games) {
-      if (game.network !== network || terminalGameStatuses.has(game.status)) continue;
+    for (const game of leaderboardGames) {
+      if (terminalGameStatuses.has(game.status)) continue;
       unfinishedGamesByPublicKey.set(game.creatorPublicKey, (unfinishedGamesByPublicKey.get(game.creatorPublicKey) ?? 0) + 1);
       if (game.joinerPublicKey) {
         unfinishedGamesByPublicKey.set(game.joinerPublicKey, (unfinishedGamesByPublicKey.get(game.joinerPublicKey) ?? 0) + 1);
@@ -2346,7 +2369,7 @@ function App() {
 
     const activePlayerKeys = new Set<string>();
 
-    visibleGames
+    leaderboardGames
       .map((game) => ({ game, finalizedAt: leaderboardFinalizedAt(game) }))
       .filter((item): item is { game: Game; finalizedAt: string } => {
         if (!item.finalizedAt) return false;
@@ -2369,7 +2392,7 @@ function App() {
           creator.opponentKeys.add(game.joinerPublicKey);
           joiner.opponentKeys.add(game.creatorPublicKey);
         }
-        if (isTrustedSettledGame(game) && game.winnerPublicKey) {
+        if (isLeaderboardSettledGame(game) && game.winnerPublicKey) {
           const winnerPseudo =
             game.winnerPublicKey === game.creatorPublicKey ? game.creatorPseudo : game.joinerPseudo ?? game.winnerPublicKey;
           const winner = ensureRow(game.winnerPublicKey, winnerPseudo, pseudoSeenAt);
@@ -2407,16 +2430,14 @@ function App() {
       )
       .sort((left, right) => compareLeaderboardRows(left, right, leaderboardSort, locale));
   }, [
-    games,
+    leaderboardGames,
     leaderboardWindow.end,
     leaderboardWindow.start,
     leaderboardSort,
     locale,
-    network,
     playerDetailsByPublicKey,
     playerPseudosByPublicKey,
-    txStatuses,
-    visibleGames
+    txStatuses
   ]);
 
   const filteredGames = useMemo(() => {
@@ -2522,7 +2543,7 @@ function App() {
       if (left.seenAt !== right.seenAt) return right.seenAt - left.seenAt;
       return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
     }) satisfies AdminConnectionPlayerRow[];
-  }, [leaderboardRows, leaderboardWindow.end, leaderboardWindow.start, locale, playerPseudosByPublicKey, visibleGames]);
+  }, [leaderboardGames, leaderboardRows, leaderboardWindow.end, leaderboardWindow.start, locale, playerPseudosByPublicKey]);
   const adminConnectionPlayerKey = adminConnectionPlayerRows.map((row) => row.publicKey).join("|");
   const adminConnectionRows = useMemo(() => {
     const selectedKeys = new Set(adminConnectionSelectedPublicKeys);
@@ -2605,7 +2626,7 @@ function App() {
         (leaderboardWindow.end === null || time < leaderboardWindow.end)
       );
     };
-    const finalizedGamesInWindow = visibleGames
+    const finalizedGamesInWindow = leaderboardGames
       .map((game) => ({ game, finalizedAt: leaderboardFinalizedAt(game) }))
       .filter((item): item is { game: Game; finalizedAt: string } => Boolean(item.finalizedAt) && isInsideWindow(item.finalizedAt));
     const activePlayerKeys = new Set<string>();
@@ -2626,7 +2647,7 @@ function App() {
       score: referralScore(false, index + 1) - referralScore(false, index),
       referredAt: playerDetailsByPublicKey[playerKey]?.referredAt ?? null
     }));
-    const gameItems = visibleGames
+    const gameItems = leaderboardGames
       .filter((game) => game.creatorPublicKey === selectedLeaderboardRow.publicKey || game.joinerPublicKey === selectedLeaderboardRow.publicKey)
       .filter((game) => isInsideWindow(leaderboardFinalizedAt(game) ?? game.createdAt))
       .sort((left, right) => {
@@ -2647,6 +2668,7 @@ function App() {
           game.winnerPublicKey === selectedLeaderboardRow.publicKey ? payoutNanoMinaForWinner(game).toString() : "0";
         return {
           id: game.id,
+          network: game.network,
           opponentPseudo,
           amountNanoMina: game.stakeNanoMina,
           status: winnerPseudo ? `${game.status} (${t("winner")}: ${winnerPseudo})` : game.status,
@@ -2670,7 +2692,7 @@ function App() {
     selectedLeaderboardRank,
     selectedLeaderboardRow,
     t,
-    visibleGames
+    leaderboardGames
   ]);
   const totalLeaderboardDetailReferralPages = Math.max(
     1,
@@ -2872,8 +2894,12 @@ function App() {
     );
   }
 
+  function isLeaderboardSettledGame(game: Game) {
+    return game.status === "settled" && Boolean(game.winnerPublicKey);
+  }
+
   function leaderboardFinalizedAt(game: Game) {
-    if (isTrustedSettledGame(game)) return game.settledAt;
+    if (isLeaderboardSettledGame(game)) return game.settledAt ?? game.updatedAt;
     if (game.status === "refunded" && statusFor(game.refundTxHash) === "INCLUDED") return game.refundedAt;
     return null;
   }
@@ -3094,6 +3120,15 @@ function App() {
       setLeaderboardCustomEnd("");
       setLeaderboardPage(1);
     };
+    const toggleLeaderboardNetwork = (networkId: NetworkId) => {
+      setLeaderboardNetworks((current) => {
+        const normalized = current.filter((item) => allNetworkIds.includes(item));
+        const hasNetwork = normalized.includes(networkId);
+        if (hasNetwork && normalized.length <= 1) return normalized;
+        return hasNetwork ? normalized.filter((item) => item !== networkId) : [...normalized, networkId];
+      });
+      setLeaderboardPage(1);
+    };
     return (
       <section className="panel leaderboardPanel">
         <div className="sectionHead">
@@ -3130,17 +3165,27 @@ function App() {
         </div>
         {!leaderboardDetail && (
           <>
-            <div className="segmentedControl">
-              {periods.map((period) => (
-                <button
-                  className={leaderboardPeriod === period.value ? "active" : ""}
-                  key={period.value}
-                  onClick={() => selectPeriod(period.value)}
-                  type="button"
-                >
-                  {period.label}
-                </button>
-              ))}
+            <div className="leaderboardPeriodRow">
+              <div className="segmentedControl">
+                {periods.map((period) => (
+                  <button
+                    className={leaderboardPeriod === period.value ? "active" : ""}
+                    key={period.value}
+                    onClick={() => selectPeriod(period.value)}
+                    type="button"
+                  >
+                    {period.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                className={customLeaderboardWindow ? "leaderboardCalendarButton active" : "leaderboardCalendarButton"}
+                onClick={() => setLeaderboardDateDialogOpen(true)}
+                title={t("customDateRange")}
+                type="button"
+              >
+                <CalendarDays size={17} />
+              </button>
             </div>
             {leaderboardPeriod !== "all" && !customLeaderboardWindow && (
               <div className="leaderboardWindowControl">
@@ -3165,34 +3210,6 @@ function App() {
               </div>
             )}
             <div className="leaderboardCustomFilters">
-              <fieldset>
-                <legend>{t("customDateRange")}</legend>
-                <label>
-                  <span>{t("beginDate")}</span>
-                  <input
-                    onChange={(event) => setLeaderboardCustomStart(event.target.value)}
-                    type="date"
-                    value={leaderboardCustomStart}
-                  />
-                </label>
-                <label>
-                  <span>{t("endDate")}</span>
-                  <input onChange={(event) => setLeaderboardCustomEnd(event.target.value)} type="date" value={leaderboardCustomEnd} />
-                </label>
-                {(leaderboardCustomStart || leaderboardCustomEnd) && (
-                  <button
-                    aria-label={t("clearDateRange")}
-                    onClick={() => {
-                      setLeaderboardCustomStart("");
-                      setLeaderboardCustomEnd("");
-                    }}
-                    title={t("clearDateRange")}
-                    type="button"
-                  >
-                    <X size={15} />
-                  </button>
-                )}
-              </fieldset>
               <label className="leaderboardSortFilter">
                 <span>{t("sortBy")}</span>
                 <select
@@ -3206,6 +3223,19 @@ function App() {
                   ))}
                 </select>
               </label>
+              <div className="leaderboardNetworkFilter" aria-label={t("network")}>
+                {allNetworkIds.map((networkId) => (
+                  <button
+                    className={`${networkId} ${leaderboardNetworks.includes(networkId) ? "active" : ""}`}
+                    key={networkId}
+                    onClick={() => toggleLeaderboardNetwork(networkId)}
+                    type="button"
+                  >
+                    <span className="networkStatusDot" />
+                    <span>{networks[networkId].label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </>
         )}
@@ -3521,16 +3551,18 @@ function App() {
                   <div className="leaderboardGamesRows" role="table" aria-label={t("gamesSection")}>
                     <div className="leaderboardGamesHeader" role="row">
                       <span role="columnheader">{t("gameId")}</span>
+                      <span role="columnheader">{t("network")}</span>
                       <span role="columnheader">{t("opponent")}</span>
                       <span role="columnheader">{t("amount")}</span>
                       <span role="columnheader">{t("status")}</span>
                       <span role="columnheader">{t("minaWon")}</span>
                     </div>
                     {paginatedLeaderboardDetailGames.map((item) => (
-                      <div className="leaderboardGamesRow" key={item.id} role="row">
+                      <div className="leaderboardGamesRow" key={`${item.network}:${item.id}`} role="row">
                         <span data-label={t("gameId")} role="cell">
                           <code>{item.id}</code>
                         </span>
+                        <span data-label={t("network")} role="cell">{networks[item.network].label}</span>
                         <span data-label={t("opponent")} role="cell">{item.opponentPseudo}</span>
                         <span data-label={t("amount")} role="cell">{formatMina(item.amountNanoMina)} MINA</span>
                         <span data-label={t("status")} role="cell">{item.status}</span>
@@ -3547,6 +3579,7 @@ function App() {
                       <thead>
                         <tr>
                           <th>{t("gameId")}</th>
+                          <th>{t("network")}</th>
                           <th>{t("opponent")}</th>
                           <th>{t("amount")}</th>
                           <th>{t("status")}</th>
@@ -3555,10 +3588,11 @@ function App() {
                       </thead>
                       <tbody>
                         {paginatedLeaderboardDetailGames.map((item) => (
-                          <tr key={item.id}>
+                          <tr key={`${item.network}:${item.id}`}>
                             <td data-label={t("gameId")}>
                               <code>{item.id}</code>
                             </td>
+                            <td data-label={t("network")}>{networks[item.network].label}</td>
                             <td data-label={t("opponent")}>{item.opponentPseudo}</td>
                             <td data-label={t("amount")}>{formatMina(item.amountNanoMina)} MINA</td>
                             <td data-label={t("status")}>{item.status}</td>
@@ -3566,7 +3600,7 @@ function App() {
                           </tr>
                         ))}
                         <tr className="leaderboardDetailTotalRow">
-                          <td colSpan={4}>{t("total")}</td>
+                          <td colSpan={5}>{t("total")}</td>
                           <td>{formatMina(leaderboardDetail.totalWonNanoMina)} MINA</td>
                         </tr>
                       </tbody>
@@ -4092,7 +4126,7 @@ function App() {
       return;
     }
     setLeaderboardPage(1);
-  }, [leaderboardCustomEnd, leaderboardCustomStart, leaderboardPeriod, leaderboardSort, leaderboardWindowOffset, network]);
+  }, [leaderboardCustomEnd, leaderboardCustomStart, leaderboardNetworkKey, leaderboardPeriod, leaderboardSort, leaderboardWindowOffset]);
 
   useEffect(() => {
     if (games.length > 0) setLeaderboardPage((current) => Math.min(current, activeLeaderboardPages));
@@ -4101,7 +4135,7 @@ function App() {
   useEffect(() => {
     setLeaderboardDetailGamesPage(1);
     setLeaderboardDetailReferralsPage(1);
-  }, [leaderboardCustomEnd, leaderboardCustomStart, leaderboardPeriod, leaderboardWindowOffset, selectedLeaderboardUserKey]);
+  }, [leaderboardCustomEnd, leaderboardCustomStart, leaderboardNetworkKey, leaderboardPeriod, leaderboardWindowOffset, selectedLeaderboardUserKey]);
 
   useEffect(() => {
     setLeaderboardDetailGamesPage((current) => Math.min(current, totalLeaderboardDetailGamePages));
@@ -4129,6 +4163,7 @@ function App() {
         leaderboardCustomStart,
         leaderboardCustomEnd,
         leaderboardSort,
+        leaderboardNetworks,
         selectedLeaderboardUserKey,
         adminConnectionSelectedPublicKeys,
         adminConnectionUserSearch,
@@ -4147,6 +4182,7 @@ function App() {
     leaderboardCustomStart,
     leaderboardPage,
     leaderboardPeriod,
+    leaderboardNetworks,
     leaderboardSort,
     leaderboardWindowOffset,
     messageFilter,
@@ -5991,6 +6027,57 @@ function App() {
             <button className="ghostButton" onClick={() => void cancelPseudoRegistration()} type="button">
               {t("cancel")}
             </button>
+          </form>
+        </div>
+      )}
+
+      {leaderboardDateDialogOpen && (
+        <div className="modalBackdrop" onClick={() => setLeaderboardDateDialogOpen(false)}>
+          <form
+            className="modal leaderboardDateModal"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              setLeaderboardPage(1);
+              setLeaderboardDateDialogOpen(false);
+            }}
+          >
+            <div className="modalHeader">
+              <h2>{t("customDateRange")}</h2>
+              <button aria-label={t("cancel")} onClick={() => setLeaderboardDateDialogOpen(false)} type="button">
+                <X size={17} />
+              </button>
+            </div>
+            <label>
+              {t("beginDate")}
+              <input
+                autoFocus
+                onChange={(event) => setLeaderboardCustomStart(event.target.value)}
+                type="date"
+                value={leaderboardCustomStart}
+              />
+            </label>
+            <label>
+              {t("endDate")}
+              <input onChange={(event) => setLeaderboardCustomEnd(event.target.value)} type="date" value={leaderboardCustomEnd} />
+            </label>
+            <div className="modalActions">
+              <button
+                className="ghostButton"
+                onClick={() => {
+                  setLeaderboardCustomStart("");
+                  setLeaderboardCustomEnd("");
+                  setLeaderboardPage(1);
+                  setLeaderboardDateDialogOpen(false);
+                }}
+                type="button"
+              >
+                {t("clearDateRange")}
+              </button>
+              <button className="primary" type="submit">
+                {t("save")}
+              </button>
+            </div>
           </form>
         </div>
       )}
