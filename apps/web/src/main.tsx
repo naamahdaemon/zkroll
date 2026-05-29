@@ -209,6 +209,8 @@ type LeaderboardSortField =
   | "amountWonNanoMina";
 type LeaderboardSortDirection = "asc" | "desc";
 type LeaderboardSortOption = `${LeaderboardSortField}:${LeaderboardSortDirection}`;
+type AdminSignalSortField = "pseudo" | "value" | "country";
+type AdminSignalSortDirection = "asc" | "desc";
 type SavedUiState = {
   appScreen?: AppScreen;
   selectedGameId?: string | null;
@@ -505,6 +507,8 @@ const copy: Record<string, Record<string, string>> = {
     adminConnectionIpFilterPlaceholder: "Partial search or wildcard, e.g. 192.168.*",
     lastConnection: "Last connection",
     location: "Location",
+    relatedAddresses: "Related addresses",
+    country: "Country",
     noAdminRecentAddresses: "No address recorded",
     referralBonus: "Referral bonus",
     activeReferrals: "Active referrals",
@@ -870,6 +874,8 @@ const copy: Record<string, Record<string, string>> = {
     adminConnectionIpFilterPlaceholder: "Recherche partielle ou wildcard, ex. 192.168.*",
     lastConnection: "Derniere connexion",
     location: "Localisation",
+    relatedAddresses: "Adresses liees",
+    country: "Pays",
     noAdminRecentAddresses: "Aucune adresse enregistree",
     referralBonus: "Bonus parrainage",
     activeReferrals: "Filleuls actifs",
@@ -2213,6 +2219,8 @@ function App() {
   const [leaderboardPaymentFee, setLeaderboardPaymentFee] = useState("0.1");
   const [leaderboardPaymentMemo, setLeaderboardPaymentMemo] = useState("zkroll reward");
   const [leaderboardDateDialogOpen, setLeaderboardDateDialogOpen] = useState(false);
+  const [adminSignalSortField, setAdminSignalSortField] = useState<AdminSignalSortField>("pseudo");
+  const [adminSignalSortDirection, setAdminSignalSortDirection] = useState<AdminSignalSortDirection>("asc");
   const [adminConnectionSelectedPublicKeys, setAdminConnectionSelectedPublicKeys] = useState<string[]>(
     () => initialUiState.adminConnectionSelectedPublicKeys ?? []
   );
@@ -2546,7 +2554,6 @@ function App() {
       return left.pseudo.localeCompare(right.pseudo, localeTag(locale));
     }) satisfies AdminConnectionPlayerRow[];
   }, [leaderboardGames, leaderboardRows, leaderboardWindow.end, leaderboardWindow.start, locale, playerPseudosByPublicKey]);
-  const adminConnectionPlayerKey = adminConnectionPlayerRows.map((row) => row.publicKey).join("|");
   const adminConnectionRows = useMemo(() => {
     const selectedKeys = new Set(adminConnectionSelectedPublicKeys);
     const hasUserFilter = selectedKeys.size > 0;
@@ -2705,6 +2712,68 @@ function App() {
     t,
     leaderboardGames
   ]);
+  const leaderboardDetailRelatedPlayers = useMemo(() => {
+    if (!leaderboardDetail || publicKey !== adminPublicKey) return [];
+    const related = new Map<string, string>();
+    const remember = (publicKeyValue: string | null | undefined, pseudoValue: string | null | undefined) => {
+      if (!publicKeyValue) return;
+      related.set(publicKeyValue, playerPseudosByPublicKey[publicKeyValue] ?? playerDetailsByPublicKey[publicKeyValue]?.pseudo ?? pseudoValue ?? publicKeyValue);
+    };
+    remember(leaderboardDetail.row.publicKey, leaderboardDetail.row.pseudo);
+    remember(leaderboardDetail.referrer?.publicKey, leaderboardDetail.referrer?.pseudo);
+    leaderboardDetail.referralItems.forEach((item) => remember(item.publicKey, item.pseudo));
+    leaderboardDetail.gameItems.forEach((item) => {
+      const game = leaderboardGames.find((candidate) => candidate.id === item.id && candidate.network === item.network);
+      if (!game) return;
+      if (game.creatorPublicKey === leaderboardDetail.row.publicKey) {
+        remember(game.joinerPublicKey, game.joinerPseudo);
+      } else {
+        remember(game.creatorPublicKey, game.creatorPseudo);
+      }
+    });
+
+    return Array.from(related.entries()).map(([relatedPublicKey, pseudo]) => ({ publicKey: relatedPublicKey, pseudo }));
+  }, [leaderboardDetail, leaderboardGames, playerDetailsByPublicKey, playerPseudosByPublicKey, publicKey]);
+  const leaderboardDetailRelatedSignals = useMemo(() => {
+    const rows = leaderboardDetailRelatedPlayers.flatMap(({ publicKey: relatedPublicKey, pseudo }) =>
+      (adminSignalsByPublicKey[relatedPublicKey] ?? []).map((signal) => ({
+        publicKey: relatedPublicKey,
+        pseudo,
+        signal
+      }))
+    );
+    const directionFactor = adminSignalSortDirection === "asc" ? 1 : -1;
+    return rows.sort((left, right) => {
+      const leftValue =
+        adminSignalSortField === "pseudo"
+          ? left.pseudo
+          : adminSignalSortField === "country"
+            ? (signalLocationLabel(left.signal) || "")
+            : left.signal.value;
+      const rightValue =
+        adminSignalSortField === "pseudo"
+          ? right.pseudo
+          : adminSignalSortField === "country"
+            ? (signalLocationLabel(right.signal) || "")
+            : right.signal.value;
+      return leftValue.localeCompare(rightValue, localeTag(locale)) * directionFactor;
+    });
+  }, [
+    adminSignalSortDirection,
+    adminSignalSortField,
+    adminSignalsByPublicKey,
+    leaderboardDetailRelatedPlayers,
+    locale,
+  ]);
+  const leaderboardDetailSignalPublicKeys = useMemo(
+    () => leaderboardDetailRelatedPlayers.map((item) => item.publicKey).sort(),
+    [leaderboardDetailRelatedPlayers]
+  );
+  const adminSignalPublicKeys = useMemo(
+    () => Array.from(new Set([...adminConnectionPlayerRows.map((row) => row.publicKey), ...leaderboardDetailSignalPublicKeys])).sort(),
+    [adminConnectionPlayerRows, leaderboardDetailSignalPublicKeys]
+  );
+  const adminSignalPublicKey = adminSignalPublicKeys.join("|");
   const totalLeaderboardDetailReferralPages = Math.max(
     1,
     Math.ceil((leaderboardDetail?.referralItems.length ?? 0) / leaderboardDetailReferralsPerPage)
@@ -3250,7 +3319,7 @@ function App() {
             </div>
           </>
         )}
-        {publicKey === adminPublicKey && leaderboardAdminView === "signals" ? (
+        {publicKey === adminPublicKey && leaderboardAdminView === "signals" && !leaderboardDetail ? (
           adminConnectionPlayerRows.length > 0 ? (
             <>
               <div className="adminConnectionFilters" aria-label={t("adminConnectionFilters")}>
@@ -3324,7 +3393,13 @@ function App() {
                   paginatedAdminConnectionRows.map((item) => (
                     <div className="adminConnectionRow" key={item.row.publicKey}>
                       <span className="leaderboardRank">#{item.rank}</span>
-                      <strong>{item.row.pseudo}</strong>
+                      <button
+                        className="leaderboardInlineLink adminConnectionPlayerLink"
+                        onClick={() => setSelectedLeaderboardUserKey(item.row.publicKey)}
+                        type="button"
+                      >
+                        {item.row.pseudo}
+                      </button>
                       <div className="adminSignalList">
                         {item.signals.length > 0 ? (
                           <table className="adminSignalTable">
@@ -3511,6 +3586,76 @@ function App() {
                 </div>
               </dl>
             </section>
+            {publicKey === adminPublicKey && (
+              <section className="leaderboardDetailSection">
+                <div className="leaderboardDetailSectionHead">
+                  <h4>{t("relatedAddresses")}</h4>
+                  <strong>{leaderboardDetailRelatedSignals.length}</strong>
+                </div>
+                {leaderboardDetailRelatedSignals.length > 0 ? (
+                  <div className="leaderboardDetailTableWrap">
+                    <table className="leaderboardDetailTable adminRelatedSignalsTable">
+                      <thead>
+                        <tr>
+                          <th>
+                            <button onClick={() => handleAdminSignalSort("pseudo")} type="button">
+                              {t("pseudo")} {adminSignalSortField === "pseudo" ? (adminSignalSortDirection === "asc" ? "↑" : "↓") : ""}
+                            </button>
+                          </th>
+                          <th>
+                            <button onClick={() => handleAdminSignalSort("value")} type="button">
+                              {t("adminRecentAddresses")} {adminSignalSortField === "value" ? (adminSignalSortDirection === "asc" ? "↑" : "↓") : ""}
+                            </button>
+                          </th>
+                          <th>
+                            <button onClick={() => handleAdminSignalSort("country")} type="button">
+                              {t("country")} {adminSignalSortField === "country" ? (adminSignalSortDirection === "asc" ? "↑" : "↓") : ""}
+                            </button>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {leaderboardDetailRelatedSignals.map((item) => {
+                          const locationLabel = signalLocationLabel(item.signal);
+                          const locationUrl = signalLocationUrl(item.signal);
+                          return (
+                            <tr key={`${item.publicKey}:${item.signal.value}:${item.signal.lastSeenAt}`}>
+                              <td>
+                                <button
+                                  className="leaderboardInlineLink"
+                                  onClick={() => setSelectedLeaderboardUserKey(item.publicKey)}
+                                  type="button"
+                                >
+                                  {item.pseudo}
+                                </button>
+                              </td>
+                              <td>
+                                <code title={item.signal.value}>{item.signal.value}</code>
+                              </td>
+                              <td>
+                                {locationLabel ? (
+                                  locationUrl ? (
+                                    <a className="adminSignalLocationLink" href={locationUrl} rel="noreferrer" target="_blank">
+                                      {locationLabel}
+                                    </a>
+                                  ) : (
+                                    locationLabel
+                                  )
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="empty">{t("noAdminRecentAddresses")}</p>
+                )}
+              </section>
+            )}
             <section className="leaderboardDetailSection">
               <div className="leaderboardDetailSectionHead">
                 <h4>{t("referrals")}</h4>
@@ -4234,13 +4379,12 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (publicKey !== adminPublicKey || adminConnectionPlayerRows.length === 0) {
+    if (publicKey !== adminPublicKey || adminSignalPublicKeys.length === 0) {
       setAdminSignalsByPublicKey({});
       return;
     }
     let cancelled = false;
-    const publicKeys = adminConnectionPlayerRows.map((row) => row.publicKey);
-    void listPlayerSignals(publicKeys, publicKey)
+    void listPlayerSignals(adminSignalPublicKeys, publicKey)
       .then((result) => {
         if (cancelled) return;
         const next: Record<string, PlayerSignal[]> = {};
@@ -4255,7 +4399,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [adminConnectionPlayerKey, publicKey]);
+  }, [adminSignalPublicKey, publicKey]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -4945,6 +5089,17 @@ function App() {
     }
     setSelectedLeaderboardUserKey(null);
     setAppScreen(viewMode === "app" ? "detail" : "games");
+  }
+
+  function handleAdminSignalSort(field: AdminSignalSortField) {
+    setAdminSignalSortField((currentField) => {
+      if (currentField === field) {
+        setAdminSignalSortDirection((currentDirection) => (currentDirection === "asc" ? "desc" : "asc"));
+        return currentField;
+      }
+      setAdminSignalSortDirection("asc");
+      return field;
+    });
   }
 
   function openSettings() {

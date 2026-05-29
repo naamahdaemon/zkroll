@@ -1397,6 +1397,10 @@ select {
   overflow-wrap: anywhere;
 }
 
+.adminConnectionPlayerLink {
+  justify-self: start;
+}
+
 .leaderboardDetailTableWrap {
   max-width: 100%;
   overflow: auto;
@@ -1453,6 +1457,21 @@ select {
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.leaderboardDetailTable th button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  min-height: 0;
+  padding: 0;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.leaderboardDetailTable th button:not(:disabled):hover {
+  color: var(--primary);
 }
 
 .leaderboardDetailTable code {
