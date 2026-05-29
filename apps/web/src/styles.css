@@ -1370,6 +1370,24 @@ select {
   margin: 4px 0 0;
 }
 
+.leaderboardInlineLink {
+  background: transparent;
+  border: 0;
+  color: var(--primary);
+  display: inline;
+  font: inherit;
+  font-weight: 900;
+  min-height: 0;
+  padding: 0;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.leaderboardInlineLink:not(:disabled):hover {
+  color: var(--accent);
+}
+
 .leaderboardDetailTableWrap {
   max-width: 100%;
   overflow: auto;
@@ -1414,8 +1432,8 @@ select {
   width: auto;
 }
 
-.leaderboardDetailTable.games th:nth-child(4),
-.leaderboardDetailTable.games td:nth-child(4) {
+.leaderboardDetailTable.games th:nth-child(6),
+.leaderboardDetailTable.games td:nth-child(6) {
   max-width: 260px;
   white-space: normal;
   width: auto;
@@ -1461,8 +1479,8 @@ select {
   align-items: center;
   display: grid;
   gap: 0 14px;
-  grid-template-columns: 82px 70px 96px 64px minmax(190px, 1fr) 82px;
-  min-width: 640px;
+  grid-template-columns: 82px 70px 112px 96px 64px minmax(190px, 1fr) 82px;
+  min-width: 760px;
 }
 
 .leaderboardGamesHeader {
@@ -1533,8 +1551,8 @@ select {
   width: auto;
 }
 
-.cardsShell .leaderboardDetailTable.games th:nth-child(4),
-.cardsShell .leaderboardDetailTable.games td:nth-child(4) {
+.cardsShell .leaderboardDetailTable.games th:nth-child(6),
+.cardsShell .leaderboardDetailTable.games td:nth-child(6) {
   max-width: none;
 }
 

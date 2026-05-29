@@ -479,6 +479,7 @@ const copy: Record<string, Record<string, string>> = {
     backToLeaderboard: "Back to leaderboard",
     summary: "Summary",
     totalScore: "Total score",
+    noReferrer: "No referrer",
     referrals: "Referrals",
     referredPlayer: "Referred player",
     scoreBrought: "Score brought",
@@ -843,6 +844,7 @@ const copy: Record<string, Record<string, string>> = {
     backToLeaderboard: "Retour au classement",
     summary: "Resume",
     totalScore: "Score total",
+    noReferrer: "Aucun parrain",
     referrals: "Parrainage",
     referredPlayer: "Filleul",
     scoreBrought: "Score apporte",
@@ -2647,6 +2649,13 @@ function App() {
       score: referralScore(false, index + 1) - referralScore(false, index),
       referredAt: playerDetailsByPublicKey[playerKey]?.referredAt ?? null
     }));
+    const referrerPublicKey = playerDetailsByPublicKey[selectedLeaderboardRow.publicKey]?.referredByPublicKey ?? null;
+    const referrer = referrerPublicKey
+      ? {
+          publicKey: referrerPublicKey,
+          pseudo: playerPseudosByPublicKey[referrerPublicKey] ?? playerDetailsByPublicKey[referrerPublicKey]?.pseudo ?? referrerPublicKey
+        }
+      : null;
     const gameItems = leaderboardGames
       .filter((game) => game.creatorPublicKey === selectedLeaderboardRow.publicKey || game.joinerPublicKey === selectedLeaderboardRow.publicKey)
       .filter((game) => isInsideWindow(leaderboardFinalizedAt(game) ?? game.createdAt))
@@ -2669,6 +2678,7 @@ function App() {
         return {
           id: game.id,
           network: game.network,
+          createdAt: game.createdAt,
           opponentPseudo,
           amountNanoMina: game.stakeNanoMina,
           status: winnerPseudo ? `${game.status} (${t("winner")}: ${winnerPseudo})` : game.status,
@@ -2680,6 +2690,7 @@ function App() {
       row: selectedLeaderboardRow,
       rank: selectedLeaderboardRank,
       wallet: selectedLeaderboardRow.publicKey,
+      referrer,
       referralItems,
       gameItems,
       totalWonNanoMina
@@ -3455,6 +3466,22 @@ function App() {
                   <dd>{formatLeaderboardScore(leaderboardDetail.row.score, locale)}</dd>
                 </div>
                 <div>
+                  <dt>{t("referrer")}</dt>
+                  <dd>
+                    {leaderboardDetail.referrer ? (
+                      <button
+                        className="leaderboardInlineLink"
+                        onClick={() => setSelectedLeaderboardUserKey(leaderboardDetail.referrer!.publicKey)}
+                        type="button"
+                      >
+                        {leaderboardDetail.referrer.pseudo}
+                      </button>
+                    ) : (
+                      t("noReferrer")
+                    )}
+                  </dd>
+                </div>
+                <div>
                   <dt>{t("referralBonus")}</dt>
                   <dd>{formatLeaderboardScore(leaderboardDetail.row.referralBonus, locale)}</dd>
                 </div>
@@ -3506,7 +3533,13 @@ function App() {
                         {paginatedLeaderboardDetailReferrals.map((item) => (
                           <tr key={item.publicKey}>
                             <td>
-                              <strong>{item.pseudo}</strong>
+                              <button
+                                className="leaderboardInlineLink"
+                                onClick={() => setSelectedLeaderboardUserKey(item.publicKey)}
+                                type="button"
+                              >
+                                {item.pseudo}
+                              </button>
                             </td>
                             <td>{formatLeaderboardScore(item.score, locale)}</td>
                             <td>{formatDateTime(item.referredAt, locale)}</td>
@@ -3552,6 +3585,7 @@ function App() {
                     <div className="leaderboardGamesHeader" role="row">
                       <span role="columnheader">{t("gameId")}</span>
                       <span role="columnheader">{t("network")}</span>
+                      <span role="columnheader">{t("createdAt")}</span>
                       <span role="columnheader">{t("opponent")}</span>
                       <span role="columnheader">{t("amount")}</span>
                       <span role="columnheader">{t("status")}</span>
@@ -3563,6 +3597,7 @@ function App() {
                           <code>{item.id}</code>
                         </span>
                         <span data-label={t("network")} role="cell">{networks[item.network].label}</span>
+                        <span data-label={t("createdAt")} role="cell">{formatDateTime(item.createdAt, locale)}</span>
                         <span data-label={t("opponent")} role="cell">{item.opponentPseudo}</span>
                         <span data-label={t("amount")} role="cell">{formatMina(item.amountNanoMina)} MINA</span>
                         <span data-label={t("status")} role="cell">{item.status}</span>
@@ -3580,6 +3615,7 @@ function App() {
                         <tr>
                           <th>{t("gameId")}</th>
                           <th>{t("network")}</th>
+                          <th>{t("createdAt")}</th>
                           <th>{t("opponent")}</th>
                           <th>{t("amount")}</th>
                           <th>{t("status")}</th>
@@ -3593,6 +3629,7 @@ function App() {
                               <code>{item.id}</code>
                             </td>
                             <td data-label={t("network")}>{networks[item.network].label}</td>
+                            <td data-label={t("createdAt")}>{formatDateTime(item.createdAt, locale)}</td>
                             <td data-label={t("opponent")}>{item.opponentPseudo}</td>
                             <td data-label={t("amount")}>{formatMina(item.amountNanoMina)} MINA</td>
                             <td data-label={t("status")}>{item.status}</td>
@@ -3600,7 +3637,7 @@ function App() {
                           </tr>
                         ))}
                         <tr className="leaderboardDetailTotalRow">
-                          <td colSpan={5}>{t("total")}</td>
+                          <td colSpan={6}>{t("total")}</td>
                           <td>{formatMina(leaderboardDetail.totalWonNanoMina)} MINA</td>
                         </tr>
                       </tbody>
