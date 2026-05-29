@@ -3594,7 +3594,9 @@ function App() {
                     {paginatedLeaderboardDetailGames.map((item) => (
                       <div className="leaderboardGamesRow" key={`${item.network}:${item.id}`} role="row">
                         <span data-label={t("gameId")} role="cell">
-                          <code>{item.id}</code>
+                          <button className="leaderboardInlineLink gameIdLink" onClick={() => handleLeaderboardGameSelect(item)} type="button">
+                            <code>{item.id}</code>
+                          </button>
                         </span>
                         <span data-label={t("network")} role="cell">{networks[item.network].label}</span>
                         <span data-label={t("createdAt")} role="cell">{formatDateTime(item.createdAt, locale)}</span>
@@ -3626,7 +3628,9 @@ function App() {
                         {paginatedLeaderboardDetailGames.map((item) => (
                           <tr key={`${item.network}:${item.id}`}>
                             <td data-label={t("gameId")}>
-                              <code>{item.id}</code>
+                              <button className="leaderboardInlineLink gameIdLink" onClick={() => handleLeaderboardGameSelect(item)} type="button">
+                                <code>{item.id}</code>
+                              </button>
                             </td>
                             <td data-label={t("network")}>{networks[item.network].label}</td>
                             <td data-label={t("createdAt")}>{formatDateTime(item.createdAt, locale)}</td>
@@ -4931,6 +4935,16 @@ function App() {
     setDeepLinkedGameTarget(null);
     setSelectedGameId(gameId);
     if (viewMode === "app") setAppScreen("detail");
+  }
+
+  function handleLeaderboardGameSelect(item: { id: string; network: NetworkId }) {
+    setDeepLinkedGameTarget({ id: item.id, network: item.network });
+    setSelectedGameId(item.id);
+    if (network !== item.network) {
+      setNetwork(item.network);
+    }
+    setSelectedLeaderboardUserKey(null);
+    setAppScreen(viewMode === "app" ? "detail" : "games");
   }
 
   function openSettings() {

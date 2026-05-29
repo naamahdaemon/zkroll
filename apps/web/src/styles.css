@@ -1388,6 +1388,15 @@ select {
   color: var(--accent);
 }
 
+.leaderboardInlineLink code {
+  color: inherit;
+}
+
+.leaderboardInlineLink.gameIdLink {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .leaderboardDetailTableWrap {
   max-width: 100%;
   overflow: auto;
