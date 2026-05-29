@@ -989,6 +989,7 @@ select {
 }
 
 .segmentedControl button {
+  font-size: 13px;
   min-height: 34px;
   padding: 6px 8px;
 }
@@ -3111,6 +3112,25 @@ dd {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .leaderboardPeriodRow {
+    gap: 4px;
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
+
+  .segmentedControl {
+    gap: 4px;
+  }
+
+  .segmentedControl button {
+    font-size: 11px;
+    min-height: 32px;
+    padding: 5px 4px;
+  }
+
+  .leaderboardCalendarButton {
+    min-height: 32px;
   }
 
   .leaderboardCustomFilters {
