@@ -3093,7 +3093,7 @@ function App() {
       game.status === "join_pending" &&
       Boolean(hash) &&
       !isIncluded &&
-      (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey);
+      (game.creatorPublicKey === publicKey || game.joinerPublicKey === publicKey || isAdmin);
     const canMarkIncluded = effectiveStatus === "PENDING" && isExplorerHash(hash);
 
     return (
@@ -5885,7 +5885,7 @@ function App() {
           joined = await reconcileJoinTx(joined.id, joinTxHash, publicKey);
         } catch (error) {
           if (!walletSignatureRequested) {
-            const released = await failPendingJoin(joined.id, (error as Error).message);
+            const released = await failPendingJoin(joined.id, (error as Error).message, publicKey);
             setSelectedGameId(released.id);
           }
           throw error;
@@ -5911,9 +5911,10 @@ function App() {
   async function handleReleaseJoin(game: Game) {
     await runAction(async () => {
       if (game.status !== "join_pending" || !game.joinTxHash || statusFor(game.joinTxHash) === "INCLUDED") return;
+      if (!publicKey) throw new Error(t("walletRequired"));
       const confirmed = window.confirm(t("releaseJoin"));
       if (!confirmed) return;
-      const released = await failPendingJoin(game.id, t("joinFailedReason"));
+      const released = await failPendingJoin(game.id, t("joinFailedReason"), publicKey);
       setSelectedGameId(released.id);
       setMessage(t("joinReleased"));
     });

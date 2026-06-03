@@ -1313,6 +1313,20 @@ app.patch("/games/:id/join-failed", async (request, reply) => {
   try {
     const { id } = request.params as { id: string };
     const body = asBody(request.body);
+    const publicKey = requiredString(body, "publicKey");
+    const game = getGame(id);
+    if (!game) throw new Error("Game not found");
+    if (game.status !== "join_pending") throw new Error("Pending join not found");
+    if (
+      publicKey !== adminPublicKey &&
+      publicKey !== game.creatorPublicKey &&
+      publicKey !== game.joinerPublicKey
+    ) {
+      return reply.code(403).send({ error: "Only the creator, joiner or admin can release this pending join" });
+    }
+    if (game.joinTxHash && (game.joinTxStatus === "INCLUDED" || getStoredTransactionStatus(game.network, game.joinTxHash) === "INCLUDED")) {
+      throw new Error("Included join transaction cannot be released");
+    }
     return sendUpdatedGame(failPendingJoin(id, optionalString(body, "reason")));
   } catch (error) {
     return reply.code(400).send({ error: (error as Error).message });

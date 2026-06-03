@@ -212,10 +212,10 @@ export function confirmJoinGame(id: string, publicKey: string) {
   });
 }
 
-export function failPendingJoin(id: string, reason?: string) {
+export function failPendingJoin(id: string, reason: string | undefined, publicKey: string) {
   return request<Game>(`/games/${id}/join-failed`, {
     method: "PATCH",
-    body: JSON.stringify({ reason })
+    body: JSON.stringify({ reason, publicKey })
   });
 }
 
