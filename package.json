@@ -21,7 +21,7 @@
     "lint": "npm run typecheck"
   },
   "engines": {
-    "node": ">=18.15"
+    "node": ">=22.19.5"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

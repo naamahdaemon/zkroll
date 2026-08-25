@@ -155,7 +155,7 @@ By default, o1js compilation and proof generation run in the browser:
 VITE_PROVER_MODE=client
 ```
 
-This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@2.15.0`.
+This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@3.0.0` for Mesa-compatible Devnet support.
 
 An experimental server prover mode is available:
 
@@ -169,7 +169,7 @@ ZKROLL_PROVER_DEBUG=false
 
 In server mode, the browser creates an async prover job on the API, polls it, and then asks the wallet to sign the returned transaction JSON. The wallet still signs and pays the transaction fee. This mode can help browsers/devices that cannot prove locally, but it sends the circuit inputs required for proving, including game secrets, to the API. Treat it as opt-in and experimental until there is a hardened native worker pool and a deployment model you trust.
 
-The server prover path is intentionally isolated from the web bundle. It uses `o1js-native`, an npm alias to `o1js@2.15.0`, plus a server-only copy of the game contract importing that alias. This lets the browser stay on the stable client o1js version while the server prover uses the native backend.
+The server prover path is intentionally isolated from the web bundle. It uses `o1js-native`, an npm alias to `o1js@3.0.0`, plus a server-only copy of the game contract importing that alias. This lets the browser bundle avoid importing the native backend while the server prover uses it explicitly.
 
 For production, run the native prover in a separate process/container and point the API at it:
 

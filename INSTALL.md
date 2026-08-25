@@ -2,7 +2,7 @@
 
 ## 1. Prerequisites
 
-- Node.js 18.15 or newer.
+- Node.js 22.19.5 or newer. o1js 3.0.0 requires this runtime for Mesa-compatible zkApps.
 - npm.
 - Auro Wallet or another Mina wallet available in the browser.
 - A funded Mina account on the target network.
@@ -35,6 +35,13 @@ zeko
 Network endpoints live in `packages/shared/src/index.ts`.
 
 For the current tested flow, use `devnet` first.
+
+Mina Devnet now uses Mesa-compatible self-hosted endpoints:
+
+```text
+https://devnet-graphql.naamahdaemon.eu/graphql
+https://mesa-archive-graphql.naamahdaemon.eu/
+```
 
 Zeko Testnet is supported through:
 
@@ -253,7 +260,7 @@ Keep the Firebase private key out of Git. In `.env` files, keep newline characte
 
 `ZKROLL_PROVER_MODE=server` enables server-prover-only admin maintenance endpoints. Keep it aligned with `VITE_PROVER_MODE=server` in deployments that use the native server prover.
 
-When server prover mode is enabled, the server prover uses the server-only `o1js-native` alias (`o1js@2.15.0`) and the native backend. The browser/client path remains isolated on the stable client o1js dependency.
+When server prover mode is enabled, the server prover uses the server-only `o1js-native` alias (`o1js@3.0.0`) and the native backend. The browser/client path uses `o1js@3.0.0` for Mesa compatibility.
 
 `ZKROLL_PROVER_URL` enables process/container isolation. Set it on the API to the internal prover service URL, for example `http://prover:4001` in Docker. When it is unset, the API falls back to the legacy in-process server prover for local development. `ZKROLL_PROVER_REQUEST_TIMEOUT_MS` bounds API-to-prover HTTP requests.
 

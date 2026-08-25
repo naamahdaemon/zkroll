@@ -113,7 +113,8 @@ import {
   settleGameOnchain,
   type OnchainProgress,
   type ProvingCompatibility,
-  type ProvingCompatibilityIssueCode
+  type ProvingCompatibilityIssueCode,
+  type WalletNetworkOptions
 } from "./onchain";
 import {
   auroInstallUrl,
@@ -273,6 +274,19 @@ const joinGameStatuses = new Set<GameStatus>(["join_pending", "joined"]);
 const revealGameStatuses = new Set<GameStatus>(["player_one_revealed", "player_two_revealed", "both_revealed"]);
 const failedGameStatuses = new Set<GameStatus>(["failed", "cancelled", "refunded", "unrecoverable"]);
 const allNetworkIds = Object.keys(networks) as NetworkId[];
+type WalletNetworkMode = "official" | "custom";
+
+const officialAuroNetworkIds: Record<NetworkId, string> = {
+  mainnet: "mina:mainnet",
+  devnet: "mina:devnet",
+  zeko: "zeko:testnet"
+};
+
+const officialWalletModes: Record<NetworkId, WalletNetworkMode> = {
+  mainnet: "official",
+  devnet: "official",
+  zeko: "official"
+};
 
 type QRCodeBrowserModule = {
   toDataURL: (text: string, options?: { margin?: number; width?: number }) => Promise<string>;
@@ -549,6 +563,9 @@ const copy: Record<string, Record<string, string>> = {
     mainnetNetworkDescription: "Mina production network",
     devnetNetworkDescription: "Mina development network",
     zekoNetworkDescription: "Zeko test network",
+    officialAuroNetwork: "Auro official",
+    customAuroNetwork: "Custom endpoint",
+    customDevnetNetworkDescription: "zkRoll MESA GraphQL endpoint",
     activeNetwork: "Active",
     enableNotifications: "Enable notifications for this game",
     disableNotifications: "Disable notifications for this game",
@@ -916,6 +933,9 @@ const copy: Record<string, Record<string, string>> = {
     mainnetNetworkDescription: "Reseau Mina de production",
     devnetNetworkDescription: "Reseau Mina de developpement",
     zekoNetworkDescription: "Reseau de test Zeko",
+    officialAuroNetwork: "Auro officiel",
+    customAuroNetwork: "Endpoint custom",
+    customDevnetNetworkDescription: "Endpoint GraphQL MESA zkRoll",
     activeNetwork: "Actif",
     enableNotifications: "Activer les notifications pour cette partie",
     disableNotifications: "Desactiver les notifications pour cette partie",
@@ -2022,6 +2042,19 @@ function savedNetwork(): NetworkId {
   return networkFromString(localStorage.getItem("zkroll:network")) ?? "devnet";
 }
 
+function walletNetworkModeFromString(value: string | null): WalletNetworkMode {
+  return value === "custom" ? "custom" : "official";
+}
+
+function savedWalletNetworkModes(): Record<NetworkId, WalletNetworkMode> {
+  if (typeof window === "undefined") return officialWalletModes;
+  return {
+    mainnet: "official",
+    devnet: walletNetworkModeFromString(localStorage.getItem("zkroll:wallet-network-mode:devnet")),
+    zeko: "official"
+  };
+}
+
 function randomPseudo() {
   const adjective = pseudoAdjectives[Math.floor(Math.random() * pseudoAdjectives.length)];
   const name = pseudoNames[Math.floor(Math.random() * pseudoNames.length)];
@@ -2186,6 +2219,7 @@ function App() {
   const [adminReferralTarget, setAdminReferralTarget] = useState("");
   const [pseudoModalOpen, setPseudoModalOpen] = useState(false);
   const [network, setNetwork] = useState<NetworkId>(() => initialGameTarget?.network ?? savedNetwork());
+  const [walletNetworkModes, setWalletNetworkModes] = useState<Record<NetworkId, WalletNetworkMode>>(() => savedWalletNetworkModes());
   const [stake, setStake] = useState("1");
   const [payoutMode, setPayoutMode] = useState<PayoutMode>("classic");
   const [refundTimeoutSlots, setRefundTimeoutSlots] = useState(String(defaultRefundTimeoutSlots));
@@ -4295,6 +4329,10 @@ function App() {
   }, [network]);
 
   useEffect(() => {
+    localStorage.setItem("zkroll:wallet-network-mode:devnet", walletNetworkModes.devnet);
+  }, [walletNetworkModes.devnet]);
+
+  useEffect(() => {
     if (initialGameFilterRender.current) {
       initialGameFilterRender.current = false;
       return;
@@ -5237,10 +5275,75 @@ function App() {
     return "devnetNetworkDescription";
   }
 
-  function selectAppNetwork(nextNetwork: NetworkId) {
+  function walletNetworkOptionsFor(networkId: NetworkId): WalletNetworkOptions {
+    return { useCustomEndpoint: networkId === "devnet" && walletNetworkModes.devnet === "custom" };
+  }
+
+  function selectedWalletNetworkLabel(networkId: NetworkId) {
+    if (networkId === "devnet" && walletNetworkModes.devnet === "custom") return "Custom";
+    return officialAuroNetworkIds[networkId];
+  }
+
+  function appNetworkChoices() {
+    return [
+      {
+        key: "mainnet:official",
+        networkId: "mainnet" as const,
+        mode: "official" as const,
+        label: networks.mainnet.label,
+        description: t("mainnetNetworkDescription"),
+        badge: officialAuroNetworkIds.mainnet,
+        kind: t("officialAuroNetwork")
+      },
+      {
+        key: "devnet:official",
+        networkId: "devnet" as const,
+        mode: "official" as const,
+        label: networks.devnet.label,
+        description: t("devnetNetworkDescription"),
+        badge: officialAuroNetworkIds.devnet,
+        kind: t("officialAuroNetwork")
+      },
+      {
+        key: "devnet:custom",
+        networkId: "devnet" as const,
+        mode: "custom" as const,
+        label: `${networks.devnet.label} custom`,
+        description: t("customDevnetNetworkDescription"),
+        badge: "Custom",
+        kind: t("customAuroNetwork")
+      },
+      {
+        key: "zeko:official",
+        networkId: "zeko" as const,
+        mode: "official" as const,
+        label: networks.zeko.label,
+        description: t("zekoNetworkDescription"),
+        badge: officialAuroNetworkIds.zeko,
+        kind: t("officialAuroNetwork")
+      }
+    ];
+  }
+
+  function selectAppNetwork(nextNetwork: NetworkId, mode: WalletNetworkMode = "official") {
     setDeepLinkedGameTarget(null);
     setNetwork(nextNetwork);
+    setWalletNetworkModes((current) => ({
+      ...current,
+      [nextNetwork]: nextNetwork === "devnet" ? mode : "official"
+    }));
     setNetworkMenuOpen(false);
+  }
+
+  function selectedNetworkChoiceValue() {
+    return `${network}:${walletNetworkModes[network]}`;
+  }
+
+  function selectAppNetworkChoice(value: string) {
+    const [nextNetwork, mode] = value.split(":");
+    const parsedNetwork = networkFromString(nextNetwork ?? null);
+    if (!parsedNetwork) return;
+    selectAppNetwork(parsedNetwork, walletNetworkModeFromString(mode ?? null));
   }
 
   async function computeDice(game: Game) {
@@ -5316,7 +5419,7 @@ function App() {
     }
 
     try {
-      await ensureWalletNetwork(provider, network);
+      await ensureWalletNetwork(provider, network, undefined, walletNetworkOptionsFor(network));
     } catch (error) {
       if (silent) return;
       setMessage((error as Error).message);
@@ -5558,6 +5661,7 @@ function App() {
       const txHash = await sendMinaPaymentOnchain({
         provider: walletProvider(),
         network,
+        walletNetworkOptions: walletNetworkOptionsFor(network),
         senderPublicKey,
         recipientPublicKey: leaderboardDetail.wallet,
         amount,
@@ -5777,6 +5881,7 @@ function App() {
         const result = await createGameOnchain({
           provider: walletProvider(),
           network,
+          walletNetworkOptions: walletNetworkOptionsFor(network),
           senderPublicKey: publicKey,
           zkappPrivateKey: gameKey!.privateKey,
           gameId: created.id,
@@ -5866,6 +5971,7 @@ function App() {
           txHash = await joinGameOnchain({
             provider: walletProvider(),
             network: game.network,
+            walletNetworkOptions: walletNetworkOptionsFor(game.network),
             senderPublicKey: publicKey,
             pseudo,
             secret,
@@ -5973,6 +6079,7 @@ function App() {
           txHash = await settleGameOnchain({
             provider: walletProvider(),
             network: game.network,
+            walletNetworkOptions: walletNetworkOptionsFor(game.network),
             senderPublicKey: publicKey,
             gameIdField: game.gameIdField,
             zkappAddress: game.zkappAddress,
@@ -6107,6 +6214,7 @@ function App() {
           txHash = await refundGameOnchain({
             provider: walletProvider(),
             network: game.network,
+            walletNetworkOptions: walletNetworkOptionsFor(game.network),
             senderPublicKey: publicKey,
             status: game.status,
             gameIdField: game.gameIdField,
@@ -6157,6 +6265,7 @@ function App() {
           txHash = await cancelCreatedGameOnchain({
             provider: walletProvider(),
             network: game.network,
+            walletNetworkOptions: walletNetworkOptionsFor(game.network),
             senderPublicKey: publicKey,
             gameIdField: game.gameIdField,
             zkappAddress: game.zkappAddress,
@@ -6567,25 +6676,27 @@ function App() {
               >
                 <span className="networkSpark" />
                 <span>{networks[network].label}</span>
+                <em>{selectedWalletNetworkLabel(network)}</em>
                 <ChevronDown size={16} />
               </button>
               {networkMenuOpen && (
                 <div className="networkMenu">
                   <strong>{t("chooseNetwork")}</strong>
-                  {Object.values(networks).map((item) => {
-                    const active = item.id === network;
+                  {appNetworkChoices().map((item) => {
+                    const active = item.networkId === network && walletNetworkModes[item.networkId] === item.mode;
                     return (
                       <button
-                        className={active ? `networkOption ${item.id} active` : `networkOption ${item.id}`}
-                        key={item.id}
-                        onClick={() => selectAppNetwork(item.id)}
+                        className={active ? `networkOption ${item.networkId} ${item.mode} active` : `networkOption ${item.networkId} ${item.mode}`}
+                        key={item.key}
+                        onClick={() => selectAppNetwork(item.networkId, item.mode)}
                         type="button"
                       >
                         <span>
                           <strong>{item.label}</strong>
-                          <small>{t(networkDescriptionKey(item.id))}</small>
+                          <small>{item.description}</small>
+                          <small>{item.kind}</small>
                         </span>
-                        <em>{active ? t("activeNetwork") : item.id === "mainnet" ? "Mainnet" : item.id === "devnet" ? "Devnet" : "Zeko"}</em>
+                        <em>{active ? t("activeNetwork") : item.badge}</em>
                       </button>
                     );
                   })}
@@ -6730,10 +6841,10 @@ function App() {
           )}
           <label className="playerNetworkSelect">
             {t("network")}
-            <select value={network} onChange={(event) => selectAppNetwork(event.target.value as NetworkId)}>
-              {Object.values(networks).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
+            <select value={selectedNetworkChoiceValue()} onChange={(event) => selectAppNetworkChoice(event.target.value)}>
+              {appNetworkChoices().map((item) => (
+                <option key={item.key} value={`${item.networkId}:${item.mode}`}>
+                  {item.label} - {item.kind}
                 </option>
               ))}
             </select>

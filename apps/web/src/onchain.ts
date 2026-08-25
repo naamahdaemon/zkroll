@@ -10,8 +10,8 @@ const PROVER_MODE = import.meta.env.VITE_PROVER_MODE === "server" ? "server" : "
 const SERVER_PROVER_POLL_MS = Number(import.meta.env.VITE_SERVER_PROVER_POLL_MS ?? 1500);
 const SERVER_PROVER_WALLET_DELAY_MS = Number(import.meta.env.VITE_SERVER_PROVER_WALLET_DELAY_MS ?? 2500);
 const PAYMENT_WALLET_DELAY_MS = Number(import.meta.env.VITE_PAYMENT_WALLET_DELAY_MS ?? SERVER_PROVER_WALLET_DELAY_MS);
-const CLIENT_O1JS_VERSION = "2.15.0";
-const SERVER_O1JS_VERSION = "2.15.0";
+const CLIENT_O1JS_VERSION = "3.0.0";
+const SERVER_O1JS_VERSION = "3.0.0";
 
 let compilePromise: Promise<unknown> | null = null;
 let compiled = false;
@@ -155,6 +155,10 @@ const auroNetworkIds: Record<NetworkId, string> = {
   zeko: "zeko:testnet"
 };
 
+export type WalletNetworkOptions = {
+  useCustomEndpoint?: boolean;
+};
+
 function walletNetworkId(result: unknown): string | null {
   if (typeof result === "string") return result;
   if (!result || typeof result !== "object") return null;
@@ -174,13 +178,39 @@ function providerErrorMessage(result: unknown): string | null {
   return null;
 }
 
+async function ensureWalletEndpoint(
+  provider: MinaProvider,
+  network: NetworkId,
+  options?: WalletNetworkOptions,
+  onProgress?: ProgressCallback
+): Promise<boolean> {
+  if (network !== "devnet" || !options?.useCustomEndpoint || !provider.addChain) return false;
+
+  report(onProgress, "progressSwitchNetwork", 4);
+  const config = networks[network];
+  const result = await provider.addChain({
+    url: config.minaEndpoint,
+    name: config.label
+  });
+  const addChainError = providerErrorMessage(result);
+  if (addChainError) {
+    throw new Error(`Auro n'a pas pu ajouter l'endpoint ${config.label}: ${addChainError}`);
+  }
+  return true;
+}
+
 export async function ensureWalletNetwork(
   provider: MinaProvider | undefined,
   network: NetworkId,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options?: WalletNetworkOptions
 ) {
   if (!provider) throw new Error("Wallet Mina introuvable.");
   const expectedNetworkId = auroNetworkIds[network];
+  if (network === "devnet" && options?.useCustomEndpoint && !provider.addChain) {
+    throw new Error(`Ce wallet ne permet pas de selectionner l'endpoint custom ${networks.devnet.minaEndpoint}. Utilise le reseau officiel Auro ou l'extension Auro.`);
+  }
+  const walletEndpointWasSelected = await ensureWalletEndpoint(provider, network, options, onProgress);
 
   if (!provider.requestNetwork) {
     throw new Error(`Impossible de verifier le reseau Auro. Selectionne ${expectedNetworkId} dans le wallet.`);
@@ -188,6 +218,13 @@ export async function ensureWalletNetwork(
 
   const current = await provider.requestNetwork();
   if (walletNetworkId(current) === expectedNetworkId) return;
+  if (walletEndpointWasSelected) return;
+  if (network === "devnet" && options?.useCustomEndpoint) {
+    throw new Error(
+      `Auro doit utiliser l'endpoint Devnet MESA ${networks.devnet.minaEndpoint} avant de signer. ` +
+        "Ajoute-le dans Auro ou reessaie la connexion wallet."
+    );
+  }
 
   if (!provider.switchChain) {
     throw new Error(`Auro n'est pas sur ${expectedNetworkId}. Change le reseau dans le wallet puis reessaie.`);
@@ -350,6 +387,7 @@ export function requiredTransactionHash(value: string): string {
 export async function sendMinaPaymentOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  walletNetworkOptions?: WalletNetworkOptions;
   senderPublicKey: string;
   recipientPublicKey: string;
   amount: number;
@@ -358,7 +396,7 @@ export async function sendMinaPaymentOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
-  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  await ensureWalletNetwork(provider, input.network, input.onProgress, input.walletNetworkOptions);
   const memo = input.memo.slice(0, 32);
   const toolkit = await setupPlainTransaction(input.network);
   const sender = toolkit.PublicKey.fromBase58(input.senderPublicKey);
@@ -406,6 +444,43 @@ function walletTimeout(timeoutMs: number) {
   return new Promise<"timeout">((resolve) => window.setTimeout(() => resolve("timeout"), timeoutMs));
 }
 
+function debugTransactionJson(transactionJson: string, memo?: string, feeNanoMina = FEE_NANOMINA) {
+  if (localStorage.getItem("zkroll:debug-transaction-json") !== "true") return;
+  const auroProviderPayload = {
+    transaction: transactionJson,
+    feePayer: memo || feeNanoMina ? { fee: feeNanoMina, ...(memo ? { memo } : {}) } : undefined
+  };
+  try {
+    const parsed = JSON.parse(transactionJson);
+    const graphqlSendZkappPayload = {
+      query: "mutation SendZkapp($input: SendZkappInput!) { sendZkapp(input: $input) { zkapp { hash } } }",
+      variables: {
+        input: {
+          zkappCommand: parsed
+        }
+      }
+    };
+    console.log("zkRoll o1js transaction JSON", {
+      memo,
+      feeNanoMina,
+      raw: transactionJson,
+      parsed
+    });
+    console.log("zkRoll Auro provider payload", auroProviderPayload);
+    console.log("zkRoll GraphQL sendZkapp payload", graphqlSendZkappPayload);
+    (window as any).__zkrollLastAuroPayload = auroProviderPayload;
+    (window as any).__zkrollLastSendZkappPayload = graphqlSendZkappPayload;
+  } catch {
+    console.log("zkRoll o1js transaction JSON raw", {
+      memo,
+      feeNanoMina,
+      raw: transactionJson
+    });
+    console.log("zkRoll Auro provider payload", auroProviderPayload);
+    (window as any).__zkrollLastAuroPayload = auroProviderPayload;
+  }
+}
+
 async function sendWithWallet(
   provider: MinaProvider,
   transactionJson: string,
@@ -420,6 +495,7 @@ async function sendWithWallet(
     localManualResolver = resolve;
     manualWalletResolution = resolve;
   });
+  debugTransactionJson(transactionJson, memo, feeNanoMina);
   const sendPromise = provider.sendTransaction!({
     transaction: transactionJson,
     feePayer: memo || feeNanoMina ? { fee: feeNanoMina, ...(memo ? { memo } : {}) } : undefined,
@@ -685,6 +761,7 @@ export async function generateGameZkappKey() {
 export async function createGameOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  walletNetworkOptions?: WalletNetworkOptions;
   senderPublicKey: string;
   zkappPrivateKey: string;
   gameId: string;
@@ -697,7 +774,7 @@ export async function createGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
-  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  await ensureWalletNetwork(provider, input.network, input.onProgress, input.walletNetworkOptions);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>(
       "create",
@@ -747,6 +824,7 @@ export async function createGameOnchain(input: {
 export async function joinGameOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  walletNetworkOptions?: WalletNetworkOptions;
   senderPublicKey: string;
   pseudo: string;
   secret: string;
@@ -762,7 +840,7 @@ export async function joinGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
-  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  await ensureWalletNetwork(provider, input.network, input.onProgress, input.walletNetworkOptions);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("join", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
     return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
@@ -793,6 +871,7 @@ export async function joinGameOnchain(input: {
 export async function settleGameOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  walletNetworkOptions?: WalletNetworkOptions;
   senderPublicKey: string;
   gameIdField: string;
   zkappAddress: string;
@@ -811,7 +890,7 @@ export async function settleGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
-  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  await ensureWalletNetwork(provider, input.network, input.onProgress, input.walletNetworkOptions);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("settle", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
     return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
@@ -853,6 +932,7 @@ export async function settleGameOnchain(input: {
 export async function refundGameOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  walletNetworkOptions?: WalletNetworkOptions;
   senderPublicKey: string;
   status: GameStatus;
   gameIdField: string;
@@ -869,7 +949,7 @@ export async function refundGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
-  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  await ensureWalletNetwork(provider, input.network, input.onProgress, input.walletNetworkOptions);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>("refund", { ...input, provider: undefined, onProgress: undefined }, input.onProgress);
     return sendServerProverTransaction(provider, transactionJsonFromServer(result), input.onProgress, memoFromServer(result));
@@ -912,6 +992,7 @@ export async function refundGameOnchain(input: {
 export async function cancelCreatedGameOnchain(input: {
   provider: MinaProvider | undefined;
   network: NetworkId;
+  walletNetworkOptions?: WalletNetworkOptions;
   senderPublicKey: string;
   gameIdField: string;
   zkappAddress: string;
@@ -922,7 +1003,7 @@ export async function cancelCreatedGameOnchain(input: {
   onProgress?: ProgressCallback;
 }) {
   const provider = assertProvider(input.provider);
-  await ensureWalletNetwork(provider, input.network, input.onProgress);
+  await ensureWalletNetwork(provider, input.network, input.onProgress, input.walletNetworkOptions);
   if (usesServerProver()) {
     const result = await serverProverJob<Record<string, unknown>>(
       "cancel",

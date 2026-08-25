@@ -158,8 +158,8 @@ export const networks: Record<NetworkId, NetworkConfig> = {
     id: "devnet",
     label: "Mina Devnet",
     networkId: "testnet",
-    minaEndpoint: "https://api.minascan.io/node/devnet/v1/graphql",
-    archiveEndpoint: "https://api.minascan.io/archive/devnet/v1/graphql",
+    minaEndpoint: "https://devnet-graphql.naamahdaemon.eu/graphql",
+    archiveEndpoint: "https://mesa-archive-graphql.naamahdaemon.eu/",
     explorerBaseUrl: "https://minascan.io/devnet/tx"
   },
   zeko: {

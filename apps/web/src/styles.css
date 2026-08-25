@@ -170,6 +170,20 @@ h1 {
   font-weight: 900;
 }
 
+.networkPill em {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  max-width: 110px;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+}
+
 .networkSpark {
   background: var(--primary);
   border-radius: 999px;
@@ -252,6 +266,10 @@ h1 {
 
 .networkOption.devnet em {
   color: #c77d12;
+}
+
+.networkOption.devnet.custom em {
+  color: #2fbf9b;
 }
 
 .networkOption.zeko em {
