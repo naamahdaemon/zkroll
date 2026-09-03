@@ -155,7 +155,7 @@ By default, o1js compilation and proof generation run in the browser:
 VITE_PROVER_MODE=client
 ```
 
-This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@3.0.0` for Mesa-compatible Devnet support.
+This is the safest privacy mode. Secrets needed by commit/reveal proofs stay in the browser, and the API only indexes game metadata and transaction hashes. The browser/client path is pinned to `o1js@3.0.0` for Mesa-compatible Mina network support.
 
 An experimental server prover mode is available:
 
